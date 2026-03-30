@@ -18,6 +18,8 @@ const publishDir = path.join(
   'publish',
 );
 const vendorDir = path.join(packageRoot, 'vendor', 'bridge');
+const vendorBridgeExe = path.join(vendorDir, 'SolidWorksBridge.exe');
+const WINDOWS_POWERSHELL = 'C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe';
 
 function run(command, args, cwd) {
   return new Promise((resolve, reject) => {
@@ -39,14 +41,113 @@ function run(command, args, cwd) {
   });
 }
 
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function isRetriableCopyError(error) {
+  return Boolean(
+    error
+    && typeof error === 'object'
+    && 'code' in error
+    && (error.code === 'EBUSY' || error.code === 'EPERM'),
+  );
+}
+
+async function stopPackagedBridgeIfRunning() {
+  if (process.platform !== 'win32') {
+    return;
+  }
+
+  const stopCommand = [
+    `$target = [System.IO.Path]::GetFullPath('${vendorBridgeExe.replace(/'/g, "''")}')`,
+    "$processes = Get-CimInstance Win32_Process | Where-Object { $_.Name -eq 'SolidWorksBridge.exe' -and $_.ExecutablePath -and [System.IO.Path]::GetFullPath($_.ExecutablePath).Equals($target, [System.StringComparison]::OrdinalIgnoreCase) }",
+    'foreach ($process in $processes) { Stop-Process -Id $process.ProcessId -Force }',
+  ].join('; ');
+
+  await run(
+    WINDOWS_POWERSHELL,
+    ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-Command', stopCommand],
+    repoRoot,
+  );
+}
+
+async function listFiles(rootDir, currentDir = rootDir) {
+  const entries = await fs.readdir(currentDir, { withFileTypes: true });
+  const files = [];
+
+  for (const entry of entries) {
+    const entryPath = path.join(currentDir, entry.name);
+    if (entry.isDirectory()) {
+      files.push(...await listFiles(rootDir, entryPath));
+      continue;
+    }
+
+    if (entry.isFile()) {
+      files.push(path.relative(rootDir, entryPath));
+    }
+  }
+
+  return files;
+}
+
+async function fileContentsMatch(sourcePath, targetPath) {
+  try {
+    const [sourceContent, targetContent] = await Promise.all([
+      fs.readFile(sourcePath),
+      fs.readFile(targetPath),
+    ]);
+
+    return sourceContent.equals(targetContent);
+  } catch (error) {
+    if (error && typeof error === 'object' && 'code' in error && error.code === 'ENOENT') {
+      return false;
+    }
+
+    throw error;
+  }
+}
+
+async function copyFileWithRetry(sourcePath, targetPath, maxAttempts = 10) {
+  for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+    try {
+      await fs.copyFile(sourcePath, targetPath);
+      return;
+    } catch (error) {
+      if (!isRetriableCopyError(error) || attempt === maxAttempts) {
+        throw error;
+      }
+
+      await sleep(200 * attempt);
+    }
+  }
+}
+
+async function syncPublishOutput(sourceDir, targetDir) {
+  const relativeFiles = await listFiles(sourceDir);
+
+  for (const relativeFile of relativeFiles) {
+    const sourcePath = path.join(sourceDir, relativeFile);
+    const targetPath = path.join(targetDir, relativeFile);
+
+    await fs.mkdir(path.dirname(targetPath), { recursive: true });
+
+    if (await fileContentsMatch(sourcePath, targetPath)) {
+      continue;
+    }
+
+    await copyFileWithRetry(sourcePath, targetPath);
+  }
+}
+
 await run(
   'dotnet',
   ['publish', bridgeProject, '-c', 'Release', '-r', 'win-x64', '--self-contained', 'false'],
   repoRoot,
 );
 
-await fs.rm(vendorDir, { recursive: true, force: true });
 await fs.mkdir(vendorDir, { recursive: true });
-await fs.cp(publishDir, vendorDir, { recursive: true });
+await stopPackagedBridgeIfRunning();
+await syncPublishOutput(publishDir, vendorDir);
 
 console.log(`Bundled SolidWorks bridge into ${vendorDir}`);
