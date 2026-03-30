@@ -11,6 +11,7 @@ on:
 
 permissions:
   contents: read
+  id-token: write
 
 concurrency:
   group: npm-publish-${{ github.event_name }}-${{ github.ref }}
@@ -31,7 +32,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          node-version: '24'
           registry-url: 'https://registry.npmjs.org'
           cache: npm
           cache-dependency-path: mcp-server/package-lock.json
@@ -45,19 +46,16 @@ jobs:
         working-directory: mcp-server
         run: npm ci
 
-      - name: Compute beta version
+      - name: Compute beta snapshot version
         id: version
         working-directory: mcp-server
         run: |
+          npm run version:beta
           $package = Get-Content package.json | ConvertFrom-Json
-          $baseVersion = [regex]::Match($package.version, '^\d+\.\d+\.\d+').Value
-          if (-not $baseVersion) {
-            throw "Could not derive base semver from package.json version '$($package.version)'."
+          if ($package.version -notmatch '-') {
+            throw "Expected a prerelease snapshot version, got '$($package.version)'."
           }
-
-          $betaVersion = "$baseVersion-beta.${{ github.run_number }}.${{ github.run_attempt }}"
-          npm version $betaVersion --no-git-tag-version
-          "version=$betaVersion" >> $env:GITHUB_OUTPUT
+          "version=$($package.version)" >> $env:GITHUB_OUTPUT
 
       - name: Build npm package tarball
         id: pack
@@ -79,8 +77,6 @@ jobs:
 
       - name: Publish beta package to npm
         working-directory: mcp-server
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
         run: npm publish "${{ steps.pack.outputs.tarball }}" --access public --tag beta
 
   publish-release:
@@ -97,7 +93,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          node-version: '24'
           registry-url: 'https://registry.npmjs.org'
           cache: npm
           cache-dependency-path: mcp-server/package-lock.json
@@ -111,17 +107,30 @@ jobs:
         working-directory: mcp-server
         run: npm ci
 
-      - name: Use release version
+      - name: Ensure pending changesets exist
+        working-directory: mcp-server
+        run: |
+          $changesets = Get-ChildItem .changeset -Filter *.md -File | Where-Object { $_.Name -ne 'README.md' }
+          if (-not $changesets) {
+            throw 'No pending changeset files found. Add a changeset before publishing a stable release.'
+          }
+
+      - name: Apply release version from changesets
         id: version
         working-directory: mcp-server
         run: |
+          npm run version:release
+          $package = Get-Content package.json | ConvertFrom-Json
           $tag = '${{ github.event.release.tag_name }}'
           $version = $tag -replace '^v', ''
           if ($version -notmatch '^\d+\.\d+\.\d+$') {
             throw "Release tag '$tag' must be a stable semver like v1.2.3."
           }
 
-          npm version $version --no-git-tag-version
+          if ($package.version -ne $version) {
+            throw "Release tag '$tag' does not match Changesets-computed version '$($package.version)'."
+          }
+
           "version=$version" >> $env:GITHUB_OUTPUT
 
       - name: Build npm package tarball
@@ -144,6 +153,4 @@ jobs:
 
       - name: Publish release package to npm
         working-directory: mcp-server
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
         run: npm publish "${{ steps.pack.outputs.tarball }}" --access public --tag latest
