@@ -217,12 +217,12 @@ public class FeatureServiceTests
     [Fact]
     public void Fillet_ReturnsFeatureInfo_WithFilletType()
     {
-        var (manager, _, fm, _) = ConnectedWithFm();
-        // FeatureFillet returns object — return a Feature mock
-        fm.Setup(f => f.FeatureFillet(
-                It.IsAny<int>(), It.IsAny<double>(), It.IsAny<int>(), It.IsAny<int>(),
-                It.IsAny<object>(), It.IsAny<object>(), It.IsAny<object>()))
-          .Returns((object)FakeFeature("Fillet1"));
+        var (manager, _, _, doc) = ConnectedWithFm();
+        doc.Setup(d => d.FeatureFillet5(
+            It.IsAny<int>(), It.IsAny<double>(), It.IsAny<int>(), It.IsAny<int>(),
+            It.IsAny<object>(), It.IsAny<object>(), It.IsAny<object>()))
+          .Returns(1);
+        doc.Setup(d => d.IFeatureByPositionReverse(0)).Returns(FakeFeature("Fillet1"));
 
         var info = new FeatureService(manager.Object).Fillet(0.003);
 
@@ -233,11 +233,12 @@ public class FeatureServiceTests
     [Fact]
     public void Fillet_NullReturnFromCom_Throws()
     {
-        var (manager, _, fm, _) = ConnectedWithFm();
-        fm.Setup(f => f.FeatureFillet(
-                It.IsAny<int>(), It.IsAny<double>(), It.IsAny<int>(), It.IsAny<int>(),
-                It.IsAny<object>(), It.IsAny<object>(), It.IsAny<object>()))
-          .Returns((object?)null!);
+                var (manager, _, _, doc) = ConnectedWithFm();
+                doc.Setup(d => d.FeatureFillet5(
+                                It.IsAny<int>(), It.IsAny<double>(), It.IsAny<int>(), It.IsAny<int>(),
+                                It.IsAny<object>(), It.IsAny<object>(), It.IsAny<object>()))
+                    .Returns(0);
+                doc.Setup(d => d.IFeatureByPositionReverse(0)).Returns((Feature?)null);
 
         Assert.Throws<InvalidOperationException>(() =>
             new FeatureService(manager.Object).Fillet(0.003));
@@ -271,17 +272,15 @@ public class FeatureServiceTests
     [Fact]
     public void SimpleHole_ReturnsFeatureInfo_WithSimpleHoleType()
     {
-        var (manager, _, fm, _) = ConnectedWithFm();
-        fm.Setup(f => f.SimpleHole2(
+        var (manager, _, _, doc) = ConnectedWithFm();
+        doc.Setup(d => d.SimpleHole3(
                 It.IsAny<double>(), It.IsAny<bool>(), It.IsAny<bool>(), It.IsAny<bool>(),
                 It.IsAny<int>(), It.IsAny<int>(),
                 It.IsAny<double>(), It.IsAny<double>(),
                 It.IsAny<bool>(), It.IsAny<bool>(), It.IsAny<bool>(), It.IsAny<bool>(),
                 It.IsAny<double>(), It.IsAny<double>(),
-                It.IsAny<bool>(), It.IsAny<bool>(), It.IsAny<bool>(), It.IsAny<bool>(),
-                It.IsAny<bool>(), It.IsAny<bool>(),
-                It.IsAny<bool>(), It.IsAny<bool>(), It.IsAny<bool>()))
-          .Returns(FakeFeature("Hole1"));
+            It.IsAny<bool>(), It.IsAny<bool>(), It.IsAny<bool>(), It.IsAny<bool>()));
+        doc.Setup(d => d.IFeatureByPositionReverse(0)).Returns(FakeFeature("Hole1"));
 
         var info = new FeatureService(manager.Object).SimpleHole(0.01, 0.02);
 

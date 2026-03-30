@@ -161,8 +161,9 @@ public class AssemblyService : IAssemblyService
             false, false, 0,
             out errors);
 
-        if (mate == null || errors != 0)
+        var mateError = (swAddMateError_e)errors;
+        if (mate == null || mateError != swAddMateError_e.swAddMateError_NoError)
             throw new InvalidOperationException(
-                $"AddMate5 failed (type={type}, errors={errors}) — ensure two compatible entities are selected");
+                $"AddMate5 failed (type={type}, errors={errors}/{mateError}) — ensure two compatible entities are selected");
     }
 }

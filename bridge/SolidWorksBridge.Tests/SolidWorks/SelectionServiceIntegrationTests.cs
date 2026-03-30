@@ -32,6 +32,21 @@ public class SelectionServiceIntegrationTests
         return (sel, docs);
     }
 
+    private static void CreateExtrudedTestBody(SelectionService sel)
+    {
+        var connector = new SwComConnector();
+        var manager = new SwConnectionManager(connector);
+        manager.Connect();
+
+        var sketch = new SketchService(manager);
+        var feature = new FeatureService(manager);
+
+        sel.SelectByName("前视基准面", "PLANE");
+        sketch.InsertSketch();
+        sketch.AddRectangle(-0.02, -0.015, 0.02, 0.015);
+        feature.Extrude(0.01);
+    }
+
     // ─────────────────────────────────────────────────────────────
     // Integration Tests
     // ─────────────────────────────────────────────────────────────
@@ -87,5 +102,37 @@ public class SelectionServiceIntegrationTests
         // Should complete without exception
         var exception = Record.Exception(() => sel.ClearSelection());
         Assert.Null(exception);
+    }
+
+    [Fact]
+    [Trait("Category", "Integration")]
+    public void Integration_ListEntities_OnSolidBody_ReturnsTopology()
+    {
+        var (sel, _) = RealServices();
+        CreateExtrudedTestBody(sel);
+
+        var faces = sel.ListEntities(SelectableEntityType.Face);
+        var edges = sel.ListEntities(SelectableEntityType.Edge);
+        var vertices = sel.ListEntities(SelectableEntityType.Vertex);
+
+        Assert.NotEmpty(faces);
+        Assert.NotEmpty(edges);
+        Assert.NotEmpty(vertices);
+        Assert.All(faces, face => Assert.Equal(SelectableEntityType.Face, face.EntityType));
+        Assert.All(edges, edge => Assert.Equal(SelectableEntityType.Edge, edge.EntityType));
+        Assert.All(vertices, vertex => Assert.Equal(SelectableEntityType.Vertex, vertex.EntityType));
+    }
+
+    [Fact]
+    [Trait("Category", "Integration")]
+    public void Integration_SelectEntity_FromListedFace_Succeeds()
+    {
+        var (sel, _) = RealServices();
+        CreateExtrudedTestBody(sel);
+
+        var target = sel.ListEntities(SelectableEntityType.Face).First();
+        var result = sel.SelectEntity(SelectableEntityType.Face, target.Index);
+
+        Assert.True(result.Success, result.Message);
     }
 }

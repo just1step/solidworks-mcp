@@ -9,6 +9,7 @@
     "start": "node dist/index.js",
     "dev": "tsc --watch",
     "test": "vitest run",
+    "test:acceptance": "vitest run --testTimeout 240000 --hookTimeout 240000 tests/acceptance/mcp-tools.acceptance.test.ts",
     "test:watch": "vitest"
   },
   "keywords": ["mcp", "solidworks", "cad", "automation"],

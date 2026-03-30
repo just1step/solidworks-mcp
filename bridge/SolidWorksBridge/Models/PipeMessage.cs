@@ -85,6 +85,11 @@ public static class PipeMessageSerializer
         WriteIndented = false
     };
 
+    static PipeMessageSerializer()
+    {
+        Options.Converters.Add(new JsonStringEnumConverter());
+    }
+
     public static byte[] Serialize<T>(T obj) =>
         JsonSerializer.SerializeToUtf8Bytes(obj, Options);
 

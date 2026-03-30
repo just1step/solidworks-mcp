@@ -30,6 +30,25 @@ public class AppBootstrapperTests
         return (bootstrapper, manager, docSvc, handler);
     }
 
+    private static (AppBootstrapper bootstrapper,
+                    Mock<ISelectionService> selSvc,
+                    MessageHandler handler)
+        BuildWithSelection()
+    {
+        var manager = new Mock<ISwConnectionManager>();
+        var docSvc = new Mock<IDocumentService>();
+        var selSvc = new Mock<ISelectionService>();
+        var sketchSvc = new Mock<ISketchService>();
+        var featureSvc = new Mock<IFeatureService>();
+        var assemblySvc = new Mock<IAssemblyService>();
+        var handler = new MessageHandler();
+        var bootstrapper = new AppBootstrapper(
+            manager.Object, docSvc.Object,
+            selSvc.Object, sketchSvc.Object, featureSvc.Object, assemblySvc.Object,
+            handler);
+        return (bootstrapper, selSvc, handler);
+    }
+
     /// Build a PipeRequest with JSON params.
     private static PipeRequest Req(string method, object? @params = null)
     {
@@ -58,7 +77,8 @@ public class AppBootstrapperTests
             "sw.new_document", "sw.open_document",
             "sw.close_document", "sw.save_document",
             "sw.list_documents", "sw.get_active_document",
-            "sw.select.by_name", "sw.select.clear",
+            "sw.select.by_name", "sw.select.list_entities",
+            "sw.select.entity", "sw.select.clear",
             "sw.sketch.insert", "sw.sketch.finish",
             "sw.sketch.add_line", "sw.sketch.add_circle",
             "sw.sketch.add_rectangle", "sw.sketch.add_arc",
@@ -257,5 +277,47 @@ public class AppBootstrapperTests
 
         // Should succeed (no error), result is null — that's valid
         Assert.Null(response.Error);
+    }
+
+    // ─────────────────────────────────────────────────────────────
+    // sw.select.list_entities / sw.select.entity
+    // ─────────────────────────────────────────────────────────────
+
+    [Fact]
+    public async Task Handler_SwSelectListEntities_PassesFiltersToSelectionService()
+    {
+        var (bootstrapper, selSvc, handler) = BuildWithSelection();
+        bootstrapper.RegisterHandlers();
+        var entities = new[]
+        {
+            new SelectableEntityInfo(0, SelectableEntityType.Edge, "Part1-1", [0d, 0d, 0d, 0.01d, 0d, 0d]),
+        };
+        selSvc.Setup(s => s.ListEntities(SelectableEntityType.Edge, "Part1-1")).Returns(entities);
+
+        var response = await handler.HandleAsync(Req("sw.select.list_entities", new { entityType = "Edge", componentName = "Part1-1" }));
+
+        Assert.Null(response.Error);
+        selSvc.Verify(s => s.ListEntities(SelectableEntityType.Edge, "Part1-1"), Times.Once);
+    }
+
+    [Fact]
+    public async Task Handler_SwSelectEntity_PassesIndexedSelectionParams()
+    {
+        var (bootstrapper, selSvc, handler) = BuildWithSelection();
+        bootstrapper.RegisterHandlers();
+        selSvc.Setup(s => s.SelectEntity(SelectableEntityType.Face, 2, true, 1, "Part1-2"))
+            .Returns(new SelectionResult(true, "Selected Face at index 2"));
+
+        var response = await handler.HandleAsync(Req("sw.select.entity", new
+        {
+            entityType = "Face",
+            index = 2,
+            append = true,
+            mark = 1,
+            componentName = "Part1-2",
+        }));
+
+        Assert.Null(response.Error);
+        selSvc.Verify(s => s.SelectEntity(SelectableEntityType.Face, 2, true, 1, "Part1-2"), Times.Once);
     }
 }

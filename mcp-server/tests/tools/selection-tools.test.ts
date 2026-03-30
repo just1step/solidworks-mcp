@@ -3,8 +3,11 @@ import type { NamedPipeClient } from '../../src/transport/named-pipe-client.js';
 import type { PipeResponse } from '../../src/types/solidworks.js';
 import {
   swSelectByName,
+  swListEntities,
+  swSelectEntity,
   swClearSelection,
   type SwSelectionResult,
+  type SwSelectableEntityInfo,
 } from '../../src/tools/selection-tools.js';
 
 // ── Mock factory ──────────────────────────────────────────────
@@ -21,6 +24,9 @@ function mockClient(result: unknown = null, error?: { code: number; message: str
 }
 
 const fakeSuccess: SwSelectionResult = { success: true, message: 'Selected' };
+const fakeEntities: SwSelectableEntityInfo[] = [
+  { index: 0, entityType: 'Edge', componentName: null, box: [0, 0, 0, 0.01, 0, 0] },
+];
 
 // ── swSelectByName ────────────────────────────────────────────
 
@@ -62,5 +68,54 @@ describe('swClearSelection', () => {
   it('throws when bridge returns error', async () => {
     const client = mockClient(null, { code: -32603, message: 'oops' });
     await expect(swClearSelection(client)).rejects.toThrow('sw.select.clear failed');
+  });
+});
+
+// ── swListEntities ────────────────────────────────────────────
+
+describe('swListEntities', () => {
+  it('calls sw.select.list_entities with optional filters', async () => {
+    const client = mockClient(fakeEntities);
+    const result = await swListEntities(client, { entityType: 'Edge', componentName: 'Part1-1' });
+    expect(result).toEqual(fakeEntities);
+    expect(client.request).toHaveBeenCalledWith('sw.select.list_entities', {
+      entityType: 'Edge',
+      componentName: 'Part1-1',
+    });
+  });
+
+  it('throws when bridge returns error', async () => {
+    const client = mockClient(null, { code: -32603, message: 'oops' });
+    await expect(swListEntities(client, {})).rejects.toThrow('sw.select.list_entities failed');
+  });
+});
+
+// ── swSelectEntity ────────────────────────────────────────────
+
+describe('swSelectEntity', () => {
+  it('calls sw.select.entity with indexed selection params', async () => {
+    const client = mockClient(fakeSuccess);
+    const result = await swSelectEntity(client, {
+      entityType: 'Face',
+      index: 2,
+      append: true,
+      mark: 1,
+      componentName: 'Part1-2',
+    });
+    expect(result).toEqual(fakeSuccess);
+    expect(client.request).toHaveBeenCalledWith('sw.select.entity', {
+      entityType: 'Face',
+      index: 2,
+      append: true,
+      mark: 1,
+      componentName: 'Part1-2',
+    });
+  });
+
+  it('throws when bridge returns error', async () => {
+    const client = mockClient(null, { code: -32603, message: 'oops' });
+    await expect(swSelectEntity(client, { entityType: 'Vertex', index: 0 })).rejects.toThrow(
+      'sw.select.entity failed',
+    );
   });
 });

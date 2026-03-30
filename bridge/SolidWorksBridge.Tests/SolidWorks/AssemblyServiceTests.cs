@@ -166,7 +166,7 @@ public class AssemblyServiceTests
     public void AddMateCoincident_CallsAddMate5WithCoincidentType()
     {
         var (manager, assy) = ConnectedWithAssy();
-        int errOut = 0;
+        int errOut = 1;
         assy.Setup(a => a.AddMate5(
                 (int)MateType.Coincident, It.IsAny<int>(), It.IsAny<bool>(),
                 It.IsAny<double>(), It.IsAny<double>(), It.IsAny<double>(),
@@ -191,7 +191,7 @@ public class AssemblyServiceTests
     public void AddMateConcentric_CallsAddMate5WithConcentricType()
     {
         var (manager, assy) = ConnectedWithAssy();
-        int errOut = 0;
+        int errOut = 1;
         assy.Setup(a => a.AddMate5(
                 (int)MateType.Concentric, It.IsAny<int>(), It.IsAny<bool>(),
                 It.IsAny<double>(), It.IsAny<double>(), It.IsAny<double>(),
@@ -216,7 +216,7 @@ public class AssemblyServiceTests
     public void AddMateDistance_PassesDistanceToApi()
     {
         var (manager, assy) = ConnectedWithAssy();
-        int errOut = 0;
+        int errOut = 1;
         assy.Setup(a => a.AddMate5(
                 (int)MateType.Distance, It.IsAny<int>(), It.IsAny<bool>(),
                 0.05, It.IsAny<double>(), It.IsAny<double>(),
@@ -241,7 +241,7 @@ public class AssemblyServiceTests
     public void AddMateAngle_ConvertsDegreesToRadians()
     {
         var (manager, assy) = ConnectedWithAssy();
-        int errOut = 0;
+        int errOut = 1;
         double expectedRad = 90.0 * Math.PI / 180.0;
         assy.Setup(a => a.AddMate5(
                 (int)MateType.Angle, It.IsAny<int>(), It.IsAny<bool>(),
@@ -269,7 +269,7 @@ public class AssemblyServiceTests
     public void AddMate_NullReturnFromApi_Throws()
     {
         var (manager, assy) = ConnectedWithAssy();
-        int errOut = 0;
+        int errOut = 1;
         assy.Setup(a => a.AddMate5(
                 It.IsAny<int>(), It.IsAny<int>(), It.IsAny<bool>(),
                 It.IsAny<double>(), It.IsAny<double>(), It.IsAny<double>(),

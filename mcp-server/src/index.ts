@@ -30,8 +30,12 @@ import {
 
 import {
   SelectByNameSchema,
+  ListEntitiesSchema,
+  SelectEntitySchema,
   ClearSelectionSchema,
   swSelectByName,
+  swListEntities,
+  swSelectEntity,
   swClearSelection,
 } from './tools/selection-tools.js';
 
@@ -102,6 +106,8 @@ const TOOLS = [
   { name: 'sw_get_active_document', description: 'Get the currently active SolidWorks document', inputSchema: GetActiveDocumentSchema },
   // Selection
   { name: 'sw_select_by_name', description: 'Select an entity in SolidWorks by name and type (e.g. plane, face, edge)', inputSchema: SelectByNameSchema },
+  { name: 'sw_list_entities', description: 'List selectable topology entities on the active part or assembly so downstream tools can target exact faces, edges, or vertices', inputSchema: ListEntitiesSchema },
+  { name: 'sw_select_entity', description: 'Select a topology entity by the index returned from sw_list_entities', inputSchema: SelectEntitySchema },
   { name: 'sw_clear_selection', description: 'Clear all current selections in SolidWorks', inputSchema: ClearSelectionSchema },
   // Sketch
   { name: 'sw_insert_sketch', description: 'Open a new sketch on the currently selected plane or face', inputSchema: InsertSketchSchema },
@@ -216,6 +222,8 @@ async function main(): Promise<void> {
         case 'sw_get_active_document': result = await swGetActiveDocument(client); break;
         // Selection
         case 'sw_select_by_name': result = await swSelectByName(client, SelectByNameSchema.parse(params)); break;
+        case 'sw_list_entities':  result = await swListEntities(client, ListEntitiesSchema.parse(params)); break;
+        case 'sw_select_entity':  result = await swSelectEntity(client, SelectEntitySchema.parse(params)); break;
         case 'sw_clear_selection': await swClearSelection(client); result = { cleared: true }; break;
         // Sketch
         case 'sw_insert_sketch': await swInsertSketch(client); result = { ok: true }; break;

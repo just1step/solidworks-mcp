@@ -123,6 +123,21 @@ public class AppBootstrapper
             return Task.FromResult<object?>(result);
         });
 
+        _messageHandler.Register("sw.select.list_entities", req =>
+        {
+            var p = req.GetParams<ListEntitiesParams>() ?? new ListEntitiesParams();
+            var result = _selectionService.ListEntities(p.EntityType, p.ComponentName);
+            return Task.FromResult<object?>(result);
+        });
+
+        _messageHandler.Register("sw.select.entity", req =>
+        {
+            var p = req.GetParams<SelectEntityParams>()
+                ?? throw new ArgumentException("params required: {entityType, index, append?, mark?, componentName?}");
+            var result = _selectionService.SelectEntity(p.EntityType, p.Index, p.Append, p.Mark, p.ComponentName);
+            return Task.FromResult<object?>(result);
+        });
+
         _messageHandler.Register("sw.select.clear", _ =>
         {
             _selectionService.ClearSelection();
@@ -308,6 +323,33 @@ public class AppBootstrapper
 
         [System.Text.Json.Serialization.JsonPropertyName("selType")]
         public string SelType { get; set; } = string.Empty;
+    }
+
+    public class ListEntitiesParams
+    {
+        [System.Text.Json.Serialization.JsonPropertyName("entityType")]
+        public SelectableEntityType? EntityType { get; set; }
+
+        [System.Text.Json.Serialization.JsonPropertyName("componentName")]
+        public string? ComponentName { get; set; }
+    }
+
+    public class SelectEntityParams
+    {
+        [System.Text.Json.Serialization.JsonPropertyName("entityType")]
+        public SelectableEntityType EntityType { get; set; }
+
+        [System.Text.Json.Serialization.JsonPropertyName("index")]
+        public int Index { get; set; }
+
+        [System.Text.Json.Serialization.JsonPropertyName("append")]
+        public bool Append { get; set; }
+
+        [System.Text.Json.Serialization.JsonPropertyName("mark")]
+        public int Mark { get; set; }
+
+        [System.Text.Json.Serialization.JsonPropertyName("componentName")]
+        public string? ComponentName { get; set; }
     }
 
     public class AddLineParams

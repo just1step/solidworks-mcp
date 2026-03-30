@@ -1,3 +1,4 @@
+using SolidWorks.Interop.sldworks;
 using SolidWorksBridge.SolidWorks;
 
 namespace SolidWorksBridge.Tests.SolidWorks;
@@ -42,6 +43,33 @@ public class FeatureServiceIntegrationTests
         sketch.InsertSketch();
         sketch.AddRectangle(-0.05, -0.03, 0.05, 0.03);
         // NOTE: do NOT call FinishSketch — Extrude will close the sketch internally
+    }
+
+    private static SketchPoint CreateSketchPointOnSelectedFace()
+    {
+        var manager = new SwConnectionManager(new SwComConnector());
+        manager.Connect();
+
+        var sketch = new SketchService(manager);
+        sketch.InsertSketch();
+        var point = manager.SwApp!.SketchManager!.CreatePoint(0, 0, 0)
+            ?? throw new InvalidOperationException("Failed to create sketch point on the selected face.");
+        sketch.FinishSketch();
+        return point;
+    }
+
+    private static void SelectSketchPoint(SketchPoint point)
+    {
+        var manager = new SwConnectionManager(new SwComConnector());
+        manager.Connect();
+
+        var selectionManager = manager.SwApp!.IActiveDoc2!.ISelectionManager
+            ?? throw new InvalidOperationException("No selection manager available.");
+        var selectData = (SelectData)selectionManager.CreateSelectData();
+        if (!point.Select4(true, selectData))
+        {
+            throw new InvalidOperationException("Failed to select sketch point for simple-hole integration test.");
+        }
     }
 
     // ─────────────────────────────────────────────────────────────
@@ -98,6 +126,49 @@ public class FeatureServiceIntegrationTests
         var info = feature.Extrude(0.001, EndCondition.ThroughAll);
 
         Assert.Equal("Extrude", info.Type);
+        Assert.False(string.IsNullOrEmpty(info.Name));
+    }
+
+    [Fact]
+    [Trait("Category", "Integration")]
+    public void Integration_Fillet_OnSelectedEdge_CreatesFeature()
+    {
+        var (sel, sketch, feature) = RealServices();
+        OpenRectSketch(sel, sketch);
+        feature.Extrude(0.02);
+
+        var firstEdge = sel.ListEntities(SelectableEntityType.Edge).First();
+        var selected = sel.SelectEntity(SelectableEntityType.Edge, firstEdge.Index);
+        Assert.True(selected.Success, selected.Message);
+
+        var info = feature.Fillet(0.001);
+
+        Assert.Equal("Fillet", info.Type);
+        Assert.False(string.IsNullOrEmpty(info.Name));
+    }
+
+    [Fact]
+    [Trait("Category", "Integration")]
+    public void Integration_SimpleHole_OnSelectedFacePoint_CreatesFeature()
+    {
+        var (sel, sketch, feature) = RealServices();
+        OpenRectSketch(sel, sketch);
+        feature.Extrude(0.02);
+
+        var firstFace = sel.ListEntities(SelectableEntityType.Face).First();
+        var selectedFace = sel.SelectEntity(SelectableEntityType.Face, firstFace.Index);
+        Assert.True(selectedFace.Success, selectedFace.Message);
+
+        var point = CreateSketchPointOnSelectedFace();
+
+        sel.ClearSelection();
+        selectedFace = sel.SelectEntity(SelectableEntityType.Face, firstFace.Index);
+        Assert.True(selectedFace.Success, selectedFace.Message);
+        SelectSketchPoint(point);
+
+        var info = feature.SimpleHole(0.005, 0.01);
+
+        Assert.Equal("SimpleHole", info.Type);
         Assert.False(string.IsNullOrEmpty(info.Name));
     }
 }

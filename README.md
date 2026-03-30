@@ -85,7 +85,7 @@ Bridge 与 MCP Server 使用长度前缀的 JSON 消息协议：
 C# Bridge 不是直接把所有逻辑写在 `Program.cs` 里，而是拆成独立服务：
 
 - `DocumentService`：文档连接、打开、关闭、保存、查询
-- `SelectionService`：选择对象、清空选择
+- `SelectionService`：按名称选择、列出可选拓扑实体、按索引精确选择、清空选择
 - `SketchService`：进入草图、退出草图、绘制草图实体
 - `FeatureService`：拉伸、切除、旋转、圆角、倒角、抽壳、简单孔
 - `AssemblyService`：插入零件、配合、列出装配体组件
@@ -528,6 +528,16 @@ MCP: Open User Configuration
 	输入：`name`, `selType`
 	常见 `selType`：`PLANE`, `EDGE`, `FACE`, `VERTEX`
 
+- `sw_list_entities`
+	作用：列出当前活动零件或装配体里可直接参与后续特征/配合的拓扑实体。
+	输入：可选 `entityType` 为 `Face | Edge | Vertex`，可选 `componentName` 用于装配体过滤。
+	典型返回：`[{"index":0,"entityType":"Edge","componentName":null,"box":[...]}]`
+
+- `sw_select_entity`
+	作用：按 `sw_list_entities` 返回的索引精确选择实体。
+	输入：`entityType`, `index`，可选 `append`, `mark`, `componentName`
+	说明：高级建模应优先使用此工具选择边/面/点，而不是假设这些实体有稳定名称。
+
 - `sw_clear_selection`
 	作用：清空当前选择。
 	输入：无。
@@ -652,7 +662,7 @@ MCP: Open User Configuration
 1. `sw_connect`
 2. `sw_new_document` with `type=Assembly`
 3. `sw_insert_component`
-4. 通过选择工具选中待配合实体
+4. 先用 `sw_list_entities` 确认目标实体，再用 `sw_select_entity` 逐个选中待配合实体
 5. 调用对应的 `sw_add_mate_*`
 
 ### 推荐的模型行为
@@ -662,8 +672,9 @@ MCP: Open User Configuration
 1. 每次执行复杂 CAD 操作前，先确认当前活动文档类型是否正确。
 2. 在进入草图前，先明确选择了正确的平面或面。
 3. 在做特征前，先确认草图已经绘制完成且上下文仍有效。
-4. 在做装配配合前，先确认已经选中了兼容实体。
-5. 遇到失败时，优先重新获取活动文档和当前上下文，而不是盲目重复同一调用。
+4. 在做圆角、倒角、孔、装配配合前，先用拓扑查询确认边/面/点的索引，再做精确选择。
+5. 在做装配配合前，先确认已经选中了兼容实体。
+6. 遇到失败时，优先重新获取活动文档和当前上下文，而不是盲目重复同一调用。
 
 ### 建议错误恢复策略
 

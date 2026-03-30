@@ -1,4 +1,5 @@
 using SolidWorks.Interop.sldworks;
+using SolidWorks.Interop.swconst;
 
 namespace SolidWorksBridge.SolidWorks;
 
@@ -146,13 +147,19 @@ public class FeatureService : IFeatureService
     public FeatureInfo Fillet(double radius)
     {
         _cm.EnsureConnected();
-        var fm = GetFeatureManager();
+        var doc = GetModelDoc();
 
-        // FeatureFillet(options, radius, filletType=0 constant, overflowType=0, radiusArr, setBackArr, propArr)
-        // Returns object — cast to IFeature
-        var featureObj = fm.FeatureFillet(0, radius, 0, 0, null, null, null)
+        doc.FeatureFillet5(
+            (int)swFeatureFilletOptions_e.swFeatureFilletUniformRadius,
+            radius,
+            (int)swFeatureFilletType_e.swFeatureFilletType_Simple,
+            (int)swFilletOverFlowType_e.swFilletOverFlowType_Default,
+            null,
+            null,
+            null);
+
+        var feature = doc.IFeatureByPositionReverse(0)
             ?? throw new InvalidOperationException("Fillet failed — ensure edges are selected");
-        var feature = (IFeature)featureObj;
 
         return new FeatureInfo(feature.Name, "Fillet");
     }
@@ -186,12 +193,9 @@ public class FeatureService : IFeatureService
     public FeatureInfo SimpleHole(double diameter, double depth, EndCondition endCondition = EndCondition.Blind)
     {
         _cm.EnsureConnected();
-        var fm = GetFeatureManager();
+        var doc = GetModelDoc();
 
-        // SimpleHole2: Dia, Sd=true single dir, Flip=false, Dir=true,
-        //              T1=endCondition, T2=0, D1=depth, D2=0,
-        //              remaining booleans false
-        var feature = fm.SimpleHole2(
+        doc.SimpleHole3(
             Dia: diameter, Sd: true, Flip: false, Dir: true,
             T1: (int)endCondition, T2: 0,
             D1: depth, D2: 0,
@@ -199,10 +203,9 @@ public class FeatureService : IFeatureService
             Ddir1: false, Ddir2: false,
             Dang1: 0, Dang2: 0,
             OffsetReverse1: false, OffsetReverse2: false,
-            TranslateSurface1: false, TranslateSurface2: false,
-            UseFeatScope: false, UseAutoSelect: true,
-            AssemblyFeatureScope: false, AutoSelectComponents: false,
-            PropagateFeatureToParts: false)
+            TranslateSurface1: false, TranslateSurface2: false);
+
+        var feature = doc.IFeatureByPositionReverse(0)
             ?? throw new InvalidOperationException(
                 "SimpleHole failed — ensure a face point is selected");
 

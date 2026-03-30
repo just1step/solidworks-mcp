@@ -44,6 +44,62 @@ public class SelectionServiceTests
         return manager;
     }
 
+    private static (Mock<ISwConnectionManager> manager,
+                    Mock<ISldWorksApp> swApp,
+                    Mock<IPartDoc> part,
+                    Mock<IModelDoc2> model)
+        ConnectedWithPartDoc(params Mock<IBody2>[] bodies)
+    {
+        var part = new Mock<IPartDoc>();
+        var model = part.As<IModelDoc2>();
+        part.Setup(p => p.GetBodies2(It.IsAny<int>(), true))
+            .Returns(bodies.Select(body => (object)body.Object).ToArray());
+
+        var swApp = new Mock<ISldWorksApp>();
+        swApp.Setup(s => s.IActiveDoc2).Returns(model.Object);
+
+        var manager = new Mock<ISwConnectionManager>();
+        manager.Setup(m => m.IsConnected).Returns(true);
+        manager.Setup(m => m.SwApp).Returns(swApp.Object);
+        manager.Setup(m => m.EnsureConnected());
+
+        return (manager, swApp, part, model);
+    }
+
+    private static Mock<IBody2> BodyWith(params object[] entities)
+    {
+        var body = new Mock<IBody2>();
+        body.Setup(b => b.GetFaces()).Returns(entities.OfType<IFace2>().Cast<object>().ToArray());
+        body.Setup(b => b.GetEdges()).Returns(entities.OfType<IEdge>().Cast<object>().ToArray());
+        body.Setup(b => b.GetVertices()).Returns(entities.OfType<IVertex>().Cast<object>().ToArray());
+        return body;
+    }
+
+    private static Mock<IFace2> Face(double[]? box = null)
+    {
+        var face = new Mock<IFace2>();
+        face.As<IEntity>();
+        face.Setup(f => f.GetBox()).Returns(box);
+        return face;
+    }
+
+    private static Mock<IVertex> Vertex(params double[] point)
+    {
+        var vertex = new Mock<IVertex>();
+        vertex.As<IEntity>();
+        vertex.Setup(v => v.GetPoint()).Returns(point);
+        return vertex;
+    }
+
+    private static Mock<IEdge> Edge(Mock<IVertex>? start = null, Mock<IVertex>? end = null)
+    {
+        var edge = new Mock<IEdge>();
+        edge.As<IEntity>();
+        edge.Setup(e => e.GetStartVertex()).Returns(start?.Object);
+        edge.Setup(e => e.GetEndVertex()).Returns(end?.Object);
+        return edge;
+    }
+
     // ─────────────────────────────────────────────────────────────
     // Constructor
     // ─────────────────────────────────────────────────────────────
@@ -104,6 +160,116 @@ public class SelectionServiceTests
         svc.SelectByName("Front Plane", "PLANE");
 
         manager.Verify(m => m.EnsureConnected(), Times.Once);
+    }
+
+    // ─────────────────────────────────────────────────────────────
+    // ListEntities
+    // ─────────────────────────────────────────────────────────────
+
+    [Fact]
+    public void ListEntities_PartTopology_ReturnsIndexedFaceEdgeAndVertex()
+    {
+        var face = Face([0d, 0d, 0d, 0.01d, 0.02d, 0.03d]);
+        var start = Vertex(0, 0, 0);
+        var end = Vertex(0.02, 0.01, 0);
+        var edge = Edge(start, end);
+        var looseVertex = Vertex(0.04, 0.05, 0.06);
+        var body = BodyWith(face.Object, edge.Object, looseVertex.Object);
+        var (manager, _, _, _) = ConnectedWithPartDoc(body);
+
+        var result = new SelectionService(manager.Object).ListEntities();
+
+        Assert.Collection(result,
+            item =>
+            {
+                Assert.Equal(0, item.Index);
+                Assert.Equal(SelectableEntityType.Face, item.EntityType);
+                Assert.Null(item.ComponentName);
+                Assert.Equal([0d, 0d, 0d, 0.01d, 0.02d, 0.03d], item.Box);
+            },
+            item =>
+            {
+                Assert.Equal(1, item.Index);
+                Assert.Equal(SelectableEntityType.Edge, item.EntityType);
+                Assert.Equal([0d, 0d, 0d, 0.02d, 0.01d, 0d], item.Box);
+            },
+            item =>
+            {
+                Assert.Equal(2, item.Index);
+                Assert.Equal(SelectableEntityType.Vertex, item.EntityType);
+                Assert.Equal([0.04d, 0.05d, 0.06d, 0.04d, 0.05d, 0.06d], item.Box);
+            });
+    }
+
+    [Fact]
+    public void ListEntities_FilterByType_ReturnsMatchingEntitiesOnly()
+    {
+        var body = BodyWith(
+            Face([0d, 0d, 0d, 1d, 1d, 1d]).Object,
+            Edge(Vertex(0, 0, 0), Vertex(1, 0, 0)).Object,
+            Vertex(2, 2, 2).Object);
+        var (manager, _, _, _) = ConnectedWithPartDoc(body);
+
+        var result = new SelectionService(manager.Object).ListEntities(SelectableEntityType.Edge);
+
+        var entity = Assert.Single(result);
+        Assert.Equal(0, entity.Index);
+        Assert.Equal(SelectableEntityType.Edge, entity.EntityType);
+    }
+
+    [Fact]
+    public void ListEntities_NoActiveDocument_ThrowsInvalidOperation()
+    {
+        var manager = ConnectedNoDoc();
+
+        Assert.Throws<InvalidOperationException>(() => new SelectionService(manager.Object).ListEntities());
+    }
+
+    // ─────────────────────────────────────────────────────────────
+    // SelectEntity
+    // ─────────────────────────────────────────────────────────────
+
+    [Fact]
+    public void SelectEntity_Success_UsesIndexAndSelectionMark()
+    {
+        var face = Face([0d, 0d, 0d, 1d, 1d, 1d]);
+        var entity = face.As<IEntity>();
+        var selectData = new Mock<SelectData>();
+        selectData.SetupProperty(data => data.Mark);
+        var selectionManager = new Mock<SelectionMgr>();
+        selectionManager.Setup(m => m.CreateSelectData()).Returns(selectData.Object);
+
+        var (manager, _, _, model) = ConnectedWithPartDoc(BodyWith(face.Object));
+        model.Setup(d => d.ISelectionManager).Returns(selectionManager.Object);
+
+        entity.Setup(e => e.Select4(true, It.IsAny<SelectData>()))
+            .Callback<bool, SelectData>((_, data) => selectData = Mock.Get(Assert.IsAssignableFrom<SelectData>(data)))
+            .Returns(true);
+
+        var result = new SelectionService(manager.Object).SelectEntity(SelectableEntityType.Face, 0, append: true, mark: 7);
+
+        Assert.True(result.Success);
+        Assert.Equal(7, selectData.Object.Mark);
+        entity.Verify(e => e.Select4(true, It.IsAny<SelectData>()), Times.Once);
+    }
+
+    [Fact]
+    public void SelectEntity_MissingIndex_ReturnsFailureResult()
+    {
+        var (manager, _, _, _) = ConnectedWithPartDoc(BodyWith());
+
+        var result = new SelectionService(manager.Object).SelectEntity(SelectableEntityType.Face, 0);
+
+        Assert.False(result.Success);
+        Assert.Contains("Could not find Face", result.Message);
+    }
+
+    [Fact]
+    public void SelectEntity_NoActiveDocument_ThrowsInvalidOperation()
+    {
+        var manager = ConnectedNoDoc();
+
+        Assert.Throws<InvalidOperationException>(() => new SelectionService(manager.Object).SelectEntity(SelectableEntityType.Face, 0));
     }
 
     // ─────────────────────────────────────────────────────────────
