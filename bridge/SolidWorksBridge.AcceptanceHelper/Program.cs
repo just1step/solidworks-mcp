@@ -49,6 +49,7 @@ internal static class Program
         {
             "reset-session" => session.ResetSession(),
             "create-saved-part" => session.CreateSavedBoxPart(),
+            "prepare-face-cut" => session.PrepareFaceCut(),
             "prepare-revolve" => session.PrepareRevolve(),
             "prepare-fillet" => session.PrepareFillet(),
             "prepare-chamfer" => session.PrepareChamfer(),
@@ -163,6 +164,14 @@ internal sealed class AcceptanceSession : IDisposable
         ResetSession();
         CreateBoxPart(0.06, 0.04, 0.02);
         SelectPlanarFaceAndSketchPoint();
+        return ActiveDocumentInfo();
+    }
+
+    public object PrepareFaceCut()
+    {
+        ResetSession();
+        CreateBoxPart(0.06, 0.04, 0.02);
+        SelectTopPlanarFace();
         return ActiveDocumentInfo();
     }
 
@@ -344,6 +353,14 @@ internal sealed class AcceptanceSession : IDisposable
         SelectEntity((IEntity)face, append: false);
     }
 
+    private void SelectTopPlanarFace()
+    {
+        _selection.ClearSelection();
+        var face = FindTopPlanarFace()
+            ?? throw new InvalidOperationException("No top planar face found on the active solid body.");
+        SelectEntity((IEntity)face, append: false);
+    }
+
     private void SelectPlanarFaceAndSketchPoint()
     {
         _selection.ClearSelection();
@@ -371,6 +388,23 @@ internal sealed class AcceptanceSession : IDisposable
                 var surface = face.GetSurface() as ISurface;
                 return surface != null && surface.IsPlane();
             });
+    }
+
+    private IFace2? FindTopPlanarFace()
+    {
+        return ((object[]?)GetPrimaryBody().GetFaces() ?? Array.Empty<object>())
+            .OfType<IFace2>()
+            .Select(face => new
+            {
+                Face = face,
+                Surface = face.GetSurface() as ISurface,
+                Box = face.GetBox() as double[],
+            })
+            .Where(candidate => candidate.Surface != null && candidate.Surface.IsPlane())
+            .Where(candidate => candidate.Box != null && candidate.Box.Length >= 6)
+            .OrderByDescending(candidate => candidate.Box![5])
+            .Select(candidate => candidate.Face)
+            .FirstOrDefault();
     }
 
     private void SelectFirstCylindricalFace(IComponent2 component, bool append, int mark = 1)

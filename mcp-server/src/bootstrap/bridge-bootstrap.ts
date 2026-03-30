@@ -71,8 +71,8 @@ function getBridgeSearchRoots(): string[] {
   return Array.from(
     new Set([
       getConfiguredBridgeRoot(),
-      getBundledBridgeDir(),
       getBridgeProjectDir(),
+      getBundledBridgeDir(),
     ].filter((root): root is string => Boolean(root))),
   );
 }

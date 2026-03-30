@@ -68,8 +68,11 @@ public class SketchService : ISketchService
     public void FinishSketch()
     {
         _cm.EnsureConnected();
-        // InsertSketch(false) closes the sketch and exits edit mode
-        GetSketchManager().InsertSketch(false);
+        var doc = _cm.SwApp!.IActiveDoc2
+            ?? throw new InvalidOperationException(
+                "No active document. Open a document and select a face/plane first.");
+        doc.ClearSelection2(true);
+        GetSketchManager().InsertSketch(true);
     }
 
     public SketchEntityInfo AddPoint(double x, double y)
@@ -159,4 +162,5 @@ public class SketchService : ISketchService
             ?? throw new InvalidOperationException(
                 "No active document. Open a document and select a face/plane first.");
     }
+
 }

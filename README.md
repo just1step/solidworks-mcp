@@ -4,6 +4,10 @@
 
 SolidWorks MCP Server exposes SolidWorks desktop automation as a Windows-only MCP server for VS Code, Copilot, and other MCP clients.
 
+## Demo
+
+![SolidWorks MCP demo](docs/media/demo.gif)
+
 It ships as two layers:
 
 - A Node.js MCP server that validates tool input and speaks stdio MCP.

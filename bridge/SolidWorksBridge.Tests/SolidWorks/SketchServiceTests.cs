@@ -6,6 +6,7 @@ namespace SolidWorksBridge.Tests.SolidWorks;
 
 public class SketchServiceTests
 {
+
     // ── Helpers ───────────────────────────────────────────────────
 
     /// <summary>
@@ -44,6 +45,26 @@ public class SketchServiceTests
         return manager;
     }
 
+    private static (Mock<ISwConnectionManager> manager,
+                    Mock<ISldWorksApp> swApp,
+                    Mock<ISketchManager> skm,
+                    Mock<IModelDoc2> doc)
+        ConnectedWithSketchMgrAndDoc()
+    {
+        var skm = new Mock<ISketchManager>();
+        var doc = new Mock<IModelDoc2>();
+        var swApp = new Mock<ISldWorksApp>();
+        swApp.Setup(s => s.SketchManager).Returns(skm.Object);
+        swApp.Setup(s => s.IActiveDoc2).Returns(doc.Object);
+
+        var manager = new Mock<ISwConnectionManager>();
+        manager.Setup(m => m.IsConnected).Returns(true);
+        manager.Setup(m => m.SwApp).Returns(swApp.Object);
+        manager.Setup(m => m.EnsureConnected());
+
+        return (manager, swApp, skm, doc);
+    }
+
     // ─────────────────────────────────────────────────────────────
     // Constructor
     // ─────────────────────────────────────────────────────────────
@@ -72,12 +93,13 @@ public class SketchServiceTests
     [Fact]
     public void FinishSketch_CallsInsertSketchFalse()
     {
-        var (manager, _, skm) = ConnectedWithSketchMgr();
+        var (manager, _, skm, doc) = ConnectedWithSketchMgrAndDoc();
         var svc = new SketchService(manager.Object);
 
         svc.FinishSketch();
 
-        skm.Verify(s => s.InsertSketch(false), Times.Once);
+        doc.Verify(d => d.ClearSelection2(true), Times.Once);
+        skm.Verify(s => s.InsertSketch(true), Times.Once);
     }
 
     [Fact]

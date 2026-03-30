@@ -1,17 +1,12 @@
+using System.Reflection;
+using System.Runtime.InteropServices;
 using SolidWorks.Interop.sldworks;
 using SolidWorks.Interop.swconst;
 
 namespace SolidWorksBridge.SolidWorks;
 
-/// <summary>
-/// Info about a feature that was created.
-/// </summary>
 public record FeatureInfo(string Name, string Type);
 
-/// <summary>
-/// End condition types for extrude/cut operations.
-/// Values match swEndConditions_e: 0=Blind, 1=ThroughAll, 6=MidPlane.
-/// </summary>
 public enum EndCondition
 {
     Blind = 0,
@@ -19,53 +14,22 @@ public enum EndCondition
     MidPlane = 6,
 }
 
-/// <summary>
-/// Parametric feature operations on the active part document.
-/// The appropriate sketch or edges must be selected before calling these.
-/// </summary>
 public interface IFeatureService
 {
-    /// <summary>
-    /// Extrude the selected sketch as a boss (add material).
-    /// </summary>
     FeatureInfo Extrude(double depth, EndCondition endCondition = EndCondition.Blind, bool flipDirection = false);
-
-    /// <summary>
-    /// Extrude the selected sketch as a cut (remove material).
-    /// </summary>
     FeatureInfo ExtrudeCut(double depth, EndCondition endCondition = EndCondition.Blind, bool flipDirection = false);
-
-    /// <summary>
-    /// Revolve the selected sketch around the selected axis line.
-    /// </summary>
     FeatureInfo Revolve(double angleDegrees, bool isCut = false);
-
-    /// <summary>
-    /// Fillet selected edges with the given radius (meters).
-    /// </summary>
     FeatureInfo Fillet(double radius);
-
-    /// <summary>
-    /// Chamfer selected edges: symmetric distance (meters).
-    /// </summary>
     FeatureInfo Chamfer(double distance);
-
-    /// <summary>
-    /// Shell the active solid: open the selected faces, leave given wall thickness (meters).
-    /// </summary>
     FeatureInfo Shell(double thickness);
-
-    /// <summary>
-    /// Create a simple cylindrical hole on the selected face at the selected point.
-    /// </summary>
     FeatureInfo SimpleHole(double diameter, double depth, EndCondition endCondition = EndCondition.Blind);
 }
 
-/// <summary>
-/// Implements <see cref="IFeatureService"/> via SolidWorks FeatureManager COM API.
-/// </summary>
 public class FeatureService : IFeatureService
 {
+    private const double DefaultDraftAngleRadians = 1.74532925199433E-02;
+    private static readonly string[] SketchLikeTypeMarkers = ["sketch", "profile"];
+
     private readonly ISwConnectionManager _cm;
 
     public FeatureService(ISwConnectionManager cm)
@@ -78,8 +42,6 @@ public class FeatureService : IFeatureService
         _cm.EnsureConnected();
         var doc = GetModelDoc();
 
-        // FeatureBoss2: called while sketch is in edit mode; void return.
-        // Retrieve the created feature with IFeatureByPositionReverse(0).
         doc.FeatureBoss2(
             Sd: true, Flip: flipDirection, Dir: !flipDirection,
             T1: (int)endCondition, T2: 0,
@@ -101,21 +63,52 @@ public class FeatureService : IFeatureService
     {
         _cm.EnsureConnected();
         var doc = GetModelDoc();
+        var featureManager = GetFeatureManager();
+        var topFeatureBefore = CaptureFeatureSnapshot(doc.IFeatureByPositionReverse(0));
+        var bodyBefore = CaptureBodySignature(doc);
 
-        // FeatureCut2: called while sketch is in edit mode; void return.
-        doc.FeatureCut2(
-            Sd: true, Flip: flipDirection, Dir: !flipDirection,
-            T1: (int)endCondition, T2: 0,
-            D1: depth, D2: 0,
-            Dchk1: false, Dchk2: false,
-            Ddir1: false, Ddir2: false,
-            Dang1: 0, Dang2: 0,
-            OffsetReverse1: false, OffsetReverse2: false,
-            KeepPieceIndex: 0);
+        NormalizeSketchStateForFeatureCut(doc);
 
-        var feature = doc.IFeatureByPositionReverse(0)
+        var returnedFeature = featureManager.FeatureCut4(
+            Sd: true,
+            Flip: flipDirection,
+            Dir: false,
+            T1: (int)endCondition,
+            T2: 0,
+            D1: depth,
+            D2: depth,
+            Dchk1: false,
+            Dchk2: false,
+            Ddir1: false,
+            Ddir2: false,
+            Dang1: DefaultDraftAngleRadians,
+            Dang2: DefaultDraftAngleRadians,
+            OffsetReverse1: false,
+            OffsetReverse2: false,
+            TranslateSurface1: false,
+            TranslateSurface2: false,
+            NormalCut: false,
+            UseFeatScope: true,
+            UseAutoSelect: true,
+            AssemblyFeatureScope: true,
+            AutoSelectComponents: true,
+            PropagateFeatureToParts: false,
+            T0: 0,
+            StartOffset: 0,
+            FlipStartOffset: false,
+            OptimizeGeometry: false);
+
+        var topFeatureAfter = CaptureFeatureSnapshot(doc.IFeatureByPositionReverse(0));
+        var bodyAfter = CaptureBodySignature(doc);
+        var feature = ResolveCreatedCutFeature(returnedFeature, topFeatureBefore, topFeatureAfter)
             ?? throw new InvalidOperationException(
-                "ExtrudeCut failed — ensure a sketch is in edit mode on the active document");
+                $"ExtrudeCut did not create a new cut feature. Before={FormatFeature(topFeatureBefore)}, Returned={FormatFeature(CaptureFeatureSnapshot(returnedFeature))}, After={FormatFeature(topFeatureAfter)}");
+
+        if (!BodyTopologyChanged(bodyBefore, bodyAfter))
+        {
+            throw new InvalidOperationException(
+                $"ExtrudeCut did not change the solid body. BeforeBody={FormatBody(bodyBefore)}, AfterBody={FormatBody(bodyAfter)}, BeforeFeature={FormatFeature(topFeatureBefore)}, Returned={FormatFeature(CaptureFeatureSnapshot(returnedFeature))}, AfterFeature={FormatFeature(topFeatureAfter)}");
+        }
 
         return new FeatureInfo(feature.Name, "ExtrudeCut");
     }
@@ -126,9 +119,6 @@ public class FeatureService : IFeatureService
         var fm = GetFeatureManager();
         double angleRad = angleDegrees * Math.PI / 180.0;
 
-        // FeatureRevolve2: SingleDir, IsSolid, IsThin, IsCut, ReverseDir,
-        //                  BothDirSameEntity, Dir1Type=0(blind), Dir2Type=0,
-        //                  Dir1Angle, Dir2Angle, ... all zeros for unused params
         var feature = fm.FeatureRevolve2(
             SingleDir: true, IsSolid: true, IsThin: false, IsCut: isCut,
             ReverseDir: false, BothDirectionUpToSameEntity: false,
@@ -169,7 +159,6 @@ public class FeatureService : IFeatureService
         _cm.EnsureConnected();
         var fm = GetFeatureManager();
 
-        // InsertFeatureChamfer(options, chamferType=0 equal dist, distance, angle, otherDist, ...)
         var feature = fm.InsertFeatureChamfer(0, 0, distance, Math.PI / 4, 0, 0, 0, 0)
             ?? throw new InvalidOperationException("Chamfer failed — ensure edges are selected");
 
@@ -181,7 +170,6 @@ public class FeatureService : IFeatureService
         _cm.EnsureConnected();
         var doc = GetModelDoc();
 
-        // InsertFeatureShell(thickness, outward) returns void — retrieve created feature by position
         doc.InsertFeatureShell(thickness, false);
         var feature = doc.IFeatureByPositionReverse(0)
             ?? throw new InvalidOperationException(
@@ -212,8 +200,6 @@ public class FeatureService : IFeatureService
         return new FeatureInfo(feature.Name, "SimpleHole");
     }
 
-    // ── Helpers ───────────────────────────────────────────────────
-
     private IFeatureManager GetFeatureManager()
     {
         return _cm.SwApp!.FeatureManager
@@ -225,4 +211,144 @@ public class FeatureService : IFeatureService
         return _cm.SwApp!.IActiveDoc2
             ?? throw new InvalidOperationException("No active document");
     }
+
+    private void NormalizeSketchStateForFeatureCut(IModelDoc2 doc)
+    {
+        if (doc.GetActiveSketch2() == null)
+        {
+            return;
+        }
+
+        doc.ClearSelection2(true);
+        var sketchManager = _cm.SwApp!.SketchManager
+            ?? throw new InvalidOperationException("No active sketch manager available.");
+        sketchManager.InsertSketch(true);
+    }
+
+    private static Feature? ResolveCreatedCutFeature(
+        Feature? returnedFeature,
+        FeatureSnapshot topFeatureBefore,
+        FeatureSnapshot topFeatureAfter)
+    {
+        if (IsNewSolidFeature(topFeatureAfter, topFeatureBefore))
+        {
+            return topFeatureAfter.Feature;
+        }
+
+        var returnedSnapshot = CaptureFeatureSnapshot(returnedFeature);
+        if (IsNewSolidFeature(returnedSnapshot, topFeatureBefore))
+        {
+            return returnedSnapshot.Feature;
+        }
+
+        return null;
+    }
+
+    private static bool IsNewSolidFeature(FeatureSnapshot candidate, FeatureSnapshot baseline)
+    {
+        if (candidate.Feature == null)
+        {
+            return false;
+        }
+
+        if (string.Equals(candidate.Name, baseline.Name, StringComparison.Ordinal)
+            && string.Equals(candidate.TypeName, baseline.TypeName, StringComparison.OrdinalIgnoreCase))
+        {
+            return false;
+        }
+
+        return !IsSketchLike(candidate.TypeName);
+    }
+
+    private static bool IsSketchLike(string? typeName)
+    {
+        if (string.IsNullOrWhiteSpace(typeName))
+        {
+            return false;
+        }
+
+        return SketchLikeTypeMarkers.Any(marker =>
+            typeName.Contains(marker, StringComparison.OrdinalIgnoreCase));
+    }
+
+    private static FeatureSnapshot CaptureFeatureSnapshot(Feature? feature)
+    {
+        if (feature == null)
+        {
+            return new FeatureSnapshot(null, null, null);
+        }
+
+        return new FeatureSnapshot(feature, feature.Name, SafeGetTypeName(feature));
+    }
+
+    private static string? SafeGetTypeName(Feature feature)
+    {
+        try
+        {
+            return feature.GetTypeName2();
+        }
+        catch (COMException)
+        {
+            return null;
+        }
+        catch (TargetInvocationException)
+        {
+            return null;
+        }
+    }
+
+    private static string FormatFeature(FeatureSnapshot snapshot)
+    {
+        if (snapshot.Feature == null)
+        {
+            return "<none>";
+        }
+
+        string name = string.IsNullOrWhiteSpace(snapshot.Name) ? "<unnamed>" : snapshot.Name;
+        string type = string.IsNullOrWhiteSpace(snapshot.TypeName) ? "<unknown>" : snapshot.TypeName;
+        return $"{name} ({type})";
+    }
+
+    private static BodySignature? CaptureBodySignature(IModelDoc2 doc)
+    {
+        if (doc is not IPartDoc part)
+        {
+            return null;
+        }
+
+        var bodies = (object[]?)part.GetBodies2((int)swBodyType_e.swSolidBody, true) ?? Array.Empty<object>();
+        var primaryBody = bodies.OfType<IBody2>().FirstOrDefault();
+        if (primaryBody == null)
+        {
+            return null;
+        }
+
+        int faceCount = ((object[]?)primaryBody.GetFaces() ?? Array.Empty<object>()).Length;
+        int edgeCount = ((object[]?)primaryBody.GetEdges() ?? Array.Empty<object>()).Length;
+        int vertexCount = ((object[]?)primaryBody.GetVertices() ?? Array.Empty<object>()).Length;
+        return new BodySignature(bodies.Length, faceCount, edgeCount, vertexCount);
+    }
+
+    private static bool BodyTopologyChanged(BodySignature? before, BodySignature? after)
+    {
+        if (before == null || after == null)
+        {
+            return true;
+        }
+
+        return before.Value != after.Value;
+    }
+
+    private static string FormatBody(BodySignature? signature)
+    {
+        if (signature == null)
+        {
+            return "<unavailable>";
+        }
+
+        return $"bodies={signature.Value.BodyCount}, faces={signature.Value.FaceCount}, edges={signature.Value.EdgeCount}, vertices={signature.Value.VertexCount}";
+    }
+
+    private readonly record struct BodySignature(int BodyCount, int FaceCount, int EdgeCount, int VertexCount);
+    private readonly record struct FeatureSnapshot(Feature? Feature, string? Name, string? TypeName);
 }

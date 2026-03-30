@@ -205,8 +205,11 @@ describe.sequential('SolidWorks MCP acceptance', () => {
     await selectFrontPlane();
     await callJsonTool('sw_insert_sketch', {});
     await callJsonTool('sw_add_circle', { cx: 0, cy: 0, radius: 0.005 });
+    const facesBeforeCut = await callJsonTool<Array<{ index: number }>>('sw_list_entities', { entityType: 'Face' });
     const cut = await callJsonTool('sw_extrude_cut', { depth: 0.05, endCondition: 'ThroughAll' });
+    const facesAfterCut = await callJsonTool<Array<{ index: number }>>('sw_list_entities', { entityType: 'Face' });
     expect(cut.type).toBe('ExtrudeCut');
+    expect(facesAfterCut.length).toBeGreaterThan(facesBeforeCut.length);
   });
 
   test('accepts list_entities and select_entity through MCP', async () => {
@@ -259,6 +262,29 @@ describe.sequential('SolidWorks MCP acceptance', () => {
     await runHelper('prepare-simple-hole');
     const hole = await callJsonTool('sw_simple_hole', { diameter: 0.005, depth: 0.01 });
     expect(hole.type).toBe('SimpleHole');
+  });
+
+  test('accepts extrude_cut on a selected solid face sketch through MCP', async () => {
+    await runHelper('prepare-face-cut');
+    await callJsonTool('sw_insert_sketch', {});
+    await callJsonTool('sw_add_circle', { cx: 0, cy: 0, radius: 0.005 });
+    const facesBeforeCut = await callJsonTool<Array<{ index: number }>>('sw_list_entities', { entityType: 'Face' });
+    const cut = await callJsonTool('sw_extrude_cut', { depth: 0.05, endCondition: 'ThroughAll' });
+    const facesAfterCut = await callJsonTool<Array<{ index: number }>>('sw_list_entities', { entityType: 'Face' });
+    expect(cut.type).toBe('ExtrudeCut');
+    expect(facesAfterCut.length).toBeGreaterThan(facesBeforeCut.length);
+  });
+
+  test('accepts extrude_cut after finishing a selected solid face sketch through MCP', async () => {
+    await runHelper('prepare-face-cut');
+    await callJsonTool('sw_insert_sketch', {});
+    await callJsonTool('sw_add_circle', { cx: 0, cy: 0, radius: 0.005 });
+    await callJsonTool('sw_finish_sketch', {});
+    const facesBeforeCut = await callJsonTool<Array<{ index: number }>>('sw_list_entities', { entityType: 'Face' });
+    const cut = await callJsonTool('sw_extrude_cut', { depth: 0.05, endCondition: 'ThroughAll' });
+    const facesAfterCut = await callJsonTool<Array<{ index: number }>>('sw_list_entities', { entityType: 'Face' });
+    expect(cut.type).toBe('ExtrudeCut');
+    expect(facesAfterCut.length).toBeGreaterThan(facesBeforeCut.length);
   });
 
   test('accepts component insertion and listing through MCP', async () => {

@@ -4,6 +4,10 @@
 
 SolidWorks MCP Server 是一个面向 Windows 的 SolidWorks MCP 服务，供 VS Code、Copilot 以及其他 MCP 客户端调用。
 
+## 演示
+
+![SolidWorks MCP demo](docs/media/demo.gif)
+
 项目由两层组成：
 
 - Node.js MCP Server：负责 MCP stdio、参数校验和 tool 注册。

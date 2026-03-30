@@ -119,7 +119,7 @@ const TOOLS = [
   { name: 'sw_clear_selection', description: 'Clear all current selections in SolidWorks', inputSchema: ClearSelectionSchema },
   // Sketch
   { name: 'sw_insert_sketch', description: 'Open a new sketch on the currently selected plane or face', inputSchema: InsertSketchSchema },
-  { name: 'sw_finish_sketch', description: 'Close (finish) the currently open sketch', inputSchema: FinishSketchSchema },
+  { name: 'sw_finish_sketch', description: 'Close (finish) the currently open sketch and keep the completed sketch selected for downstream feature operations', inputSchema: FinishSketchSchema },
   { name: 'sw_add_point', description: 'Add a point to the open sketch', inputSchema: AddPointSchema },
   { name: 'sw_add_ellipse', description: 'Add an ellipse to the open sketch', inputSchema: AddEllipseSchema },
   { name: 'sw_add_polygon', description: 'Add a regular polygon to the open sketch', inputSchema: AddPolygonSchema },
@@ -130,7 +130,7 @@ const TOOLS = [
   { name: 'sw_add_arc', description: 'Add an arc to the open sketch', inputSchema: AddArcSchema },
   // Feature
   { name: 'sw_extrude', description: 'Extrude the current open sketch into a 3D boss feature. Call while sketch is in edit mode (do not finish sketch first).', inputSchema: ExtrudeSchema },
-  { name: 'sw_extrude_cut', description: 'Extrude-cut the current open sketch to remove material. Call while sketch is in edit mode.', inputSchema: ExtrudeCutSchema },
+  { name: 'sw_extrude_cut', description: 'Extrude-cut the current sketch to remove material. Works on the active sketch or on the sketch most recently finished with sw_finish_sketch.', inputSchema: ExtrudeCutSchema },
   { name: 'sw_revolve', description: 'Revolve the current open sketch around the selected axis', inputSchema: RevolveSchema },
   { name: 'sw_fillet', description: 'Apply a fillet to the selected edges', inputSchema: FilletSchema },
   { name: 'sw_chamfer', description: 'Apply a chamfer to the selected edges', inputSchema: ChamferSchema },

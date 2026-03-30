@@ -1,4 +1,5 @@
 using SolidWorks.Interop.sldworks;
+using SolidWorks.Interop.swconst;
 using SolidWorksBridge.SolidWorks;
 
 namespace SolidWorksBridge.Tests.SolidWorks;
@@ -58,6 +59,34 @@ public class FeatureServiceIntegrationTests
         return point;
     }
 
+    private static IFace2 SelectTopPlanarFace(SelectionService sel)
+    {
+        var topFace = sel.ListEntities(SelectableEntityType.Face)
+            .Where(face => face.Box is { Length: >= 6 } box && Math.Abs(box[2] - box[5]) < 1e-9)
+            .OrderByDescending(face => face.Box![5])
+            .FirstOrDefault()
+            ?? throw new InvalidOperationException("No top planar face found on the active solid body.");
+
+        var selected = sel.SelectEntity(SelectableEntityType.Face, topFace.Index);
+        Assert.True(selected.Success, selected.Message);
+
+        var manager = new SwConnectionManager(new SwComConnector());
+        manager.Connect();
+        var body = ((object[]?)((IPartDoc)manager.SwApp!.IActiveDoc2!).GetBodies2((int)swBodyType_e.swSolidBody, true)
+            ?? Array.Empty<object>())
+            .OfType<IBody2>()
+            .First();
+
+        return ((object[]?)body.GetFaces() ?? Array.Empty<object>())
+            .OfType<IFace2>()
+            .OrderByDescending(face => ((double[]?)face.GetBox())?[5] ?? double.MinValue)
+            .First(face =>
+            {
+                var surface = face.GetSurface() as ISurface;
+                return surface != null && surface.IsPlane();
+            });
+    }
+
     private static void SelectSketchPoint(SketchPoint point)
     {
         var manager = new SwConnectionManager(new SwComConnector());
@@ -108,11 +137,15 @@ public class FeatureServiceIntegrationTests
         sketch.InsertSketch();
         sketch.AddCircle(0, 0, 0.01);
         // Leave sketch open — ExtrudeCut closes it internally
+        int faceCountBeforeCut = sel.ListEntities(SelectableEntityType.Face).Count;
 
         var info = feature.ExtrudeCut(0.05, EndCondition.ThroughAll);
+        int faceCountAfterCut = sel.ListEntities(SelectableEntityType.Face).Count;
 
         Assert.Equal("ExtrudeCut", info.Type);
         Assert.False(string.IsNullOrEmpty(info.Name));
+        Assert.True(faceCountAfterCut > faceCountBeforeCut,
+            $"ExtrudeCut should change solid topology. Before={faceCountBeforeCut}, After={faceCountAfterCut}");
     }
 
     [Fact]
@@ -170,5 +203,50 @@ public class FeatureServiceIntegrationTests
 
         Assert.Equal("SimpleHole", info.Type);
         Assert.False(string.IsNullOrEmpty(info.Name));
+    }
+
+    [Fact]
+    [Trait("Category", "Integration")]
+    public void Integration_ExtrudeCut_OnSelectedTopFaceSketch_CreatesFeature()
+    {
+        var (sel, sketch, feature) = RealServices();
+        OpenRectSketch(sel, sketch);
+        feature.Extrude(0.02);
+
+        SelectTopPlanarFace(sel);
+        sketch.InsertSketch();
+        sketch.AddCircle(0, 0, 0.005);
+        int faceCountBeforeCut = sel.ListEntities(SelectableEntityType.Face).Count;
+
+        var info = feature.ExtrudeCut(0.05, EndCondition.ThroughAll);
+        int faceCountAfterCut = sel.ListEntities(SelectableEntityType.Face).Count;
+
+        Assert.Equal("ExtrudeCut", info.Type);
+        Assert.False(string.IsNullOrEmpty(info.Name));
+        Assert.True(faceCountAfterCut > faceCountBeforeCut,
+            $"ExtrudeCut should change solid topology. Before={faceCountBeforeCut}, After={faceCountAfterCut}");
+    }
+
+    [Fact]
+    [Trait("Category", "Integration")]
+    public void Integration_ExtrudeCut_AfterFinishSketchOnSelectedTopFace_CreatesFeature()
+    {
+        var (sel, sketch, feature) = RealServices();
+        OpenRectSketch(sel, sketch);
+        feature.Extrude(0.02);
+
+        SelectTopPlanarFace(sel);
+        sketch.InsertSketch();
+        sketch.AddCircle(0, 0, 0.005);
+        sketch.FinishSketch();
+        int faceCountBeforeCut = sel.ListEntities(SelectableEntityType.Face).Count;
+
+        var info = feature.ExtrudeCut(0.05, EndCondition.ThroughAll);
+        int faceCountAfterCut = sel.ListEntities(SelectableEntityType.Face).Count;
+
+        Assert.Equal("ExtrudeCut", info.Type);
+        Assert.False(string.IsNullOrEmpty(info.Name));
+        Assert.True(faceCountAfterCut > faceCountBeforeCut,
+            $"ExtrudeCut should change solid topology. Before={faceCountBeforeCut}, After={faceCountAfterCut}");
     }
 }
