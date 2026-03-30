@@ -7,6 +7,26 @@ const scriptDir = path.dirname(fileURLToPath(import.meta.url));
 const packageRoot = path.resolve(scriptDir, '..');
 const repoRoot = path.resolve(packageRoot, '..');
 const bridgeProject = path.join(repoRoot, 'bridge', 'SolidWorksBridge', 'SolidWorksBridge.csproj');
+const bridgeReleaseExe = path.join(
+  repoRoot,
+  'bridge',
+  'SolidWorksBridge',
+  'bin',
+  'Release',
+  'net8.0-windows',
+  'win-x64',
+  'SolidWorksBridge.exe',
+);
+const bridgeDebugExe = path.join(
+  repoRoot,
+  'bridge',
+  'SolidWorksBridge',
+  'bin',
+  'Debug',
+  'net8.0-windows',
+  'win-x64',
+  'SolidWorksBridge.exe',
+);
 const publishDir = path.join(
   repoRoot,
   'bridge',
@@ -59,9 +79,13 @@ async function stopPackagedBridgeIfRunning() {
     return;
   }
 
+  const trackedExecutables = [bridgeReleaseExe, bridgeDebugExe, vendorBridgeExe]
+    .map((target) => `[System.IO.Path]::GetFullPath('${target.replace(/'/g, "''")}')`)
+    .join(', ');
+
   const stopCommand = [
-    `$target = [System.IO.Path]::GetFullPath('${vendorBridgeExe.replace(/'/g, "''")}')`,
-    "$processes = Get-CimInstance Win32_Process | Where-Object { $_.Name -eq 'SolidWorksBridge.exe' -and $_.ExecutablePath -and [System.IO.Path]::GetFullPath($_.ExecutablePath).Equals($target, [System.StringComparison]::OrdinalIgnoreCase) }",
+    `$targets = @(${trackedExecutables})`,
+    "$processes = Get-CimInstance Win32_Process | Where-Object { $_.Name -eq 'SolidWorksBridge.exe' -and $_.ExecutablePath -and $targets -contains [System.IO.Path]::GetFullPath($_.ExecutablePath) }",
     'foreach ($process in $processes) { Stop-Process -Id $process.ProcessId -Force }',
   ].join('; ');
 
@@ -140,6 +164,7 @@ async function syncPublishOutput(sourceDir, targetDir) {
   }
 }
 
+await stopPackagedBridgeIfRunning();
 await run(
   'dotnet',
   ['publish', bridgeProject, '-c', 'Release', '-r', 'win-x64', '--self-contained', 'false'],
@@ -147,7 +172,6 @@ await run(
 );
 
 await fs.mkdir(vendorDir, { recursive: true });
-await stopPackagedBridgeIfRunning();
 await syncPublishOutput(publishDir, vendorDir);
 
 console.log(`Bundled SolidWorks bridge into ${vendorDir}`);

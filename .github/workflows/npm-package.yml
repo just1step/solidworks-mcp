@@ -42,8 +42,11 @@ jobs:
         id: pack
         working-directory: mcp-server
         run: |
-          $pack = npm pack --json | ConvertFrom-Json
-          $tarball = $pack[0].filename
+          npm pack | Tee-Object -FilePath pack-output.txt
+          $tarball = Get-Content pack-output.txt | Where-Object { $_ -match '\.tgz$' } | Select-Object -Last 1
+          if (-not $tarball) {
+            throw 'npm pack did not produce a tarball filename.'
+          }
           "tarball=$tarball" >> $env:GITHUB_OUTPUT
 
       - name: Upload npm package artifact
