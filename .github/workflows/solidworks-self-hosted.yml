@@ -1,0 +1,91 @@
+name: SolidWorks Self-Hosted
+
+on:
+  workflow_dispatch:
+    inputs:
+      runIntegration:
+        description: Run C# integration tests that require local SolidWorks
+        required: true
+        default: true
+        type: boolean
+      runAcceptance:
+        description: Run MCP acceptance tests against the local SolidWorks environment
+        required: true
+        default: true
+        type: boolean
+      createPackage:
+        description: Build the npm tarball artifact with the bundled bridge
+        required: true
+        default: true
+        type: boolean
+
+jobs:
+  solidworks-build:
+    runs-on:
+      - self-hosted
+      - windows
+      - solidworks
+    defaults:
+      run:
+        shell: powershell
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+          cache-dependency-path: mcp-server/package-lock.json
+
+      - name: Setup .NET SDK
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+
+      - name: Install MCP server dependencies
+        working-directory: mcp-server
+        run: npm ci
+
+      - name: Restore bridge solution
+        working-directory: bridge
+        run: dotnet restore SolidWorksBridge.sln
+
+      - name: Build MCP server
+        working-directory: mcp-server
+        run: npm run build
+
+      - name: Run MCP server unit tests
+        working-directory: mcp-server
+        run: npm run test:unit
+
+      - name: Run bridge unit tests
+        working-directory: bridge
+        run: dotnet test SolidWorksBridge.sln --filter "Category!=Integration" --no-restore
+
+      - name: Run bridge integration tests
+        if: ${{ inputs.runIntegration }}
+        working-directory: bridge
+        run: dotnet test SolidWorksBridge.sln --filter "Category=Integration" --logger "console;verbosity=detailed"
+
+      - name: Run MCP acceptance tests
+        if: ${{ inputs.runAcceptance }}
+        working-directory: mcp-server
+        run: npm run test:acceptance
+
+      - name: Build npm package tarball
+        if: ${{ inputs.createPackage }}
+        id: pack
+        working-directory: mcp-server
+        run: |
+          npm pack | Tee-Object -FilePath pack-output.txt
+          $tarball = Get-Content pack-output.txt | Select-Object -Last 1
+          "tarball=$tarball" >> $env:GITHUB_OUTPUT
+
+      - name: Upload npm package artifact
+        if: ${{ inputs.createPackage }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: solidworks-mcp-package
+          path: mcp-server/${{ steps.pack.outputs.tarball }}

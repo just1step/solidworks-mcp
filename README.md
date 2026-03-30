@@ -182,3 +182,17 @@ dotnet test SolidWorksBridge.sln
 1. Run `npm test` in [mcp-server](mcp-server).
 2. Run `dotnet test SolidWorksBridge.sln` in [bridge](bridge).
 3. Run `npm pack` in [mcp-server](mcp-server) and verify the tarball.
+
+## GitHub Actions
+
+This repository now supports two GitHub Actions paths:
+
+1. Hosted CI on `windows-latest` for MCP server install, TypeScript build, and Node unit tests.
+2. Self-hosted Windows CI for bridge build, SolidWorks-dependent integration tests, acceptance tests, and `npm pack`.
+
+The split is necessary because the bridge project still references the local SolidWorks interop DLLs under `C:/Program Files/SOLIDWORKS Corp/...`, so GitHub-hosted runners cannot build or package the bridge end to end.
+
+Workflow files:
+
+- `.github/workflows/ci.yml`: GitHub-hosted checks safe to run on every push and pull request.
+- `.github/workflows/solidworks-self-hosted.yml`: manual workflow for a Windows self-hosted runner labeled `solidworks`.
