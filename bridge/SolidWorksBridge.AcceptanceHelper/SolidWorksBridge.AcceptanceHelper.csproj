@@ -13,14 +13,8 @@
   </ItemGroup>
 
   <ItemGroup>
-    <Reference Include="SolidWorks.Interop.sldworks">
-      <HintPath>C:\Program Files\SOLIDWORKS Corp\SOLIDWORKS\api\redist\SolidWorks.Interop.sldworks.dll</HintPath>
-      <EmbedInteropTypes>false</EmbedInteropTypes>
-    </Reference>
-    <Reference Include="SolidWorks.Interop.swconst">
-      <HintPath>C:\Program Files\SOLIDWORKS Corp\SOLIDWORKS\api\redist\SolidWorks.Interop.swconst.dll</HintPath>
-      <EmbedInteropTypes>false</EmbedInteropTypes>
-    </Reference>
+    <PackageReference Include="SolidWorks.Interop.sldworks" Version="32.1.0" />
+    <PackageReference Include="SolidWorks.Interop.swconst" Version="32.1.0" />
   </ItemGroup>
 
 </Project>
