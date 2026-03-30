@@ -70,7 +70,7 @@ This repo already includes [.vscode/mcp.json](.vscode/mcp.json) for workspace-lo
 After publishing to npm, the lightweight install flow is:
 
 ```powershell
-npm install -g solidworks-mcp-server
+npm install -g solidworks-mcp
 ```
 
 Then register the server in your user or workspace `mcp.json`:
@@ -86,6 +86,19 @@ Then register the server in your user or workspace `mcp.json`:
 }
 ```
 
+If VS Code does not inherit your npm global bin folder on Windows, point to the shim explicitly instead:
+
+```json
+{
+	"servers": {
+		"solidworks-mcp-server": {
+			"type": "stdio",
+			"command": "C:/Users/<you>/AppData/Roaming/npm/solidworks-mcp-server.cmd"
+		}
+	}
+}
+```
+
 If you prefer not to install globally, use `npx` instead:
 
 ```json
@@ -93,8 +106,8 @@ If you prefer not to install globally, use `npx` instead:
 	"servers": {
 		"solidworks-mcp-server": {
 			"type": "stdio",
-			"command": "npx",
-			"args": ["-y", "solidworks-mcp-server"]
+			"command": "C:/Program Files/nodejs/npx.cmd",
+			"args": ["-y", "solidworks-mcp"]
 		}
 	}
 }
@@ -108,7 +121,7 @@ What it packages:
 
 - `dist/` compiled MCP server output
 - `vendor/bridge/` published `SolidWorksBridge.exe` bundle
-- `bin/solidworks-mcp-server.js` CLI entrypoint
+- `bin/solidworks-mcp-server.cmd` Windows CLI entrypoint
 
 Build a local tarball:
 
@@ -126,7 +139,7 @@ npm pack
 After publishing to npm, the intended install flow is:
 
 ```powershell
-npm install -g solidworks-mcp-server
+npm install -g solidworks-mcp
 solidworks-mcp-server
 ```
 

@@ -1,7 +1,12 @@
 @echo off
 setlocal
 
+set "SCRIPT_DIR=%~dp0"
+set "PACKAGE_ROOT=%SCRIPT_DIR%.."
 set "NODE_EXE=%npm_node_execpath%"
+
+if not "%NODE_EXE%"=="" if exist "%NODE_EXE%" goto run
+if exist "%PACKAGE_ROOT%\node.exe" set "NODE_EXE=%PACKAGE_ROOT%\node.exe"
 if not "%NODE_EXE%"=="" if exist "%NODE_EXE%" goto run
 if defined ProgramFiles if exist "%ProgramFiles%\nodejs\node.exe" set "NODE_EXE=%ProgramFiles%\nodejs\node.exe"
 if not "%NODE_EXE%"=="" if exist "%NODE_EXE%" goto run
@@ -14,5 +19,5 @@ if not "%NODE_EXE%"=="" goto run
 exit /b 1
 
 :run
-"%NODE_EXE%" %*
+"%NODE_EXE%" "%PACKAGE_ROOT%\dist\index.js" %*
 exit /b %ERRORLEVEL%

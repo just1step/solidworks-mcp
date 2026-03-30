@@ -6,6 +6,9 @@ dist/
 
 # .NET
 bin/
+!mcp-server/bin/
+!mcp-server/bin/solidworks-mcp-server.cmd
+!mcp-server/bin/solidworks-mcp-server.js
 obj/
 *.user
 *.suo

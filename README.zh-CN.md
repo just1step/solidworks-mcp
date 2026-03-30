@@ -70,7 +70,7 @@ node dist/index.js
 发布到 npm 后，推荐先安装全局命令：
 
 ```powershell
-npm install -g solidworks-mcp-server
+npm install -g solidworks-mcp
 ```
 
 然后在用户级或工作区级 `mcp.json` 中注册服务：
@@ -86,6 +86,19 @@ npm install -g solidworks-mcp-server
 }
 ```
 
+如果 VS Code 在 Windows 下没有继承 npm 全局 bin 目录，建议直接写入 shim 的绝对路径：
+
+```json
+{
+	"servers": {
+		"solidworks-mcp-server": {
+			"type": "stdio",
+			"command": "C:/Users/<you>/AppData/Roaming/npm/solidworks-mcp-server.cmd"
+		}
+	}
+}
+```
+
 如果你不想全局安装，也可以直接使用 `npx`：
 
 ```json
@@ -93,8 +106,8 @@ npm install -g solidworks-mcp-server
 	"servers": {
 		"solidworks-mcp-server": {
 			"type": "stdio",
-			"command": "npx",
-			"args": ["-y", "solidworks-mcp-server"]
+			"command": "C:/Program Files/nodejs/npx.cmd",
+			"args": ["-y", "solidworks-mcp"]
 		}
 	}
 }
@@ -108,7 +121,7 @@ npm install -g solidworks-mcp-server
 
 - `dist/` 编译后的 MCP server
 - `vendor/bridge/` 发布后的 `SolidWorksBridge.exe` 产物
-- `bin/solidworks-mcp-server.js` CLI 入口
+- `bin/solidworks-mcp-server.cmd` Windows CLI 入口
 
 本地生成 tarball：
 
@@ -126,7 +139,7 @@ npm pack
 未来发布到 npm 后，推荐安装方式为：
 
 ```powershell
-npm install -g solidworks-mcp-server
+npm install -g solidworks-mcp
 solidworks-mcp-server
 ```
 
