@@ -3,6 +3,7 @@ using SolidWorksBridge.SolidWorks;
 
 namespace SolidWorksBridge.Tests.SolidWorks;
 
+[Collection("SolidWorks Integration")]
 public class SwConnectionManagerTests
 {
     // ─────────────────────────────────────────────

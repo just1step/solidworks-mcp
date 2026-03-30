@@ -9,6 +9,7 @@ namespace SolidWorksBridge.Tests.SolidWorks;
 /// then applies a feature operation.
 /// Run: dotnet test --filter "Category=Integration"
 /// </summary>
+[Collection("SolidWorks Integration")]
 public class FeatureServiceIntegrationTests
 {
     // ── Setup ─────────────────────────────────────────────────────

@@ -5,6 +5,7 @@ import {
   ListToolsRequestSchema,
 } from '@modelcontextprotocol/sdk/types.js';
 import { z } from 'zod';
+import { PIPE_NAME, ensurePipeClientReady } from './bootstrap/bridge-bootstrap.js';
 import { NamedPipeClient } from './transport/named-pipe-client.js';
 
 // ── Tool modules ──────────────────────────────────────────────
@@ -158,7 +159,24 @@ function zodToJsonSchema(schema: z.ZodTypeAny): Record<string, unknown> {
 // ── Main ──────────────────────────────────────────────────────
 
 async function main(): Promise<void> {
-  const client = new NamedPipeClient({ pipeName: 'SolidWorksMcpBridge' });
+  const client = new NamedPipeClient({ pipeName: PIPE_NAME });
+  let ensureClientReadyPromise: Promise<void> | null = null;
+
+  const ensureClientReady = async (): Promise<void> => {
+    if (client.connected) {
+      return;
+    }
+
+    if (!ensureClientReadyPromise) {
+      ensureClientReadyPromise = ensurePipeClientReady(client, { pipeName: PIPE_NAME }).finally(() => {
+        ensureClientReadyPromise = null;
+      });
+    }
+
+    await ensureClientReadyPromise;
+  };
+
+  await ensureClientReady();
 
   const server = new Server(
     { name: SERVER_NAME, version: SERVER_VERSION },
@@ -180,6 +198,10 @@ async function main(): Promise<void> {
     const params = (args ?? {}) as Record<string, unknown>;
 
     try {
+      if (name !== 'sw_disconnect') {
+        await ensureClientReady();
+      }
+
       let result: unknown;
 
       switch (name) {

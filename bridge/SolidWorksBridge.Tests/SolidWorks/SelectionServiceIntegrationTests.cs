@@ -7,6 +7,7 @@ namespace SolidWorksBridge.Tests.SolidWorks;
 /// Requires a running SolidWorks instance with at least one open Part document.
 /// Run: dotnet test --filter "Category=Integration"
 /// </summary>
+[Collection("SolidWorks Integration")]
 public class SelectionServiceIntegrationTests
 {
     // ── Setup helpers ─────────────────────────────────────────────

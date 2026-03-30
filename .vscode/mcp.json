@@ -1,0 +1,12 @@
+{
+	"servers": {
+		"solidworks-mcp-server": {
+			"type": "stdio",
+			"command": "C:/Program Files/nodejs/node.exe",
+			"args": [
+				"${workspaceFolder}/mcp-server/dist/index.js"
+			],
+			"cwd": "${workspaceFolder}/mcp-server"
+		}
+	}
+}

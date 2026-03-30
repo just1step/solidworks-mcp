@@ -9,6 +9,7 @@ namespace SolidWorksBridge.Tests.SolidWorks;
 /// draws entities, then closes the sketch.
 /// Run: dotnet test --filter "Category=Integration"
 /// </summary>
+[Collection("SolidWorks Integration")]
 public class SketchServiceIntegrationTests
 {
     // ── Setup ─────────────────────────────────────────────────────
