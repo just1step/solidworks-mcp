@@ -1,18 +1,43 @@
 {
   "name": "solidworks-mcp-server",
   "version": "0.1.0",
-  "description": "MCP server for SolidWorks automation via Named Pipes bridge",
+  "description": "Windows-only MCP server for SolidWorks automation via a bundled C# bridge",
   "type": "module",
   "main": "dist/index.js",
+  "bin": {
+    "solidworks-mcp-server": "./bin/solidworks-mcp-server.js"
+  },
+  "files": [
+    "bin",
+    "dist",
+    "vendor",
+    "README.md"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "ssh://git@192.168.100.191:10022/Just1Step/solidworks-mcp-server.git"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "os": [
+    "win32"
+  ],
   "scripts": {
-    "build": "tsc",
-    "start": "node dist/index.js",
-    "dev": "tsc --watch",
-    "test": "vitest run",
-    "test:acceptance": "vitest run --testTimeout 240000 --hookTimeout 240000 tests/acceptance/mcp-tools.acceptance.test.ts",
-    "test:watch": "vitest"
+    "build": ".\\scripts\\run-node.cmd .\\node_modules\\typescript\\bin\\tsc",
+    "bundle:bridge": ".\\scripts\\run-node.cmd .\\scripts\\bundle-bridge.mjs",
+    "pack:local": "npm pack",
+    "prepack": ".\\scripts\\run-node.cmd .\\scripts\\prepack.mjs",
+    "start": ".\\scripts\\run-node.cmd .\\dist\\index.js",
+    "dev": ".\\scripts\\run-node.cmd .\\node_modules\\typescript\\bin\\tsc --watch",
+    "test": ".\\scripts\\run-node.cmd .\\node_modules\\vitest\\vitest.mjs run",
+    "test:acceptance": ".\\scripts\\run-node.cmd .\\node_modules\\vitest\\vitest.mjs run --testTimeout 240000 --hookTimeout 240000 tests/acceptance/mcp-tools.acceptance.test.ts",
+    "test:watch": ".\\scripts\\run-node.cmd .\\node_modules\\vitest\\vitest.mjs"
   },
   "keywords": ["mcp", "solidworks", "cad", "automation"],
+  "publishConfig": {
+    "access": "public"
+  },
   "license": "MIT",
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.12.0",

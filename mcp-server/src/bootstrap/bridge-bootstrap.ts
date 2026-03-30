@@ -30,6 +30,8 @@ interface BridgeLaunchPlan {
   cwd: string;
 }
 
+const BRIDGE_ENV_ROOT = 'SOLIDWORKS_MCP_BRIDGE_ROOT';
+
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
@@ -48,14 +50,45 @@ function getMcpServerDir(): string {
   return path.resolve(moduleDir, '..', '..');
 }
 
+function getConfiguredBridgeRoot(): string | null {
+  const configuredRoot = process.env[BRIDGE_ENV_ROOT]?.trim();
+  if (!configuredRoot) {
+    return null;
+  }
+
+  return path.resolve(configuredRoot);
+}
+
+function getBundledBridgeDir(): string {
+  return path.resolve(getMcpServerDir(), 'vendor', 'bridge');
+}
+
 function getBridgeProjectDir(): string {
   return path.resolve(getMcpServerDir(), '..', 'bridge', 'SolidWorksBridge');
 }
 
-export function resolveBridgeLaunchPlan(): BridgeLaunchPlan {
-  const bridgeProjectDir = getBridgeProjectDir();
+function getBridgeSearchRoots(): string[] {
+  return Array.from(
+    new Set([
+      getConfiguredBridgeRoot(),
+      getBundledBridgeDir(),
+      getBridgeProjectDir(),
+    ].filter((root): root is string => Boolean(root))),
+  );
+}
+
+function resolveBridgeLaunchPlanFromRoot(bridgeRoot: string): BridgeLaunchPlan | null {
+  const packagedExe = path.join(bridgeRoot, 'SolidWorksBridge.exe');
+  if (fs.existsSync(packagedExe)) {
+    return {
+      command: packagedExe,
+      args: [],
+      cwd: path.dirname(packagedExe),
+    };
+  }
+
   const releaseExe = path.join(
-    bridgeProjectDir,
+    bridgeRoot,
     'bin',
     'Release',
     'net8.0-windows',
@@ -72,7 +105,7 @@ export function resolveBridgeLaunchPlan(): BridgeLaunchPlan {
   }
 
   const debugExe = path.join(
-    bridgeProjectDir,
+    bridgeRoot,
     'bin',
     'Debug',
     'net8.0-windows',
@@ -88,7 +121,7 @@ export function resolveBridgeLaunchPlan(): BridgeLaunchPlan {
     };
   }
 
-  const projectFile = path.join(bridgeProjectDir, 'SolidWorksBridge.csproj');
+  const projectFile = path.join(bridgeRoot, 'SolidWorksBridge.csproj');
   if (fs.existsSync(projectFile)) {
     return {
       command: 'dotnet',
@@ -97,8 +130,20 @@ export function resolveBridgeLaunchPlan(): BridgeLaunchPlan {
     };
   }
 
+  return null;
+}
+
+export function resolveBridgeLaunchPlan(): BridgeLaunchPlan {
+  const searchRoots = getBridgeSearchRoots();
+  for (const bridgeRoot of searchRoots) {
+    const plan = resolveBridgeLaunchPlanFromRoot(bridgeRoot);
+    if (plan) {
+      return plan;
+    }
+  }
+
   throw new Error(
-    `SolidWorks bridge launch target not found. Expected build output under ${bridgeProjectDir}. Run scripts\\deploy-local.bat first.`,
+    `SolidWorks bridge launch target not found. Checked: ${searchRoots.join(', ')}. Set ${BRIDGE_ENV_ROOT}, run scripts\\deploy-local.bat, or bundle the bridge into vendor\\bridge.`,
   );
 }
 

@@ -2,6 +2,7 @@
 node_modules/
 dist/
 *.tsbuildinfo
+*.tgz
 
 # .NET
 bin/
@@ -22,3 +23,6 @@ Thumbs.db
 
 # Logs
 *.log
+
+# Package artifacts
+mcp-server/vendor/

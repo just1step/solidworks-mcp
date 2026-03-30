@@ -1,10 +1,35 @@
-import { describe, expect, it, vi } from 'vitest';
+import * as fs from 'node:fs';
+import * as os from 'node:os';
+import * as path from 'node:path';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   ensureBridgeReady,
   ensurePipeClientReady,
+  resolveBridgeLaunchPlan,
 } from '../../src/bootstrap/bridge-bootstrap.js';
 
+afterEach(() => {
+  delete process.env.SOLIDWORKS_MCP_BRIDGE_ROOT;
+  vi.restoreAllMocks();
+});
+
 describe('bridge bootstrap', () => {
+  it('prefers a packaged bridge under SOLIDWORKS_MCP_BRIDGE_ROOT', () => {
+    const bridgeRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'solidworks-mcp-bridge-'));
+    const packagedExe = path.join(bridgeRoot, 'SolidWorksBridge.exe');
+
+    process.env.SOLIDWORKS_MCP_BRIDGE_ROOT = bridgeRoot;
+    fs.writeFileSync(packagedExe, '');
+
+    expect(resolveBridgeLaunchPlan()).toEqual({
+      command: packagedExe,
+      args: [],
+      cwd: bridgeRoot,
+    });
+
+    fs.rmSync(bridgeRoot, { recursive: true, force: true });
+  });
+
   it('does not start bridge when pipe is already ready', async () => {
     const startBridgeProcess = vi.fn<() => Promise<void>>().mockResolvedValue();
     const probePipe = vi.fn<() => Promise<boolean>>().mockResolvedValue(true);
