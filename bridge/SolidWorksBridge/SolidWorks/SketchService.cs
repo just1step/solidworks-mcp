@@ -19,6 +19,18 @@ public interface ISketchService
     /// <summary>Exit sketch edit mode.</summary>
     void FinishSketch();
 
+    /// <summary>Draw a point at (x,y) in sketch space (meters).</summary>
+    SketchEntityInfo AddPoint(double x, double y);
+
+    /// <summary>Draw an ellipse using center, major-axis point, and minor-axis point coordinates.</summary>
+    SketchEntityInfo AddEllipse(double cx, double cy, double majorX, double majorY, double minorX, double minorY);
+
+    /// <summary>Draw a regular polygon using center, one perimeter point, side count, and inscribed mode.</summary>
+    SketchEntityInfo AddPolygon(double cx, double cy, double x, double y, int sides, bool inscribed);
+
+    /// <summary>Insert sketch text at (x,y) using SolidWorks default text formatting.</summary>
+    SketchEntityInfo AddText(double x, double y, string text);
+
     /// <summary>Draw a line from (x1,y1) to (x2,y2) in sketch space (meters).</summary>
     SketchEntityInfo AddLine(double x1, double y1, double x2, double y2);
 
@@ -58,6 +70,49 @@ public class SketchService : ISketchService
         _cm.EnsureConnected();
         // InsertSketch(false) closes the sketch and exits edit mode
         GetSketchManager().InsertSketch(false);
+    }
+
+    public SketchEntityInfo AddPoint(double x, double y)
+    {
+        _cm.EnsureConnected();
+        var skm = GetSketchManager();
+        var point = skm.CreatePoint(x, y, 0)
+            ?? throw new InvalidOperationException("Failed to create sketch point");
+        return new SketchEntityInfo("Point", x, y, x, y);
+    }
+
+    public SketchEntityInfo AddEllipse(double cx, double cy, double majorX, double majorY, double minorX, double minorY)
+    {
+        _cm.EnsureConnected();
+        var skm = GetSketchManager();
+        var ellipse = skm.CreateEllipse(cx, cy, 0, majorX, majorY, 0, minorX, minorY, 0)
+            ?? throw new InvalidOperationException("Failed to create sketch ellipse");
+        return new SketchEntityInfo("Ellipse", cx, cy, majorX, majorY);
+    }
+
+    public SketchEntityInfo AddPolygon(double cx, double cy, double x, double y, int sides, bool inscribed)
+    {
+        _cm.EnsureConnected();
+        var skm = GetSketchManager();
+        var polygon = skm.CreatePolygon(cx, cy, 0, x, y, 0, sides, inscribed)
+            ?? throw new InvalidOperationException("Failed to create sketch polygon");
+        return new SketchEntityInfo("Polygon", cx, cy, x, y);
+    }
+
+    public SketchEntityInfo AddText(double x, double y, string text)
+    {
+        if (string.IsNullOrWhiteSpace(text))
+        {
+            throw new ArgumentException("text must not be empty", nameof(text));
+        }
+
+        _cm.EnsureConnected();
+        var doc = _cm.SwApp!.IActiveDoc2
+            ?? throw new InvalidOperationException(
+                "No active document. Open a document and select a face/plane first.");
+        var sketchText = doc.InsertSketchText(x, y, 0, text, 0, 0, 0, 100, 100)
+            ?? throw new InvalidOperationException("Failed to create sketch text");
+        return new SketchEntityInfo("Text", x, y, x, y);
     }
 
     public SketchEntityInfo AddLine(double x1, double y1, double x2, double y2)

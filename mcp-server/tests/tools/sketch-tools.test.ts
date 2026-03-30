@@ -4,6 +4,10 @@ import type { PipeResponse } from '../../src/types/solidworks.js';
 import {
   swInsertSketch,
   swFinishSketch,
+  swAddPoint,
+  swAddEllipse,
+  swAddPolygon,
+  swAddText,
   swAddLine,
   swAddCircle,
   swAddRectangle,
@@ -28,6 +32,10 @@ const fakeLine: SwSketchEntityInfo = { type: 'Line', id: 'line-1' };
 const fakeCircle: SwSketchEntityInfo = { type: 'Circle', id: 'circle-1' };
 const fakeRect: SwSketchEntityInfo = { type: 'Rectangle', id: 'rect-1' };
 const fakeArc: SwSketchEntityInfo = { type: 'Arc', id: 'arc-1' };
+const fakePoint: SwSketchEntityInfo = { type: 'Point', id: 'point-1' };
+const fakeEllipse: SwSketchEntityInfo = { type: 'Ellipse', id: 'ellipse-1' };
+const fakePolygon: SwSketchEntityInfo = { type: 'Polygon', id: 'polygon-1' };
+const fakeText: SwSketchEntityInfo = { type: 'Text', id: 'text-1' };
 
 // ── swInsertSketch ─────────────────────────────────────────────
 
@@ -56,6 +64,127 @@ describe('swFinishSketch', () => {
   it('throws when bridge returns error', async () => {
     const client = mockClient(null, { code: -32603, message: 'not in sketch mode' });
     await expect(swFinishSketch(client)).rejects.toThrow('sw.sketch.finish failed');
+  });
+});
+
+// ── swAddPoint ────────────────────────────────────────────────
+
+describe('swAddPoint', () => {
+  it('calls sw.sketch.add_point with coordinates', async () => {
+    const client = mockClient(fakePoint);
+    const result = await swAddPoint(client, { x: 0.01, y: 0.02 });
+    expect(result).toEqual(fakePoint);
+    expect(client.request).toHaveBeenCalledWith('sw.sketch.add_point', {
+      x: 0.01,
+      y: 0.02,
+    });
+  });
+
+  it('throws when bridge returns error', async () => {
+    const client = mockClient(null, { code: -32603, message: 'no sketch open' });
+    await expect(swAddPoint(client, { x: 0, y: 0 })).rejects.toThrow(
+      'sw.sketch.add_point failed',
+    );
+  });
+});
+
+// ── swAddEllipse ──────────────────────────────────────────────
+
+describe('swAddEllipse', () => {
+  it('calls sw.sketch.add_ellipse with center, major, and minor points', async () => {
+    const client = mockClient(fakeEllipse);
+    const result = await swAddEllipse(client, {
+      cx: 0,
+      cy: 0,
+      majorX: 0.03,
+      majorY: 0,
+      minorX: 0,
+      minorY: 0.01,
+    });
+    expect(result).toEqual(fakeEllipse);
+    expect(client.request).toHaveBeenCalledWith('sw.sketch.add_ellipse', {
+      cx: 0,
+      cy: 0,
+      majorX: 0.03,
+      majorY: 0,
+      minorX: 0,
+      minorY: 0.01,
+    });
+  });
+
+  it('throws when bridge returns error', async () => {
+    const client = mockClient(null, { code: -32603, message: 'no sketch open' });
+    await expect(swAddEllipse(client, {
+      cx: 0,
+      cy: 0,
+      majorX: 0.03,
+      majorY: 0,
+      minorX: 0,
+      minorY: 0.01,
+    })).rejects.toThrow('sw.sketch.add_ellipse failed');
+  });
+});
+
+// ── swAddPolygon ──────────────────────────────────────────────
+
+describe('swAddPolygon', () => {
+  it('calls sw.sketch.add_polygon with polygon parameters', async () => {
+    const client = mockClient(fakePolygon);
+    const result = await swAddPolygon(client, {
+      cx: 0,
+      cy: 0,
+      x: 0.02,
+      y: 0,
+      sides: 6,
+      inscribed: true,
+    });
+    expect(result).toEqual(fakePolygon);
+    expect(client.request).toHaveBeenCalledWith('sw.sketch.add_polygon', {
+      cx: 0,
+      cy: 0,
+      x: 0.02,
+      y: 0,
+      sides: 6,
+      inscribed: true,
+    });
+  });
+
+  it('throws when bridge returns error', async () => {
+    const client = mockClient(null, { code: -32603, message: 'no sketch open' });
+    await expect(swAddPolygon(client, {
+      cx: 0,
+      cy: 0,
+      x: 0.02,
+      y: 0,
+      sides: 6,
+      inscribed: true,
+    })).rejects.toThrow('sw.sketch.add_polygon failed');
+  });
+});
+
+// ── swAddText ─────────────────────────────────────────────────
+
+describe('swAddText', () => {
+  it('calls sw.sketch.add_text with anchor and content', async () => {
+    const client = mockClient(fakeText);
+    const result = await swAddText(client, {
+      x: 0.01,
+      y: 0.02,
+      text: 'HELLO',
+    });
+    expect(result).toEqual(fakeText);
+    expect(client.request).toHaveBeenCalledWith('sw.sketch.add_text', {
+      x: 0.01,
+      y: 0.02,
+      text: 'HELLO',
+    });
+  });
+
+  it('throws when bridge returns error', async () => {
+    const client = mockClient(null, { code: -32603, message: 'no sketch open' });
+    await expect(swAddText(client, { x: 0.01, y: 0.02, text: 'HELLO' })).rejects.toThrow(
+      'sw.sketch.add_text failed',
+    );
   });
 });
 

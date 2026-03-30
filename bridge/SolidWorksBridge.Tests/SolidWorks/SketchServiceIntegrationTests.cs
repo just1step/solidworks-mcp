@@ -44,6 +44,76 @@ public class SketchServiceIntegrationTests
 
     [Fact]
     [Trait("Category", "Integration")]
+    public void Integration_AddPoint_CreatesPointEntity()
+    {
+        var (sel, sketch) = RealServices();
+        sel.SelectByName("前视基准面", "PLANE");
+        sketch.InsertSketch();
+
+        var info = sketch.AddPoint(0.01, 0.02);
+        sketch.FinishSketch();
+
+        Assert.Equal("Point", info.Type);
+        Assert.Equal(0.01, info.X1, precision: 6);
+        Assert.Equal(0.02, info.Y1, precision: 6);
+        Assert.Equal(0.01, info.X2, precision: 6);
+        Assert.Equal(0.02, info.Y2, precision: 6);
+    }
+
+    [Fact]
+    [Trait("Category", "Integration")]
+    public void Integration_AddEllipse_CreatesEllipseEntity()
+    {
+        var (sel, sketch) = RealServices();
+        sel.SelectByName("前视基准面", "PLANE");
+        sketch.InsertSketch();
+
+        var info = sketch.AddEllipse(0, 0, 0.03, 0, 0, 0.01);
+        sketch.FinishSketch();
+
+        Assert.Equal("Ellipse", info.Type);
+        Assert.Equal(0, info.X1, precision: 6);
+        Assert.Equal(0, info.Y1, precision: 6);
+        Assert.Equal(0.03, info.X2, precision: 6);
+        Assert.Equal(0, info.Y2, precision: 6);
+    }
+
+    [Fact]
+    [Trait("Category", "Integration")]
+    public void Integration_AddPolygon_CreatesPolygonEntity()
+    {
+        var (sel, sketch) = RealServices();
+        sel.SelectByName("前视基准面", "PLANE");
+        sketch.InsertSketch();
+
+        var info = sketch.AddPolygon(0, 0, 0.02, 0, 6, true);
+        sketch.FinishSketch();
+
+        Assert.Equal("Polygon", info.Type);
+        Assert.Equal(0, info.X1, precision: 6);
+        Assert.Equal(0, info.Y1, precision: 6);
+        Assert.Equal(0.02, info.X2, precision: 6);
+        Assert.Equal(0, info.Y2, precision: 6);
+    }
+
+    [Fact]
+    [Trait("Category", "Integration")]
+    public void Integration_AddText_CreatesTextEntity()
+    {
+        var (sel, sketch) = RealServices();
+        sel.SelectByName("前视基准面", "PLANE");
+        sketch.InsertSketch();
+
+        var info = sketch.AddText(0.01, 0.02, "HELLO");
+        sketch.FinishSketch();
+
+        Assert.Equal("Text", info.Type);
+        Assert.Equal(0.01, info.X1, precision: 6);
+        Assert.Equal(0.02, info.Y1, precision: 6);
+    }
+
+    [Fact]
+    [Trait("Category", "Integration")]
     public void Integration_AddLine_CreatesLineEntity()
     {
         // Expected: a line from (0,0) to (0.05, 0) returns SketchEntityInfo with correct coords

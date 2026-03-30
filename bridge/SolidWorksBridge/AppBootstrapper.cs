@@ -157,6 +157,38 @@ public class AppBootstrapper
             return Task.FromResult<object?>(new { editing = false });
         });
 
+        _messageHandler.Register("sw.sketch.add_point", req =>
+        {
+            var p = req.GetParams<AddPointParams>()
+                ?? throw new ArgumentException("params required: {x,y}");
+            var info = _sketchService.AddPoint(p.X, p.Y);
+            return Task.FromResult<object?>(info);
+        });
+
+        _messageHandler.Register("sw.sketch.add_ellipse", req =>
+        {
+            var p = req.GetParams<AddEllipseParams>()
+                ?? throw new ArgumentException("params required: {cx,cy,majorX,majorY,minorX,minorY}");
+            var info = _sketchService.AddEllipse(p.Cx, p.Cy, p.MajorX, p.MajorY, p.MinorX, p.MinorY);
+            return Task.FromResult<object?>(info);
+        });
+
+        _messageHandler.Register("sw.sketch.add_polygon", req =>
+        {
+            var p = req.GetParams<AddPolygonParams>()
+                ?? throw new ArgumentException("params required: {cx,cy,x,y,sides,inscribed}");
+            var info = _sketchService.AddPolygon(p.Cx, p.Cy, p.X, p.Y, p.Sides, p.Inscribed);
+            return Task.FromResult<object?>(info);
+        });
+
+        _messageHandler.Register("sw.sketch.add_text", req =>
+        {
+            var p = req.GetParams<AddTextParams>()
+                ?? throw new ArgumentException("params required: {x,y,text}");
+            var info = _sketchService.AddText(p.X, p.Y, p.Text);
+            return Task.FromResult<object?>(info);
+        });
+
         _messageHandler.Register("sw.sketch.add_line", req =>
         {
             var p = req.GetParams<AddLineParams>()
@@ -358,6 +390,39 @@ public class AppBootstrapper
         [System.Text.Json.Serialization.JsonPropertyName("y1")] public double Y1 { get; set; }
         [System.Text.Json.Serialization.JsonPropertyName("x2")] public double X2 { get; set; }
         [System.Text.Json.Serialization.JsonPropertyName("y2")] public double Y2 { get; set; }
+    }
+
+    public class AddPointParams
+    {
+        [System.Text.Json.Serialization.JsonPropertyName("x")] public double X { get; set; }
+        [System.Text.Json.Serialization.JsonPropertyName("y")] public double Y { get; set; }
+    }
+
+    public class AddEllipseParams
+    {
+        [System.Text.Json.Serialization.JsonPropertyName("cx")] public double Cx { get; set; }
+        [System.Text.Json.Serialization.JsonPropertyName("cy")] public double Cy { get; set; }
+        [System.Text.Json.Serialization.JsonPropertyName("majorX")] public double MajorX { get; set; }
+        [System.Text.Json.Serialization.JsonPropertyName("majorY")] public double MajorY { get; set; }
+        [System.Text.Json.Serialization.JsonPropertyName("minorX")] public double MinorX { get; set; }
+        [System.Text.Json.Serialization.JsonPropertyName("minorY")] public double MinorY { get; set; }
+    }
+
+    public class AddPolygonParams
+    {
+        [System.Text.Json.Serialization.JsonPropertyName("cx")] public double Cx { get; set; }
+        [System.Text.Json.Serialization.JsonPropertyName("cy")] public double Cy { get; set; }
+        [System.Text.Json.Serialization.JsonPropertyName("x")] public double X { get; set; }
+        [System.Text.Json.Serialization.JsonPropertyName("y")] public double Y { get; set; }
+        [System.Text.Json.Serialization.JsonPropertyName("sides")] public int Sides { get; set; }
+        [System.Text.Json.Serialization.JsonPropertyName("inscribed")] public bool Inscribed { get; set; } = true;
+    }
+
+    public class AddTextParams
+    {
+        [System.Text.Json.Serialization.JsonPropertyName("x")] public double X { get; set; }
+        [System.Text.Json.Serialization.JsonPropertyName("y")] public double Y { get; set; }
+        [System.Text.Json.Serialization.JsonPropertyName("text")] public string Text { get; set; } = string.Empty;
     }
 
     public class AddCircleParams

@@ -99,6 +99,145 @@ public class SketchServiceTests
     }
 
     // ─────────────────────────────────────────────────────────────
+    // AddPoint
+    // ─────────────────────────────────────────────────────────────
+
+    [Fact]
+    public void AddPoint_ReturnsPointInfo_WithCorrectCoordinates()
+    {
+        var (manager, _, skm) = ConnectedWithSketchMgr();
+        var point = new Mock<SketchPoint>().Object;
+        skm.Setup(s => s.CreatePoint(0.01, 0.02, 0)).Returns(point);
+
+        var info = new SketchService(manager.Object).AddPoint(0.01, 0.02);
+
+        Assert.Equal("Point", info.Type);
+        Assert.Equal(0.01, info.X1);
+        Assert.Equal(0.02, info.Y1);
+        Assert.Equal(0.01, info.X2);
+        Assert.Equal(0.02, info.Y2);
+    }
+
+    [Fact]
+    public void AddPoint_NullReturnFromCom_Throws()
+    {
+        var (manager, _, skm) = ConnectedWithSketchMgr();
+        skm.Setup(s => s.CreatePoint(It.IsAny<double>(), It.IsAny<double>(), It.IsAny<double>()))
+            .Returns((SketchPoint?)null!);
+
+        Assert.Throws<InvalidOperationException>(() => new SketchService(manager.Object).AddPoint(0, 0));
+    }
+
+    // ─────────────────────────────────────────────────────────────
+    // AddEllipse
+    // ─────────────────────────────────────────────────────────────
+
+    [Fact]
+    public void AddEllipse_ReturnsEllipseInfo_WithCorrectCoordinates()
+    {
+        var (manager, _, skm) = ConnectedWithSketchMgr();
+        var seg = new Mock<SketchSegment>().Object;
+        skm.Setup(s => s.CreateEllipse(0, 0, 0, 0.03, 0, 0, 0, 0.01, 0)).Returns(seg);
+
+        var info = new SketchService(manager.Object).AddEllipse(0, 0, 0.03, 0, 0, 0.01);
+
+        Assert.Equal("Ellipse", info.Type);
+        Assert.Equal(0, info.X1);
+        Assert.Equal(0, info.Y1);
+        Assert.Equal(0.03, info.X2);
+        Assert.Equal(0, info.Y2);
+    }
+
+    [Fact]
+    public void AddEllipse_NullReturnFromCom_Throws()
+    {
+        var (manager, _, skm) = ConnectedWithSketchMgr();
+        skm.Setup(s => s.CreateEllipse(
+                It.IsAny<double>(), It.IsAny<double>(), It.IsAny<double>(),
+                It.IsAny<double>(), It.IsAny<double>(), It.IsAny<double>(),
+                It.IsAny<double>(), It.IsAny<double>(), It.IsAny<double>()))
+            .Returns((SketchSegment?)null!);
+
+        Assert.Throws<InvalidOperationException>(() => new SketchService(manager.Object).AddEllipse(0, 0, 0.03, 0, 0, 0.01));
+    }
+
+    // ─────────────────────────────────────────────────────────────
+    // AddPolygon
+    // ─────────────────────────────────────────────────────────────
+
+    [Fact]
+    public void AddPolygon_ReturnsPolygonInfo_WithCorrectCoordinates()
+    {
+        var (manager, _, skm) = ConnectedWithSketchMgr();
+        skm.Setup(s => s.CreatePolygon(0, 0, 0, 0.02, 0, 0, 6, true)).Returns(new object());
+
+        var info = new SketchService(manager.Object).AddPolygon(0, 0, 0.02, 0, 6, true);
+
+        Assert.Equal("Polygon", info.Type);
+        Assert.Equal(0, info.X1);
+        Assert.Equal(0, info.Y1);
+        Assert.Equal(0.02, info.X2);
+        Assert.Equal(0, info.Y2);
+    }
+
+    [Fact]
+    public void AddPolygon_NullReturnFromCom_Throws()
+    {
+        var (manager, _, skm) = ConnectedWithSketchMgr();
+        skm.Setup(s => s.CreatePolygon(
+                It.IsAny<double>(), It.IsAny<double>(), It.IsAny<double>(),
+                It.IsAny<double>(), It.IsAny<double>(), It.IsAny<double>(),
+                It.IsAny<int>(), It.IsAny<bool>()))
+            .Returns((object?)null!);
+
+        Assert.Throws<InvalidOperationException>(() => new SketchService(manager.Object).AddPolygon(0, 0, 0.02, 0, 6, true));
+    }
+
+    // ─────────────────────────────────────────────────────────────
+    // AddText
+    // ─────────────────────────────────────────────────────────────
+
+    [Fact]
+    public void AddText_ReturnsTextInfo_WithCorrectCoordinates()
+    {
+        var (manager, swApp, _) = ConnectedWithSketchMgr();
+        var doc = new Mock<IModelDoc2>();
+        swApp.Setup(s => s.IActiveDoc2).Returns(doc.Object);
+        doc.Setup(d => d.InsertSketchText(0.01, 0.02, 0, "HELLO", 0, 0, 0, 100, 100))
+            .Returns(new object());
+
+        var info = new SketchService(manager.Object).AddText(0.01, 0.02, "HELLO");
+
+        Assert.Equal("Text", info.Type);
+        Assert.Equal(0.01, info.X1);
+        Assert.Equal(0.02, info.Y1);
+        Assert.Equal(0.01, info.X2);
+        Assert.Equal(0.02, info.Y2);
+    }
+
+    [Fact]
+    public void AddText_EmptyText_Throws()
+    {
+        var (manager, _, _) = ConnectedWithSketchMgr();
+
+        Assert.Throws<ArgumentException>(() => new SketchService(manager.Object).AddText(0, 0, ""));
+    }
+
+    [Fact]
+    public void AddText_NullReturnFromCom_Throws()
+    {
+        var (manager, swApp, _) = ConnectedWithSketchMgr();
+        var doc = new Mock<IModelDoc2>();
+        swApp.Setup(s => s.IActiveDoc2).Returns(doc.Object);
+        doc.Setup(d => d.InsertSketchText(
+                It.IsAny<double>(), It.IsAny<double>(), It.IsAny<double>(), It.IsAny<string>(),
+                It.IsAny<int>(), It.IsAny<int>(), It.IsAny<int>(), It.IsAny<int>(), It.IsAny<int>()))
+            .Returns((object?)null!);
+
+        Assert.Throws<InvalidOperationException>(() => new SketchService(manager.Object).AddText(0, 0, "HELLO"));
+    }
+
+    // ─────────────────────────────────────────────────────────────
     // AddLine
     // ─────────────────────────────────────────────────────────────
 

@@ -32,6 +32,10 @@ const expectedTools = [
   'sw_clear_selection',
   'sw_insert_sketch',
   'sw_finish_sketch',
+  'sw_add_point',
+  'sw_add_ellipse',
+  'sw_add_polygon',
+  'sw_add_text',
   'sw_add_line',
   'sw_add_circle',
   'sw_add_rectangle',
@@ -144,6 +148,32 @@ describe.sequential('SolidWorks MCP acceptance', () => {
 
     const insert = await callJsonTool('sw_insert_sketch', {});
     expect(insert.ok).toBe(true);
+
+    const point = await callJsonTool('sw_add_point', { x: 0.01, y: 0.01 });
+    expect(point.type).toBe('Point');
+
+    const ellipse = await callJsonTool('sw_add_ellipse', {
+      cx: 0,
+      cy: 0,
+      majorX: 0.025,
+      majorY: 0,
+      minorX: 0,
+      minorY: 0.01,
+    });
+    expect(ellipse.type).toBe('Ellipse');
+
+    const polygon = await callJsonTool('sw_add_polygon', {
+      cx: 0,
+      cy: 0,
+      x: 0.02,
+      y: 0,
+      sides: 6,
+      inscribed: true,
+    });
+    expect(polygon.type).toBe('Polygon');
+
+    const text = await callJsonTool('sw_add_text', { x: -0.01, y: 0.015, text: 'HELLO' });
+    expect(text.type).toBe('Text');
 
     const line = await callJsonTool('sw_add_line', { x1: 0, y1: 0, x2: 0.05, y2: 0 });
     expect(line.type).toBe('Line');

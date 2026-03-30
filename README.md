@@ -552,6 +552,23 @@ MCP: Open User Configuration
 	作用：退出当前草图。
 	输入：无。
 
+- `sw_add_point`
+	作用：添加草图点。
+	输入：`x`, `y`
+
+- `sw_add_ellipse`
+	作用：添加草图椭圆。
+	输入：`cx`, `cy`, `majorX`, `majorY`, `minorX`, `minorY`
+
+- `sw_add_polygon`
+	作用：添加正多边形。
+	输入：`cx`, `cy`, `x`, `y`, `sides`, `inscribed`
+	约束：`sides` 必须大于等于 `3`
+
+- `sw_add_text`
+	作用：添加草图文本。
+	输入：`x`, `y`, `text`
+
 - `sw_add_line`
 	作用：添加草图线段。
 	输入：`x1`, `y1`, `x2`, `y2`
@@ -652,7 +669,7 @@ MCP: Open User Configuration
 2. `sw_new_document` with `type=Part`
 3. `sw_select_by_name` 选择草图平面
 4. `sw_insert_sketch`
-5. `sw_add_line` / `sw_add_circle` / `sw_add_rectangle` / `sw_add_arc`
+5. `sw_add_point` / `sw_add_ellipse` / `sw_add_polygon` / `sw_add_text` / `sw_add_line` / `sw_add_circle` / `sw_add_rectangle` / `sw_add_arc`
 6. 直接调用 `sw_extrude` 或 `sw_extrude_cut`
 
 注意：对于当前实现，`sw_extrude` 和 `sw_extrude_cut` 应在草图仍处于编辑状态时调用，不应默认先执行 `sw_finish_sketch`。

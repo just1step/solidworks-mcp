@@ -42,12 +42,20 @@ import {
 import {
   InsertSketchSchema,
   FinishSketchSchema,
+  AddPointSchema,
+  AddEllipseSchema,
+  AddPolygonSchema,
+  AddTextSchema,
   AddLineSchema,
   AddCircleSchema,
   AddRectangleSchema,
   AddArcSchema,
   swInsertSketch,
   swFinishSketch,
+  swAddPoint,
+  swAddEllipse,
+  swAddPolygon,
+  swAddText,
   swAddLine,
   swAddCircle,
   swAddRectangle,
@@ -112,6 +120,10 @@ const TOOLS = [
   // Sketch
   { name: 'sw_insert_sketch', description: 'Open a new sketch on the currently selected plane or face', inputSchema: InsertSketchSchema },
   { name: 'sw_finish_sketch', description: 'Close (finish) the currently open sketch', inputSchema: FinishSketchSchema },
+  { name: 'sw_add_point', description: 'Add a point to the open sketch', inputSchema: AddPointSchema },
+  { name: 'sw_add_ellipse', description: 'Add an ellipse to the open sketch', inputSchema: AddEllipseSchema },
+  { name: 'sw_add_polygon', description: 'Add a regular polygon to the open sketch', inputSchema: AddPolygonSchema },
+  { name: 'sw_add_text', description: 'Add text to the open sketch', inputSchema: AddTextSchema },
   { name: 'sw_add_line', description: 'Add a line segment to the open sketch', inputSchema: AddLineSchema },
   { name: 'sw_add_circle', description: 'Add a circle to the open sketch', inputSchema: AddCircleSchema },
   { name: 'sw_add_rectangle', description: 'Add a rectangle to the open sketch', inputSchema: AddRectangleSchema },
@@ -228,6 +240,10 @@ async function main(): Promise<void> {
         // Sketch
         case 'sw_insert_sketch': await swInsertSketch(client); result = { ok: true }; break;
         case 'sw_finish_sketch': await swFinishSketch(client); result = { ok: true }; break;
+        case 'sw_add_point':     result = await swAddPoint(client, AddPointSchema.parse(params)); break;
+        case 'sw_add_ellipse':   result = await swAddEllipse(client, AddEllipseSchema.parse(params)); break;
+        case 'sw_add_polygon':   result = await swAddPolygon(client, AddPolygonSchema.parse(params)); break;
+        case 'sw_add_text':      result = await swAddText(client, AddTextSchema.parse(params)); break;
         case 'sw_add_line':      result = await swAddLine(client, AddLineSchema.parse(params)); break;
         case 'sw_add_circle':    result = await swAddCircle(client, AddCircleSchema.parse(params)); break;
         case 'sw_add_rectangle': result = await swAddRectangle(client, AddRectangleSchema.parse(params)); break;
