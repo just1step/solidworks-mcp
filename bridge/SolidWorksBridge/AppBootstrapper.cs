@@ -1,0 +1,440 @@
+using System.Text.Json;
+using SolidWorksBridge.Models;
+using SolidWorksBridge.PipeServer;
+using SolidWorksBridge.SolidWorks;
+
+namespace SolidWorksBridge;
+
+/// <summary>
+/// Wires all application dependencies and registers pipe method handlers.
+/// Extracted from Program.cs to make the wiring logic unit-testable without
+/// starting a real pipe server or connecting to SolidWorks.
+/// </summary>
+public class AppBootstrapper
+{
+    private readonly ISwConnectionManager _connectionManager;
+    private readonly IDocumentService _documentService;
+    private readonly ISelectionService _selectionService;
+    private readonly ISketchService _sketchService;
+    private readonly IFeatureService _featureService;
+    private readonly IAssemblyService _assemblyService;
+    private readonly MessageHandler _messageHandler;
+
+    public AppBootstrapper(
+        ISwConnectionManager connectionManager,
+        IDocumentService documentService,
+        ISelectionService selectionService,
+        ISketchService sketchService,
+        IFeatureService featureService,
+        IAssemblyService assemblyService,
+        MessageHandler messageHandler)
+    {
+        _connectionManager = connectionManager
+            ?? throw new ArgumentNullException(nameof(connectionManager));
+        _documentService = documentService
+            ?? throw new ArgumentNullException(nameof(documentService));
+        _selectionService = selectionService
+            ?? throw new ArgumentNullException(nameof(selectionService));
+        _sketchService = sketchService
+            ?? throw new ArgumentNullException(nameof(sketchService));
+        _featureService = featureService
+            ?? throw new ArgumentNullException(nameof(featureService));
+        _assemblyService = assemblyService
+            ?? throw new ArgumentNullException(nameof(assemblyService));
+        _messageHandler = messageHandler
+            ?? throw new ArgumentNullException(nameof(messageHandler));
+    }
+
+    /// <summary>
+    /// Register all pipe method handlers onto the MessageHandler.
+    /// Called once at startup before the pipe server starts accepting connections.
+    /// </summary>
+    public void RegisterHandlers()
+    {
+        // ── Connection ────────────────────────────────────────────
+        _messageHandler.Register("sw.connect", _ =>
+        {
+            _connectionManager.Connect();
+            return Task.FromResult<object?>(new { connected = true });
+        });
+
+        _messageHandler.Register("sw.disconnect", _ =>
+        {
+            _connectionManager.Disconnect();
+            return Task.FromResult<object?>(new { connected = false });
+        });
+
+        // ── Document lifecycle ────────────────────────────────────
+        _messageHandler.Register("sw.new_document", req =>
+        {
+            var p = req.GetParams<NewDocumentParams>()
+                ?? throw new ArgumentException("params required: {type, templatePath?}");
+
+            var docType = ParseDocType(p.Type);
+            var doc = _documentService.NewDocument(docType, p.TemplatePath);
+            return Task.FromResult<object?>(doc);
+        });
+
+        _messageHandler.Register("sw.open_document", req =>
+        {
+            var p = req.GetParams<PathParams>()
+                ?? throw new ArgumentException("params required: {path}");
+
+            var doc = _documentService.OpenDocument(p.Path);
+            return Task.FromResult<object?>(doc);
+        });
+
+        _messageHandler.Register("sw.close_document", req =>
+        {
+            var p = req.GetParams<PathParams>()
+                ?? throw new ArgumentException("params required: {path}");
+
+            _documentService.CloseDocument(p.Path);
+            return Task.FromResult<object?>(new { closed = true });
+        });
+
+        _messageHandler.Register("sw.save_document", req =>
+        {
+            var p = req.GetParams<PathParams>()
+                ?? throw new ArgumentException("params required: {path}");
+
+            _documentService.SaveDocument(p.Path);
+            return Task.FromResult<object?>(new { saved = true });
+        });
+
+        _messageHandler.Register("sw.list_documents", _ =>
+        {
+            var docs = _documentService.ListDocuments();
+            return Task.FromResult<object?>(docs);
+        });
+
+        _messageHandler.Register("sw.get_active_document", _ =>
+        {
+            var doc = _documentService.GetActiveDocument();
+            return Task.FromResult<object?>(doc);
+        });
+
+        // ── Selection ─────────────────────────────────────────────
+        _messageHandler.Register("sw.select.by_name", req =>
+        {
+            var p = req.GetParams<SelectByNameParams>()
+                ?? throw new ArgumentException("params required: {name, selType}");
+            var result = _selectionService.SelectByName(p.Name, p.SelType);
+            return Task.FromResult<object?>(result);
+        });
+
+        _messageHandler.Register("sw.select.clear", _ =>
+        {
+            _selectionService.ClearSelection();
+            return Task.FromResult<object?>(new { cleared = true });
+        });
+
+        // ── Sketch ────────────────────────────────────────────────
+        _messageHandler.Register("sw.sketch.insert", _ =>
+        {
+            _sketchService.InsertSketch();
+            return Task.FromResult<object?>(new { editing = true });
+        });
+
+        _messageHandler.Register("sw.sketch.finish", _ =>
+        {
+            _sketchService.FinishSketch();
+            return Task.FromResult<object?>(new { editing = false });
+        });
+
+        _messageHandler.Register("sw.sketch.add_line", req =>
+        {
+            var p = req.GetParams<AddLineParams>()
+                ?? throw new ArgumentException("params required: {x1,y1,x2,y2}");
+            var info = _sketchService.AddLine(p.X1, p.Y1, p.X2, p.Y2);
+            return Task.FromResult<object?>(info);
+        });
+
+        _messageHandler.Register("sw.sketch.add_circle", req =>
+        {
+            var p = req.GetParams<AddCircleParams>()
+                ?? throw new ArgumentException("params required: {cx,cy,radius}");
+            var info = _sketchService.AddCircle(p.Cx, p.Cy, p.Radius);
+            return Task.FromResult<object?>(info);
+        });
+
+        _messageHandler.Register("sw.sketch.add_rectangle", req =>
+        {
+            var p = req.GetParams<AddRectangleParams>()
+                ?? throw new ArgumentException("params required: {x1,y1,x2,y2}");
+            var info = _sketchService.AddRectangle(p.X1, p.Y1, p.X2, p.Y2);
+            return Task.FromResult<object?>(info);
+        });
+
+        _messageHandler.Register("sw.sketch.add_arc", req =>
+        {
+            var p = req.GetParams<AddArcParams>()
+                ?? throw new ArgumentException("params required: {cx,cy,x1,y1,x2,y2,direction}");
+            var info = _sketchService.AddArc(p.Cx, p.Cy, p.X1, p.Y1, p.X2, p.Y2, p.Direction);
+            return Task.FromResult<object?>(info);
+        });
+
+        // ── Feature ───────────────────────────────────────────────
+        _messageHandler.Register("sw.feature.extrude", req =>
+        {
+            var p = req.GetParams<ExtrudeParams>()
+                ?? throw new ArgumentException("params required: {depth, endCondition?, flipDirection?}");
+            var info = _featureService.Extrude(p.Depth, p.EndCondition, p.FlipDirection);
+            return Task.FromResult<object?>(info);
+        });
+
+        _messageHandler.Register("sw.feature.extrude_cut", req =>
+        {
+            var p = req.GetParams<ExtrudeParams>()
+                ?? throw new ArgumentException("params required: {depth, endCondition?, flipDirection?}");
+            var info = _featureService.ExtrudeCut(p.Depth, p.EndCondition, p.FlipDirection);
+            return Task.FromResult<object?>(info);
+        });
+
+        _messageHandler.Register("sw.feature.revolve", req =>
+        {
+            var p = req.GetParams<RevolveParams>()
+                ?? throw new ArgumentException("params required: {angleDegrees, isCut?}");
+            var info = _featureService.Revolve(p.AngleDegrees, p.IsCut);
+            return Task.FromResult<object?>(info);
+        });
+
+        _messageHandler.Register("sw.feature.fillet", req =>
+        {
+            var p = req.GetParams<RadiusParams>()
+                ?? throw new ArgumentException("params required: {radius}");
+            var info = _featureService.Fillet(p.Radius);
+            return Task.FromResult<object?>(info);
+        });
+
+        _messageHandler.Register("sw.feature.chamfer", req =>
+        {
+            var p = req.GetParams<ChamferParams>()
+                ?? throw new ArgumentException("params required: {distance}");
+            var info = _featureService.Chamfer(p.Distance);
+            return Task.FromResult<object?>(info);
+        });
+
+        _messageHandler.Register("sw.feature.shell", req =>
+        {
+            var p = req.GetParams<ShellParams>()
+                ?? throw new ArgumentException("params required: {thickness}");
+            var info = _featureService.Shell(p.Thickness);
+            return Task.FromResult<object?>(info);
+        });
+
+        _messageHandler.Register("sw.feature.simple_hole", req =>
+        {
+            var p = req.GetParams<SimpleHoleParams>()
+                ?? throw new ArgumentException("params required: {diameter, depth, endCondition?}");
+            var info = _featureService.SimpleHole(p.Diameter, p.Depth, p.EndCondition);
+            return Task.FromResult<object?>(info);
+        });
+
+        // ── Assembly ──────────────────────────────────────────────
+        _messageHandler.Register("sw.assembly.insert_component", req =>
+        {
+            var p = req.GetParams<InsertComponentParams>()
+                ?? throw new ArgumentException("params required: {filePath, x?, y?, z?}");
+            var info = _assemblyService.InsertComponent(p.FilePath, p.X, p.Y, p.Z);
+            return Task.FromResult<object?>(info);
+        });
+
+        _messageHandler.Register("sw.assembly.add_mate_coincident", req =>
+        {
+            var p = req.GetParams<MateAlignParams>() ?? new MateAlignParams();
+            _assemblyService.AddMateCoincident(p.Align);
+            return Task.FromResult<object?>(new { added = true });
+        });
+
+        _messageHandler.Register("sw.assembly.add_mate_concentric", req =>
+        {
+            var p = req.GetParams<MateAlignParams>() ?? new MateAlignParams();
+            _assemblyService.AddMateConcentric(p.Align);
+            return Task.FromResult<object?>(new { added = true });
+        });
+
+        _messageHandler.Register("sw.assembly.add_mate_parallel", req =>
+        {
+            var p = req.GetParams<MateAlignParams>() ?? new MateAlignParams();
+            _assemblyService.AddMateParallel(p.Align);
+            return Task.FromResult<object?>(new { added = true });
+        });
+
+        _messageHandler.Register("sw.assembly.add_mate_distance", req =>
+        {
+            var p = req.GetParams<MateDistanceParams>()
+                ?? throw new ArgumentException("params required: {distance}");
+            _assemblyService.AddMateDistance(p.Distance, p.Align);
+            return Task.FromResult<object?>(new { added = true });
+        });
+
+        _messageHandler.Register("sw.assembly.add_mate_angle", req =>
+        {
+            var p = req.GetParams<MateAngleParams>()
+                ?? throw new ArgumentException("params required: {angleDegrees}");
+            _assemblyService.AddMateAngle(p.AngleDegrees, p.Align);
+            return Task.FromResult<object?>(new { added = true });
+        });
+
+        _messageHandler.Register("sw.assembly.list_components", _ =>
+        {
+            var list = _assemblyService.ListComponents();
+            return Task.FromResult<object?>(list);
+        });
+    }
+
+    // ── Param DTOs ────────────────────────────────────────────────
+
+    public class NewDocumentParams
+    {
+        [System.Text.Json.Serialization.JsonPropertyName("type")]
+        public string Type { get; set; } = "Part";
+
+        [System.Text.Json.Serialization.JsonPropertyName("templatePath")]
+        public string? TemplatePath { get; set; }
+    }
+
+    public class PathParams
+    {
+        [System.Text.Json.Serialization.JsonPropertyName("path")]
+        public string Path { get; set; } = string.Empty;
+    }
+
+    public class SelectByNameParams
+    {
+        [System.Text.Json.Serialization.JsonPropertyName("name")]
+        public string Name { get; set; } = string.Empty;
+
+        [System.Text.Json.Serialization.JsonPropertyName("selType")]
+        public string SelType { get; set; } = string.Empty;
+    }
+
+    public class AddLineParams
+    {
+        [System.Text.Json.Serialization.JsonPropertyName("x1")] public double X1 { get; set; }
+        [System.Text.Json.Serialization.JsonPropertyName("y1")] public double Y1 { get; set; }
+        [System.Text.Json.Serialization.JsonPropertyName("x2")] public double X2 { get; set; }
+        [System.Text.Json.Serialization.JsonPropertyName("y2")] public double Y2 { get; set; }
+    }
+
+    public class AddCircleParams
+    {
+        [System.Text.Json.Serialization.JsonPropertyName("cx")] public double Cx { get; set; }
+        [System.Text.Json.Serialization.JsonPropertyName("cy")] public double Cy { get; set; }
+        [System.Text.Json.Serialization.JsonPropertyName("radius")] public double Radius { get; set; }
+    }
+
+    public class AddRectangleParams
+    {
+        [System.Text.Json.Serialization.JsonPropertyName("x1")] public double X1 { get; set; }
+        [System.Text.Json.Serialization.JsonPropertyName("y1")] public double Y1 { get; set; }
+        [System.Text.Json.Serialization.JsonPropertyName("x2")] public double X2 { get; set; }
+        [System.Text.Json.Serialization.JsonPropertyName("y2")] public double Y2 { get; set; }
+    }
+
+    public class AddArcParams
+    {
+        [System.Text.Json.Serialization.JsonPropertyName("cx")] public double Cx { get; set; }
+        [System.Text.Json.Serialization.JsonPropertyName("cy")] public double Cy { get; set; }
+        [System.Text.Json.Serialization.JsonPropertyName("x1")] public double X1 { get; set; }
+        [System.Text.Json.Serialization.JsonPropertyName("y1")] public double Y1 { get; set; }
+        [System.Text.Json.Serialization.JsonPropertyName("x2")] public double X2 { get; set; }
+        [System.Text.Json.Serialization.JsonPropertyName("y2")] public double Y2 { get; set; }
+        [System.Text.Json.Serialization.JsonPropertyName("direction")] public int Direction { get; set; } = 1;
+    }
+
+    public class ExtrudeParams
+    {
+        [System.Text.Json.Serialization.JsonPropertyName("depth")] public double Depth { get; set; }
+        [System.Text.Json.Serialization.JsonPropertyName("endCondition")] public EndCondition EndCondition { get; set; } = EndCondition.Blind;
+        [System.Text.Json.Serialization.JsonPropertyName("flipDirection")] public bool FlipDirection { get; set; }
+    }
+
+    public class RevolveParams
+    {
+        [System.Text.Json.Serialization.JsonPropertyName("angleDegrees")] public double AngleDegrees { get; set; } = 360;
+        [System.Text.Json.Serialization.JsonPropertyName("isCut")] public bool IsCut { get; set; }
+    }
+
+    public class RadiusParams
+    {
+        [System.Text.Json.Serialization.JsonPropertyName("radius")] public double Radius { get; set; }
+    }
+
+    public class ChamferParams
+    {
+        [System.Text.Json.Serialization.JsonPropertyName("distance")] public double Distance { get; set; }
+    }
+
+    public class ShellParams
+    {
+        [System.Text.Json.Serialization.JsonPropertyName("thickness")] public double Thickness { get; set; }
+    }
+
+    public class SimpleHoleParams
+    {
+        [System.Text.Json.Serialization.JsonPropertyName("diameter")] public double Diameter { get; set; }
+        [System.Text.Json.Serialization.JsonPropertyName("depth")] public double Depth { get; set; }
+        [System.Text.Json.Serialization.JsonPropertyName("endCondition")] public EndCondition EndCondition { get; set; } = EndCondition.Blind;
+    }
+
+    public class InsertComponentParams
+    {
+        [System.Text.Json.Serialization.JsonPropertyName("filePath")] public string FilePath { get; set; } = string.Empty;
+        [System.Text.Json.Serialization.JsonPropertyName("x")] public double X { get; set; }
+        [System.Text.Json.Serialization.JsonPropertyName("y")] public double Y { get; set; }
+        [System.Text.Json.Serialization.JsonPropertyName("z")] public double Z { get; set; }
+    }
+
+    public class MateAlignParams
+    {
+        [System.Text.Json.Serialization.JsonPropertyName("align")] public MateAlign Align { get; set; } = MateAlign.Closest;
+    }
+
+    public class MateDistanceParams
+    {
+        [System.Text.Json.Serialization.JsonPropertyName("distance")] public double Distance { get; set; }
+        [System.Text.Json.Serialization.JsonPropertyName("align")] public MateAlign Align { get; set; } = MateAlign.Closest;
+    }
+
+    public class MateAngleParams
+    {
+        [System.Text.Json.Serialization.JsonPropertyName("angleDegrees")] public double AngleDegrees { get; set; }
+        [System.Text.Json.Serialization.JsonPropertyName("align")] public MateAlign Align { get; set; } = MateAlign.Closest;
+    }
+
+    // ── Helpers ───────────────────────────────────────────────────
+
+    private static SwDocType ParseDocType(string type) =>
+        type.ToLowerInvariant() switch
+        {
+            "part" or "1" => SwDocType.Part,
+            "assembly" or "2" => SwDocType.Assembly,
+            "drawing" or "3" => SwDocType.Drawing,
+            _ => throw new ArgumentException($"Unknown document type: '{type}'. Use Part, Assembly, or Drawing.")
+        };
+
+    /// <summary>
+    /// Factory: create a production AppBootstrapper with real implementations.
+    /// </summary>
+    public static AppBootstrapper CreateProduction()
+    {
+        var connector = new SwComConnector();
+        var connectionManager = new SwConnectionManager(connector);
+        var documentService = new DocumentService(connectionManager);
+        var selectionService = new SelectionService(connectionManager);
+        var sketchService = new SketchService(connectionManager);
+        var featureService = new FeatureService(connectionManager);
+        var assemblyService = new AssemblyService(connectionManager);
+        var messageHandler = new MessageHandler();
+
+        return new AppBootstrapper(
+            connectionManager, documentService,
+            selectionService, sketchService, featureService, assemblyService,
+            messageHandler);
+    }
+
+    /// <summary>Expose the wired MessageHandler for use by PipeServerManager.</summary>
+    public MessageHandler MessageHandler => _messageHandler;
+}
