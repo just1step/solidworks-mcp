@@ -79,6 +79,26 @@ The app also auto-writes the default user-profile VS Code MCP entry to `%APPDATA
 - Open the monitor window to inspect connected clients and recent logs.
 - If something fails, check `logs/{MachineName}_{timestamp}.txt` next to the exe.
 
+### Common Tool Flows
+
+Once the server is connected to SolidWorks, the current document toolset covers more than basic open/save operations.
+
+- Save or export the active document to another path with `SaveDocumentAs`. The output extension decides the format, so the same tool can target native SolidWorks files and common interchange formats such as `sldprt`, `sldasm`, `slddrw`, `step`, `stp`, and `stl`.
+- Undo the latest model operations with `Undo(steps)`, including multi-step rollback such as `steps = 3`.
+- Switch to a standard orientation with `ShowStandardView`, using values such as `front`, `top`, `right`, or `isometric`.
+- Rotate the current model view with `RotateView(xDegrees, yDegrees, zDegrees)` when you need incremental camera control instead of a standard view preset.
+- Export the current viewport to a PNG file with `ExportCurrentViewPng`. When `includeBase64Data = true`, the tool result also contains the PNG payload as base64 for MCP clients that can render image data directly.
+
+Typical examples:
+
+```text
+SaveDocumentAs(outputPath="C:\\temp\\gearbox.step")
+Undo(steps=2)
+ShowStandardView(view="top")
+RotateView(xDegrees=15, zDegrees=45)
+ExportCurrentViewPng(outputPath="C:\\temp\\gearbox.png", width=1600, height=900)
+```
+
 ## Development Guide
 
 ### Repository Layout
@@ -178,7 +198,8 @@ Use these links:
 
 ## Current Tooling Coverage
 
-- Document tools: connect, create, open, save, close, list, inspect.
+- Document tools: connect, create, open, save, save-as/export, close, undo, list, inspect, viewport PNG export.
+- View tools: standard orientation switching and incremental view rotation.
 - Selection tools: select by name, enumerate topology, exact entity selection, clear selection.
 - Sketch tools: point, ellipse, polygon, text, line, circle, rectangle, arc.
 - Feature tools: extrude, extrude cut, revolve, fillet, chamfer, shell, simple hole.

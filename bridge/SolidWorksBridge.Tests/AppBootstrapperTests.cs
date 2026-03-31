@@ -75,8 +75,9 @@ public class AppBootstrapperTests
         {
             "sw.connect", "sw.disconnect",
             "sw.new_document", "sw.open_document",
-            "sw.close_document", "sw.save_document",
+            "sw.close_document", "sw.save_document", "sw.save_document_as", "sw.undo",
             "sw.list_documents", "sw.get_active_document",
+            "sw.view.show_standard", "sw.view.rotate", "sw.view.export_png",
             "sw.select.by_name", "sw.select.list_entities",
             "sw.select.entity", "sw.select.clear",
             "sw.sketch.insert", "sw.sketch.finish",
@@ -225,6 +226,34 @@ public class AppBootstrapperTests
         docSvc.Verify(d => d.SaveDocument(path), Times.Once);
     }
 
+    [Fact]
+    public async Task Handler_SwSaveDocumentAs_CallsServiceWithParams()
+    {
+        var (bootstrapper, _, docSvc, handler) = Build();
+        bootstrapper.RegisterHandlers();
+        const string sourcePath = @"C:\model.sldprt";
+        const string outputPath = @"C:\exports\model.step";
+        var expected = new SwSaveResult(sourcePath, outputPath, "step", true, 0, 0);
+        docSvc.Setup(d => d.SaveDocumentAs(outputPath, sourcePath, true)).Returns(expected);
+
+        var response = await handler.HandleAsync(Req("sw.save_document_as", new { outputPath, sourcePath, saveAsCopy = true }));
+
+        Assert.Null(response.Error);
+        docSvc.Verify(d => d.SaveDocumentAs(outputPath, sourcePath, true), Times.Once);
+    }
+
+    [Fact]
+    public async Task Handler_SwUndo_CallsServiceWithSteps()
+    {
+        var (bootstrapper, _, docSvc, handler) = Build();
+        bootstrapper.RegisterHandlers();
+
+        var response = await handler.HandleAsync(Req("sw.undo", new { steps = 2 }));
+
+        Assert.Null(response.Error);
+        docSvc.Verify(d => d.Undo(2), Times.Once);
+    }
+
     // ─────────────────────────────────────────────────────────────
     // sw.list_documents
     // ─────────────────────────────────────────────────────────────
@@ -277,6 +306,45 @@ public class AppBootstrapperTests
 
         // Should succeed (no error), result is null — that's valid
         Assert.Null(response.Error);
+    }
+
+    [Fact]
+    public async Task Handler_SwViewShowStandard_CallsService()
+    {
+        var (bootstrapper, _, docSvc, handler) = Build();
+        bootstrapper.RegisterHandlers();
+
+        var response = await handler.HandleAsync(Req("sw.view.show_standard", new { view = "top" }));
+
+        Assert.Null(response.Error);
+        docSvc.Verify(d => d.ShowStandardView(SwStandardView.Top), Times.Once);
+    }
+
+    [Fact]
+    public async Task Handler_SwViewRotate_CallsService()
+    {
+        var (bootstrapper, _, docSvc, handler) = Build();
+        bootstrapper.RegisterHandlers();
+
+        var response = await handler.HandleAsync(Req("sw.view.rotate", new { xDegrees = 15.0, yDegrees = -10.0, zDegrees = 90.0 }));
+
+        Assert.Null(response.Error);
+        docSvc.Verify(d => d.RotateView(15.0, -10.0, 90.0), Times.Once);
+    }
+
+    [Fact]
+    public async Task Handler_SwViewExportPng_CallsService()
+    {
+        var (bootstrapper, _, docSvc, handler) = Build();
+        bootstrapper.RegisterHandlers();
+        const string outputPath = @"C:\exports\view.png";
+        var expected = new SwImageExportResult(outputPath, "image/png", 1024, 768, null);
+        docSvc.Setup(d => d.ExportCurrentViewPng(outputPath, 1024, 768, false)).Returns(expected);
+
+        var response = await handler.HandleAsync(Req("sw.view.export_png", new { outputPath, width = 1024, height = 768, includeBase64Data = false }));
+
+        Assert.Null(response.Error);
+        docSvc.Verify(d => d.ExportCurrentViewPng(outputPath, 1024, 768, false), Times.Once);
     }
 
     // ─────────────────────────────────────────────────────────────

@@ -18,6 +18,32 @@ public enum SwDocType
 public record SwDocumentInfo(string Path, string Title, int Type);
 
 /// <summary>
+/// Standard model orientations supported by SolidWorks.
+/// </summary>
+public enum SwStandardView
+{
+    Front,
+    Back,
+    Left,
+    Right,
+    Top,
+    Bottom,
+    Isometric,
+    Trimetric,
+    Dimetric
+}
+
+/// <summary>
+/// Save/export result metadata.
+/// </summary>
+public record SwSaveResult(string SourcePath, string OutputPath, string Format, bool SaveAsCopy, int Errors, int Warnings);
+
+/// <summary>
+/// Exported view image metadata.
+/// </summary>
+public record SwImageExportResult(string OutputPath, string MimeType, int Width, int Height, string? Base64Data);
+
+/// <summary>
 /// High-level document operations exposed to the MCP layer.
 /// </summary>
 public interface IDocumentService
@@ -36,6 +62,25 @@ public interface IDocumentService
 
     /// <summary>Save an open document by file path.</summary>
     void SaveDocument(string path);
+
+    /// <summary>
+    /// Save or export a document to a new path. The output format is inferred from
+    /// the file extension, so this supports native SolidWorks files and formats like STEP or STL.
+    /// When <paramref name="sourcePath"/> is null, the active document is used.
+    /// </summary>
+    SwSaveResult SaveDocumentAs(string outputPath, string? sourcePath = null, bool saveAsCopy = true);
+
+    /// <summary>Undo the last <paramref name="steps"/> operations on the active document.</summary>
+    void Undo(int steps = 1);
+
+    /// <summary>Switch the active document to a standard orientation.</summary>
+    void ShowStandardView(SwStandardView view);
+
+    /// <summary>Rotate the active document view around the global x, y, and z axes.</summary>
+    void RotateView(double xDegrees = 0, double yDegrees = 0, double zDegrees = 0);
+
+    /// <summary>Export the current active viewport to PNG.</summary>
+    SwImageExportResult ExportCurrentViewPng(string outputPath, int width = 1600, int height = 900, bool includeBase64Data = false);
 
     /// <summary>Return info for all currently open documents.</summary>
     SwDocumentInfo[] ListDocuments();
@@ -93,6 +138,36 @@ public class DocumentService : IDocumentService
     {
         _connectionManager.EnsureConnected();
         _connectionManager.SwApp!.SaveDoc(path);
+    }
+
+    public SwSaveResult SaveDocumentAs(string outputPath, string? sourcePath = null, bool saveAsCopy = true)
+    {
+        _connectionManager.EnsureConnected();
+        return _connectionManager.SwApp!.SaveDocAs(outputPath, sourcePath, saveAsCopy);
+    }
+
+    public void Undo(int steps = 1)
+    {
+        _connectionManager.EnsureConnected();
+        _connectionManager.SwApp!.Undo(steps);
+    }
+
+    public void ShowStandardView(SwStandardView view)
+    {
+        _connectionManager.EnsureConnected();
+        _connectionManager.SwApp!.ShowStandardView(view);
+    }
+
+    public void RotateView(double xDegrees = 0, double yDegrees = 0, double zDegrees = 0)
+    {
+        _connectionManager.EnsureConnected();
+        _connectionManager.SwApp!.RotateView(xDegrees, yDegrees, zDegrees);
+    }
+
+    public SwImageExportResult ExportCurrentViewPng(string outputPath, int width = 1600, int height = 900, bool includeBase64Data = false)
+    {
+        _connectionManager.EnsureConnected();
+        return _connectionManager.SwApp!.ExportCurrentViewPng(outputPath, width, height, includeBase64Data);
     }
 
     public SwDocumentInfo[] ListDocuments()

@@ -102,6 +102,22 @@ public class AppBootstrapper
             return Task.FromResult<object?>(new { saved = true });
         });
 
+        _messageHandler.Register("sw.save_document_as", req =>
+        {
+            var p = req.GetParams<SaveDocumentAsParams>()
+                ?? throw new ArgumentException("params required: {outputPath, sourcePath?, saveAsCopy?}");
+
+            var result = _documentService.SaveDocumentAs(p.OutputPath, p.SourcePath, p.SaveAsCopy);
+            return Task.FromResult<object?>(result);
+        });
+
+        _messageHandler.Register("sw.undo", req =>
+        {
+            var p = req.GetParams<UndoParams>() ?? new UndoParams();
+            _documentService.Undo(p.Steps);
+            return Task.FromResult<object?>(new { undone = true, steps = p.Steps });
+        });
+
         _messageHandler.Register("sw.list_documents", _ =>
         {
             var docs = _documentService.ListDocuments();
@@ -112,6 +128,28 @@ public class AppBootstrapper
         {
             var doc = _documentService.GetActiveDocument();
             return Task.FromResult<object?>(doc);
+        });
+
+        _messageHandler.Register("sw.view.show_standard", req =>
+        {
+            var p = req.GetParams<ShowStandardViewParams>() ?? new ShowStandardViewParams();
+            _documentService.ShowStandardView(ParseStandardView(p.View));
+            return Task.FromResult<object?>(new { changed = true, view = p.View });
+        });
+
+        _messageHandler.Register("sw.view.rotate", req =>
+        {
+            var p = req.GetParams<RotateViewParams>() ?? new RotateViewParams();
+            _documentService.RotateView(p.XDegrees, p.YDegrees, p.ZDegrees);
+            return Task.FromResult<object?>(new { rotated = true, xDegrees = p.XDegrees, yDegrees = p.YDegrees, zDegrees = p.ZDegrees });
+        });
+
+        _messageHandler.Register("sw.view.export_png", req =>
+        {
+            var p = req.GetParams<ExportViewPngParams>()
+                ?? throw new ArgumentException("params required: {outputPath, width?, height?, includeBase64Data?}");
+            var result = _documentService.ExportCurrentViewPng(p.OutputPath, p.Width, p.Height, p.IncludeBase64Data);
+            return Task.FromResult<object?>(result);
         });
 
         // ── Selection ─────────────────────────────────────────────
@@ -354,6 +392,57 @@ public class AppBootstrapper
         public string Path { get; set; } = string.Empty;
     }
 
+    public class SaveDocumentAsParams
+    {
+        [System.Text.Json.Serialization.JsonPropertyName("outputPath")]
+        public string OutputPath { get; set; } = string.Empty;
+
+        [System.Text.Json.Serialization.JsonPropertyName("sourcePath")]
+        public string? SourcePath { get; set; }
+
+        [System.Text.Json.Serialization.JsonPropertyName("saveAsCopy")]
+        public bool SaveAsCopy { get; set; } = true;
+    }
+
+    public class UndoParams
+    {
+        [System.Text.Json.Serialization.JsonPropertyName("steps")]
+        public int Steps { get; set; } = 1;
+    }
+
+    public class ShowStandardViewParams
+    {
+        [System.Text.Json.Serialization.JsonPropertyName("view")]
+        public string View { get; set; } = "isometric";
+    }
+
+    public class RotateViewParams
+    {
+        [System.Text.Json.Serialization.JsonPropertyName("xDegrees")]
+        public double XDegrees { get; set; }
+
+        [System.Text.Json.Serialization.JsonPropertyName("yDegrees")]
+        public double YDegrees { get; set; }
+
+        [System.Text.Json.Serialization.JsonPropertyName("zDegrees")]
+        public double ZDegrees { get; set; }
+    }
+
+    public class ExportViewPngParams
+    {
+        [System.Text.Json.Serialization.JsonPropertyName("outputPath")]
+        public string OutputPath { get; set; } = string.Empty;
+
+        [System.Text.Json.Serialization.JsonPropertyName("width")]
+        public int Width { get; set; } = 1600;
+
+        [System.Text.Json.Serialization.JsonPropertyName("height")]
+        public int Height { get; set; } = 900;
+
+        [System.Text.Json.Serialization.JsonPropertyName("includeBase64Data")]
+        public bool IncludeBase64Data { get; set; }
+    }
+
     public class SelectByNameParams
     {
         [System.Text.Json.Serialization.JsonPropertyName("name")]
@@ -526,6 +615,21 @@ public class AppBootstrapper
             "assembly" or "2" => SwDocType.Assembly,
             "drawing" or "3" => SwDocType.Drawing,
             _ => throw new ArgumentException($"Unknown document type: '{type}'. Use Part, Assembly, or Drawing.")
+        };
+
+    private static SwStandardView ParseStandardView(string view) =>
+        view.ToLowerInvariant() switch
+        {
+            "front" => SwStandardView.Front,
+            "back" => SwStandardView.Back,
+            "left" => SwStandardView.Left,
+            "right" => SwStandardView.Right,
+            "top" => SwStandardView.Top,
+            "bottom" => SwStandardView.Bottom,
+            "iso" or "isometric" => SwStandardView.Isometric,
+            "trimetric" => SwStandardView.Trimetric,
+            "dimetric" => SwStandardView.Dimetric,
+            _ => throw new ArgumentException($"Unknown standard view: '{view}'.")
         };
 
     /// <summary>

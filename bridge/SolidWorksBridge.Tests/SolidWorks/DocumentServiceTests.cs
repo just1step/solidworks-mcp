@@ -201,6 +201,70 @@ public class DocumentServiceTests
     }
 
     [Fact]
+    public void SaveDocumentAs_DelegatesToWrapper()
+    {
+        var (manager, swApp) = ConnectedMocks();
+        const string sourcePath = @"C:\part.sldprt";
+        const string outputPath = @"C:\exports\part.step";
+        var expected = new SwSaveResult(sourcePath, outputPath, "step", true, 0, 0);
+        swApp.Setup(s => s.SaveDocAs(outputPath, sourcePath, true)).Returns(expected);
+
+        var svc = new DocumentService(manager.Object);
+        var result = svc.SaveDocumentAs(outputPath, sourcePath, true);
+
+        Assert.Equal(expected, result);
+        swApp.Verify(s => s.SaveDocAs(outputPath, sourcePath, true), Times.Once);
+    }
+
+    [Fact]
+    public void Undo_CallsWrapperUndo()
+    {
+        var (manager, swApp) = ConnectedMocks();
+
+        var svc = new DocumentService(manager.Object);
+        svc.Undo(3);
+
+        swApp.Verify(s => s.Undo(3), Times.Once);
+    }
+
+    [Fact]
+    public void ShowStandardView_CallsWrapper()
+    {
+        var (manager, swApp) = ConnectedMocks();
+
+        var svc = new DocumentService(manager.Object);
+        svc.ShowStandardView(SwStandardView.Top);
+
+        swApp.Verify(s => s.ShowStandardView(SwStandardView.Top), Times.Once);
+    }
+
+    [Fact]
+    public void RotateView_CallsWrapper()
+    {
+        var (manager, swApp) = ConnectedMocks();
+
+        var svc = new DocumentService(manager.Object);
+        svc.RotateView(10, -5, 30);
+
+        swApp.Verify(s => s.RotateView(10, -5, 30), Times.Once);
+    }
+
+    [Fact]
+    public void ExportCurrentViewPng_CallsWrapper()
+    {
+        var (manager, swApp) = ConnectedMocks();
+        const string outputPath = @"C:\exports\view.png";
+        var expected = new SwImageExportResult(outputPath, "image/png", 800, 600, null);
+        swApp.Setup(s => s.ExportCurrentViewPng(outputPath, 800, 600, false)).Returns(expected);
+
+        var svc = new DocumentService(manager.Object);
+        var result = svc.ExportCurrentViewPng(outputPath, 800, 600, false);
+
+        Assert.Equal(expected, result);
+        swApp.Verify(s => s.ExportCurrentViewPng(outputPath, 800, 600, false), Times.Once);
+    }
+
+    [Fact]
     public void SaveDocument_NotConnected_Throws()
     {
         var manager = new Mock<ISwConnectionManager>();
@@ -209,6 +273,61 @@ public class DocumentServiceTests
 
         var svc = new DocumentService(manager.Object);
         Assert.Throws<InvalidOperationException>(() => svc.SaveDocument(@"C:\x.sldprt"));
+    }
+
+    [Fact]
+    public void SaveDocumentAs_NotConnected_Throws()
+    {
+        var manager = new Mock<ISwConnectionManager>();
+        manager.Setup(m => m.EnsureConnected())
+               .Throws(new InvalidOperationException("Not connected"));
+
+        var svc = new DocumentService(manager.Object);
+        Assert.Throws<InvalidOperationException>(() => svc.SaveDocumentAs(@"C:\x.step"));
+    }
+
+    [Fact]
+    public void Undo_NotConnected_Throws()
+    {
+        var manager = new Mock<ISwConnectionManager>();
+        manager.Setup(m => m.EnsureConnected())
+               .Throws(new InvalidOperationException("Not connected"));
+
+        var svc = new DocumentService(manager.Object);
+        Assert.Throws<InvalidOperationException>(() => svc.Undo());
+    }
+
+    [Fact]
+    public void ShowStandardView_NotConnected_Throws()
+    {
+        var manager = new Mock<ISwConnectionManager>();
+        manager.Setup(m => m.EnsureConnected())
+               .Throws(new InvalidOperationException("Not connected"));
+
+        var svc = new DocumentService(manager.Object);
+        Assert.Throws<InvalidOperationException>(() => svc.ShowStandardView(SwStandardView.Isometric));
+    }
+
+    [Fact]
+    public void RotateView_NotConnected_Throws()
+    {
+        var manager = new Mock<ISwConnectionManager>();
+        manager.Setup(m => m.EnsureConnected())
+               .Throws(new InvalidOperationException("Not connected"));
+
+        var svc = new DocumentService(manager.Object);
+        Assert.Throws<InvalidOperationException>(() => svc.RotateView(5, 0, 0));
+    }
+
+    [Fact]
+    public void ExportCurrentViewPng_NotConnected_Throws()
+    {
+        var manager = new Mock<ISwConnectionManager>();
+        manager.Setup(m => m.EnsureConnected())
+               .Throws(new InvalidOperationException("Not connected"));
+
+        var svc = new DocumentService(manager.Object);
+        Assert.Throws<InvalidOperationException>(() => svc.ExportCurrentViewPng(@"C:\view.png"));
     }
 
     // ─────────────────────────────────────────────────────────────
