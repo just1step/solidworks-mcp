@@ -130,6 +130,12 @@ public class AppBootstrapper
             return Task.FromResult<object?>(result);
         });
 
+        _messageHandler.Register("sw.select.list_reference_planes", _ =>
+        {
+            var result = _selectionService.ListReferencePlanes();
+            return Task.FromResult<object?>(result);
+        });
+
         _messageHandler.Register("sw.select.entity", req =>
         {
             var p = req.GetParams<SelectEntityParams>()

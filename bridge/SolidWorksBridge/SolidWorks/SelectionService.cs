@@ -1,6 +1,7 @@
 using SolidWorks.Interop.sldworks;
 using SolidWorks.Interop.swconst;
 using System.Reflection;
+using System.Runtime.InteropServices;
 
 namespace SolidWorksBridge.SolidWorks;
 
@@ -8,6 +9,22 @@ namespace SolidWorksBridge.SolidWorks;
 /// Result of a selection operation.
 /// </summary>
 public record SelectionResult(bool Success, string Message);
+
+/// <summary>
+/// Reference plane metadata discovered from the active document feature tree.
+/// </summary>
+public record ReferencePlaneInfo(
+    int Index,
+    string Name,
+    string SelectionName,
+    string SelectionType);
+
+/// <summary>
+/// Small snapshot of the current SolidWorks language and active-document planes.
+/// </summary>
+public record SolidWorksContextInfo(
+    string CurrentLanguage,
+    IReadOnlyList<ReferencePlaneInfo> ReferencePlanes);
 
 /// <summary>
 /// Supported selectable topology entity kinds.
@@ -46,6 +63,18 @@ public interface ISelectionService
     IReadOnlyList<SelectableEntityInfo> ListEntities(
         SelectableEntityType? entityType = null,
         string? componentName = null);
+
+    /// <summary>
+    /// List reference planes from the active document by traversing the feature tree.
+    /// The returned names are localized to the current SolidWorks language.
+    /// </summary>
+    IReadOnlyList<ReferencePlaneInfo> ListReferencePlanes();
+
+    /// <summary>
+    /// Get the current SolidWorks UI language and the active document's reference planes.
+    /// If no document is open, the plane list is empty.
+    /// </summary>
+    SolidWorksContextInfo GetSolidWorksContext();
 
     /// <summary>
     /// Select a topology entity by the index returned from <see cref="ListEntities"/>.
@@ -107,6 +136,27 @@ public class SelectionService : ISelectionService
             .AsReadOnly();
     }
 
+    public IReadOnlyList<ReferencePlaneInfo> ListReferencePlanes()
+    {
+        _cm.EnsureConnected();
+        var doc = GetActiveModelDoc();
+        return EnumerateReferencePlanes(doc).ToList().AsReadOnly();
+    }
+
+    public SolidWorksContextInfo GetSolidWorksContext()
+    {
+        _cm.EnsureConnected();
+
+        var swApp = _cm.SwApp ?? throw new InvalidOperationException("SolidWorks connection is not available.");
+        string language = SafeGetCurrentLanguage(swApp) ?? "unknown";
+        var doc = swApp.IActiveDoc2;
+        IReadOnlyList<ReferencePlaneInfo> planes = doc == null
+            ? Array.Empty<ReferencePlaneInfo>()
+            : EnumerateReferencePlanes(doc).ToList().AsReadOnly();
+
+        return new SolidWorksContextInfo(language, planes);
+    }
+
     public SelectionResult SelectEntity(
         SelectableEntityType entityType,
         int index,
@@ -166,6 +216,32 @@ public class SelectionService : ISelectionService
         {
             var candidate = all[index];
             yield return candidate with { Index = index };
+        }
+    }
+
+    private static IEnumerable<ReferencePlaneInfo> EnumerateReferencePlanes(IModelDoc2 doc)
+    {
+        int index = 0;
+        for (var feature = doc.FirstFeature() as Feature; feature != null; feature = feature.GetNextFeature() as Feature)
+        {
+            string? typeName = SafeGetFeatureTypeName(feature);
+            if (!string.Equals(typeName, "RefPlane", StringComparison.OrdinalIgnoreCase))
+            {
+                continue;
+            }
+
+            var (selectionName, selectionType) = SafeGetSelectionIdentity(feature);
+            string name = SafeGetFeatureName(feature)
+                ?? selectionName
+                ?? $"RefPlane{index + 1}";
+
+            yield return new ReferencePlaneInfo(
+                index,
+                name,
+                selectionName ?? name,
+                selectionType ?? "PLANE");
+
+            index++;
         }
     }
 
@@ -296,5 +372,67 @@ public class SelectionService : ISelectionService
         }
 
         return selectData;
+    }
+
+    private static string? SafeGetCurrentLanguage(ISldWorksApp swApp)
+    {
+        try
+        {
+            return swApp.GetCurrentLanguage();
+        }
+        catch (COMException)
+        {
+            return null;
+        }
+    }
+
+    private static string? SafeGetFeatureTypeName(Feature feature)
+    {
+        try
+        {
+            return feature.GetTypeName2();
+        }
+        catch (COMException)
+        {
+            return null;
+        }
+        catch (TargetInvocationException)
+        {
+            return null;
+        }
+    }
+
+    private static string? SafeGetFeatureName(Feature feature)
+    {
+        try
+        {
+            return feature.Name;
+        }
+        catch (COMException)
+        {
+            return null;
+        }
+        catch (TargetInvocationException)
+        {
+            return null;
+        }
+    }
+
+    private static (string? SelectionName, string? SelectionType) SafeGetSelectionIdentity(Feature feature)
+    {
+        try
+        {
+            string selectionType;
+            string selectionName = feature.GetNameForSelection(out selectionType);
+            return (selectionName, selectionType);
+        }
+        catch (COMException)
+        {
+            return (null, null);
+        }
+        catch (TargetInvocationException)
+        {
+            return (null, null);
+        }
     }
 }

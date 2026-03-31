@@ -124,11 +124,15 @@ internal static class Program
         sc.AddSingleton<ISwConnectionManager>(sp =>
         {
             var sta = sp.GetRequiredService<StaDispatcher>();
-            return sta.InvokeAsync(() =>
+            var inner = sta.InvokeAsync(() =>
             {
                 var connector = new SwComConnector();
                 return (ISwConnectionManager)new SwConnectionManager(connector);
             }).GetAwaiter().GetResult();
+
+            return new ConnectionLoggingSwConnectionManager(
+                inner,
+                () => sp.GetRequiredService<ISelectionService>());
         });
 
         sc.AddSingleton<IDocumentService>(sp  => new DocumentService(sp.GetRequiredService<ISwConnectionManager>()));

@@ -12,6 +12,7 @@ public interface ISldWorksApp
 {
     // ── Connection ────────────────────────────────────────────────
     bool Visible { get; set; }
+    string GetCurrentLanguage();
     int GetDocumentCount();
     string[] GetDocuments();
     void CloseAllDocuments(bool save);
@@ -155,6 +156,8 @@ public class SldWorksAppWrapper : ISldWorksApp
         get => _swApp.Visible;
         set => _swApp.Visible = value;
     }
+
+    public string GetCurrentLanguage() => _swApp.GetCurrentLanguage();
 
     public int GetDocumentCount() => _swApp.GetDocumentCount();
 

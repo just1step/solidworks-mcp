@@ -31,6 +31,18 @@ SolidWorks MCP Server 是面向 Windows 的 SolidWorks MCP 桌面自动化服务
 - [.NET 8 运行时](https://dotnet.microsoft.com/download/dotnet/8.0)；如果要从源码构建，则需要 .NET 8 SDK
 - 支持 stdio MCP Server 的客户端，例如 VS Code、Copilot、Claude Desktop
 
+### 兼容性与依赖说明
+
+- 官方目标平台是 Windows 10/11 x64；当前交付的二进制是 `net8.0-windows`、`win-x64` 自包含单文件程序。
+- Windows 8/8.1 和 32 位 Windows 不属于当前版本的官方支持范围。
+- bridge 当前编译时依赖 `SolidWorks.Interop.sldworks` 和 `SolidWorks.Interop.swconst`，版本为 `32.1.0`。
+- 本机必须安装可正常注册 COM 的 SolidWorks，程序通过 `SldWorks.Application` 连接或拉起 SolidWorks。
+- 托盘界面语言目前只区分中文和非中文；非中文系统统一回退为英文界面。
+- SolidWorks 自身的 UI 语言与 Windows 语言是两个维度。程序可以通过 `ISldWorks.GetCurrentLanguage()` 获取当前 SolidWorks 使用语言。
+- 基准面名称会随 SolidWorks 语言本地化变化。为避免硬编码中英文名称，bridge 现已通过当前文档特征树枚举 `RefPlane` 特征及其可用于选择的名称。
+- 在成功连接 SolidWorks 之后，服务会自动采集当前 SolidWorks 语言和活动文档中的基准面快照，并写入当前会话日志，便于后续排查问题。
+- 对更旧或明显更新的 SolidWorks 主版本，目前还没有在仓库中声明为“完全验证通过”。
+
 ### 直接运行
 
 1. 从 [Releases](../../releases) 下载 `SolidWorksMcpApp.exe`。
@@ -143,6 +155,7 @@ dotnet publish app/SolidWorksMcpApp/SolidWorksMcpApp.csproj -c Release -r win-x6
 - 复现步骤；
 - 预期结果与实际结果；
 - 错误信息、截图或关键日志片段；
+- 当前会话日志中自动记录的 SolidWorks 上下文信息，包括语言和基准面快照；
 - 问题是在发布版 exe 上复现，还是只在源码运行时复现。
 
 可使用以下入口：

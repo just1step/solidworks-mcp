@@ -291,7 +291,9 @@ internal sealed class AcceptanceSession : IDisposable
 
     private void SelectFrontPlane()
     {
-        if (!TrySelectByNames(["前视基准面", "Front Plane"], "PLANE"))
+        var plane = GetDefaultPlaneByIndex(0);
+        var result = _selection.SelectByName(plane.SelectionName, plane.SelectionType);
+        if (!result.Success)
         {
             throw new InvalidOperationException("Unable to select the front plane.");
         }
@@ -311,11 +313,22 @@ internal sealed class AcceptanceSession : IDisposable
         return false;
     }
 
-    private string GetFrontPlaneName() => TrySelectByNames(["前视基准面"], "PLANE") ? "前视基准面" : "Front Plane";
+    private string GetFrontPlaneName() => GetDefaultPlaneByIndex(0).SelectionName;
 
-    private string GetTopPlaneName() => TrySelectByNames(["上视基准面"], "PLANE") ? "上视基准面" : "Top Plane";
+    private string GetTopPlaneName() => GetDefaultPlaneByIndex(1).SelectionName;
 
-    private string GetRightPlaneName() => TrySelectByNames(["右视基准面"], "PLANE") ? "右视基准面" : "Right Plane";
+    private string GetRightPlaneName() => GetDefaultPlaneByIndex(2).SelectionName;
+
+    private ReferencePlaneInfo GetDefaultPlaneByIndex(int index)
+    {
+        var planes = _selection.ListReferencePlanes();
+        if (planes.Count <= index)
+        {
+            throw new InvalidOperationException($"Expected at least {index + 1} reference planes in the active document, but found {planes.Count}.");
+        }
+
+        return planes[index];
+    }
 
     private void SelectFirstEdge()
     {

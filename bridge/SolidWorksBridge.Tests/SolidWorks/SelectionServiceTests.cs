@@ -100,6 +100,25 @@ public class SelectionServiceTests
         return edge;
     }
 
+    private static Feature RefPlaneFeature(string name, string selectionName, string selectionType, Feature? next = null)
+    {
+        var feature = new Mock<Feature>();
+        feature.Setup(f => f.Name).Returns(name);
+        feature.Setup(f => f.GetTypeName2()).Returns("RefPlane");
+        feature.Setup(f => f.GetNameForSelection(out selectionType)).Returns(selectionName);
+        feature.Setup(f => f.GetNextFeature()).Returns(next);
+        return feature.Object;
+    }
+
+    private static Feature NonPlaneFeature(string name, string typeName, Feature? next = null)
+    {
+        var feature = new Mock<Feature>();
+        feature.Setup(f => f.Name).Returns(name);
+        feature.Setup(f => f.GetTypeName2()).Returns(typeName);
+        feature.Setup(f => f.GetNextFeature()).Returns(next);
+        return feature.Object;
+    }
+
     // ─────────────────────────────────────────────────────────────
     // Constructor
     // ─────────────────────────────────────────────────────────────
@@ -223,6 +242,49 @@ public class SelectionServiceTests
         var manager = ConnectedNoDoc();
 
         Assert.Throws<InvalidOperationException>(() => new SelectionService(manager.Object).ListEntities());
+    }
+
+    [Fact]
+    public void GetSolidWorksContext_ReturnsLanguageAndReferencePlanes()
+    {
+        var third = RefPlaneFeature("Right Plane", "Right Plane", "PLANE");
+        var second = RefPlaneFeature("Top Plane", "Top Plane", "PLANE", third);
+        var ignored = NonPlaneFeature("Boss-Extrude1", "Boss", second);
+        var first = RefPlaneFeature("Front Plane", "Front Plane", "PLANE", ignored);
+
+        var (manager, swApp, doc) = ConnectedWithDoc();
+        swApp.Setup(app => app.GetCurrentLanguage()).Returns("english");
+        doc.Setup(d => d.FirstFeature()).Returns(first);
+
+        var result = new SelectionService(manager.Object).GetSolidWorksContext();
+
+        Assert.Equal("english", result.CurrentLanguage);
+        Assert.Collection(result.ReferencePlanes,
+            plane =>
+            {
+                Assert.Equal(0, plane.Index);
+                Assert.Equal("Front Plane", plane.Name);
+                Assert.Equal("Front Plane", plane.SelectionName);
+                Assert.Equal("PLANE", plane.SelectionType);
+            },
+            plane =>
+            {
+                Assert.Equal(1, plane.Index);
+                Assert.Equal("Top Plane", plane.Name);
+            },
+            plane =>
+            {
+                Assert.Equal(2, plane.Index);
+                Assert.Equal("Right Plane", plane.Name);
+            });
+    }
+
+    [Fact]
+    public void ListReferencePlanes_NoActiveDocument_ThrowsInvalidOperation()
+    {
+        var manager = ConnectedNoDoc();
+
+        Assert.Throws<InvalidOperationException>(() => new SelectionService(manager.Object).ListReferencePlanes());
     }
 
     // ─────────────────────────────────────────────────────────────

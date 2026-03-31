@@ -31,6 +31,18 @@ The demo highlights the full interaction loop:
 - [.NET 8 Runtime](https://dotnet.microsoft.com/download/dotnet/8.0) for release binaries, or .NET 8 SDK for source builds
 - VS Code, Copilot, Claude Desktop, or another MCP client that supports stdio servers
 
+### Compatibility And Dependency Notes
+
+- Official target platform: Windows 10/11 x64. The shipped binary is `net8.0-windows` and `win-x64` self-contained.
+- Windows 8/8.1 and 32-bit Windows are not official targets for this build.
+- The bridge is compiled against `SolidWorks.Interop.sldworks` and `SolidWorks.Interop.swconst` version `32.1.0`.
+- SolidWorks must be installed locally and registered for COM activation through `SldWorks.Application`.
+- The tray UI follows the Windows UI language only for Chinese vs non-Chinese; non-Chinese systems fall back to English.
+- SolidWorks UI language is separate from Windows language. The app can query the active SolidWorks language through `ISldWorks.GetCurrentLanguage()`.
+- Reference plane names are localized by SolidWorks. To avoid hard-coded plane names, the bridge now enumerates the active document's `RefPlane` features and their selection names directly from the feature tree.
+- After a successful SolidWorks connect, the server automatically captures the current SolidWorks language and the active document's reference plane snapshot and writes that payload into the session log for bug analysis.
+- Older or much newer SolidWorks major versions may work, but they are not yet declared as fully validated in this repository.
+
 ### Download And Run
 
 1. Download `SolidWorksMcpApp.exe` from the [Releases](../../releases) page.
@@ -145,6 +157,7 @@ When submitting an issue, include:
 - exact reproduction steps;
 - expected behavior and actual behavior;
 - error messages, screenshots, or the relevant log excerpt;
+- the auto-captured SolidWorks context entry from the session log, including language and reference plane data when available;
 - whether the problem reproduces with the published exe or only from source.
 
 Use these links:
