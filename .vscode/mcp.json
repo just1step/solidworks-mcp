@@ -1,3 +1,13 @@
 {
-	"servers": {}
+	"servers": {
+		"solidworks": {
+			"type": "stdio",
+			"command": "${workspaceFolder}/app/SolidWorksMcpApp/bin/Debug/net8.0-windows/win-x64/SolidWorksMcpApp.exe",
+			"args": [
+				"--proxy",
+				"--client",
+				"VS Code"
+			]
+		}
+	}
 }

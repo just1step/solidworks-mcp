@@ -60,9 +60,11 @@ The Proxy connects to the Hub through a local named pipe and auto-starts the Hub
 ### Connect VS Code
 
 1. Start `SolidWorksMcpApp.exe`.
-2. Right-click the tray icon and choose **Export VS Code Config**.
-3. Paste the generated snippet into your VS Code `settings.json`, or use the auto-written entry that the app creates on first launch.
+2. Right-click the tray icon and choose **Export VS Code MCP Config**.
+3. Paste the generated JSON into your VS Code `mcp.json`. Use `.vscode/mcp.json` for workspace scope, or the user-profile `mcp.json` opened by the `MCP: Open User Configuration` command.
 4. In VS Code, verify that the `solidworks` MCP server is visible and enabled.
+
+The app also auto-writes the default user-profile VS Code MCP entry to `%APPDATA%\Code\User\mcp.json` on first launch.
 
 ### Connect Claude Desktop
 

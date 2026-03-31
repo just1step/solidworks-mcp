@@ -103,35 +103,26 @@ internal sealed class TrayApplicationContext : ApplicationContext, IDisposable
     private void OnCopyClaudeConfig(object? sender, EventArgs e)
     {
         var exePath = GetExePath();
-        var json = $$"""
-            {
-              "mcpServers": {
-                "solidworks": {
-                  "command": "{{EscapeJson(exePath)}}",
-                  "args": ["--proxy", "--client", "Claude Desktop"]
-                }
-              }
-            }
-            """;
+                var json = new System.Text.Json.Nodes.JsonObject
+                {
+                        ["mcpServers"] = new System.Text.Json.Nodes.JsonObject
+                        {
+                                ["solidworks"] = AutoConfigService.CreateClaudeServerConfig(exePath)
+                        }
+                }.ToJsonString(new System.Text.Json.JsonSerializerOptions { WriteIndented = true });
                 ExportConfig(json, Strings.BalloonClaudeCopied, "claude-desktop");
     }
 
     private void OnCopyVsCodeConfig(object? sender, EventArgs e)
     {
         var exePath = GetExePath();
-        var json = $$"""
-            {
-              "mcp": {
-                "servers": {
-                  "solidworks": {
-                    "type": "stdio",
-                    "command": "{{EscapeJson(exePath)}}",
-                    "args": ["--proxy", "--client", "VS Code"]
-                  }
-                }
-              }
-            }
-            """;
+                var json = new System.Text.Json.Nodes.JsonObject
+                {
+                        ["servers"] = new System.Text.Json.Nodes.JsonObject
+                        {
+                                ["solidworks"] = AutoConfigService.CreateVsCodeServerConfig(exePath)
+                        }
+                }.ToJsonString(new System.Text.Json.JsonSerializerOptions { WriteIndented = true });
                 ExportConfig(json, Strings.BalloonVsCodeCopied, "vscode");
     }
 
@@ -173,9 +164,6 @@ internal sealed class TrayApplicationContext : ApplicationContext, IDisposable
 
     private static string GetExePath() =>
         Environment.ProcessPath ?? throw new InvalidOperationException("Process path is unavailable.");
-
-    private static string EscapeJson(string value) =>
-        value.Replace("\\", "\\\\").Replace("\"", "\\\"");
 
     private static Icon LoadTrayIcon()
     {

@@ -46,11 +46,7 @@ internal static class AutoConfigService
                 root["mcpServers"] = mcpServers;
             }
 
-            mcpServers["solidworks"] = new JsonObject
-            {
-                ["command"] = exePath,
-                ["args"]    = new JsonArray("--proxy", "--client", "Claude Desktop")
-            };
+            mcpServers["solidworks"] = CreateClaudeServerConfig(exePath);
 
             Directory.CreateDirectory(dir);
             File.WriteAllText(file, root.ToJsonString(s_writeOpts));
@@ -69,28 +65,17 @@ internal static class AutoConfigService
         {
             var file = Path.Combine(
                 Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
-                "Code", "User", "settings.json");
+                "Code", "User", "mcp.json");
 
             var root = ReadOrEmpty(file);
 
-            if (root["mcp"] is not JsonObject mcp)
-            {
-                mcp = new JsonObject();
-                root["mcp"] = mcp;
-            }
-
-            if (mcp["servers"] is not JsonObject servers)
+            if (root["servers"] is not JsonObject servers)
             {
                 servers = new JsonObject();
-                mcp["servers"] = servers;
+                root["servers"] = servers;
             }
 
-            servers["solidworks"] = new JsonObject
-            {
-                ["type"]    = "stdio",
-                ["command"] = exePath,
-                ["args"]    = new JsonArray("--proxy", "--client", "VS Code")
-            };
+            servers["solidworks"] = CreateVsCodeServerConfig(exePath);
 
             var dir = Path.GetDirectoryName(file)!;
             Directory.CreateDirectory(dir);
@@ -118,5 +103,24 @@ internal static class AutoConfigService
         {
             return new JsonObject();
         }
+    }
+
+    internal static JsonObject CreateClaudeServerConfig(string exePath)
+    {
+        return new JsonObject
+        {
+            ["command"] = exePath,
+            ["args"] = new JsonArray("--proxy", "--client", "Claude Desktop")
+        };
+    }
+
+    internal static JsonObject CreateVsCodeServerConfig(string exePath)
+    {
+        return new JsonObject
+        {
+            ["type"] = "stdio",
+            ["command"] = exePath,
+            ["args"] = new JsonArray("--proxy", "--client", "VS Code")
+        };
     }
 }

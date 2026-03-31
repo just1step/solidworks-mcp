@@ -24,7 +24,7 @@ internal static class Strings
     public static string MenuStart      => IsChinese ? "启动"          : "Start";
     public static string MenuPause      => IsChinese ? "暂停"          : "Pause";
     public static string MenuMonitor    => IsChinese ? "打开监控面板"   : "Open Monitor";
-    public static string MenuVsCode     => IsChinese ? "导出 VSCode 配置"  : "Export VS Code Config";
+    public static string MenuVsCode     => IsChinese ? "导出 VS Code MCP 配置"  : "Export VS Code MCP Config";
     public static string MenuClaude     => IsChinese ? "导出 Claude 配置"  : "Export Claude Config";
     public static string MenuOpenLog    => IsChinese ? "查看出错日志"       : "View Error Log";
     public static string MenuExit       => IsChinese ? "退出"             : "Exit";
@@ -56,8 +56,8 @@ internal static class Strings
                   : "Claude Desktop config copied to clipboard.";
 
     public static string BalloonVsCodeCopied =>
-        IsChinese ? "VS Code MCP 配置已复制到剪贴板。"
-                  : "VS Code MCP config copied to clipboard.";
+        IsChinese ? "VS Code mcp.json 配置已复制到剪贴板。"
+                  : "VS Code mcp.json config copied to clipboard.";
 
     public static string BalloonClipboardFallback =>
         IsChinese ? "剪贴板暂时不可用，已打开临时配置文件供手动复制。"
