@@ -5,6 +5,8 @@ using System.Diagnostics;
 using System.Drawing;
 using System.Reflection;
 using System.Runtime.InteropServices;
+using System.Text.Json;
+using System.Text.Json.Nodes;
 using System.Windows.Forms;
 
 namespace SolidWorksMcpApp;
@@ -33,6 +35,11 @@ internal sealed class TrayApplicationContext : ApplicationContext, IDisposable
         _pauseItem   = new ToolStripMenuItem(Strings.MenuPause, null, OnPause);
         _appIcon     = LoadTrayIcon();
 
+        var copyMenu = new ToolStripMenuItem(Strings.MenuExportConfigs);
+        copyMenu.DropDownItems.Add(new ToolStripMenuItem(Strings.MenuVsCode, null, OnCopyVsCodeConfig));
+        copyMenu.DropDownItems.Add(new ToolStripMenuItem(Strings.MenuClaude, null, OnCopyClaudeConfig));
+        copyMenu.DropDownItems.Add(new ToolStripMenuItem(Strings.MenuOpenClaw, null, OnCopyOpenClawCommand));
+
         var menu = new ContextMenuStrip();
         menu.Items.Add(_statusItem);
         menu.Items.Add(_clientsItem);
@@ -41,8 +48,7 @@ internal sealed class TrayApplicationContext : ApplicationContext, IDisposable
         menu.Items.Add(_startItem);
         menu.Items.Add(_pauseItem);
         menu.Items.Add(new ToolStripSeparator());
-        menu.Items.Add(new ToolStripMenuItem(Strings.MenuVsCode,  null, OnCopyVsCodeConfig));
-        menu.Items.Add(new ToolStripMenuItem(Strings.MenuClaude,  null, OnCopyClaudeConfig));
+        menu.Items.Add(copyMenu);
         menu.Items.Add(new ToolStripMenuItem(Strings.MenuOpenLog, null, OnOpenLog));
         menu.Items.Add(new ToolStripSeparator());
         menu.Items.Add(new ToolStripMenuItem(Strings.MenuExit, null, OnExit));
@@ -103,27 +109,35 @@ internal sealed class TrayApplicationContext : ApplicationContext, IDisposable
     private void OnCopyClaudeConfig(object? sender, EventArgs e)
     {
         var exePath = GetExePath();
-                var json = new System.Text.Json.Nodes.JsonObject
-                {
-                        ["mcpServers"] = new System.Text.Json.Nodes.JsonObject
-                        {
-                                ["solidworks"] = AutoConfigService.CreateClaudeServerConfig(exePath)
-                        }
-                }.ToJsonString(new System.Text.Json.JsonSerializerOptions { WriteIndented = true });
-                ExportConfig(json, Strings.BalloonClaudeCopied, "claude-desktop");
+        var json = new JsonObject
+        {
+            ["mcpServers"] = new JsonObject
+            {
+                ["solidworks"] = AutoConfigService.CreateClaudeServerConfig(exePath)
+            }
+        }.ToJsonString(new JsonSerializerOptions { WriteIndented = true });
+
+        ExportText(json, Strings.BalloonClaudeCopied, "claude-desktop");
     }
 
     private void OnCopyVsCodeConfig(object? sender, EventArgs e)
     {
         var exePath = GetExePath();
-                var json = new System.Text.Json.Nodes.JsonObject
-                {
-                        ["servers"] = new System.Text.Json.Nodes.JsonObject
-                        {
-                                ["solidworks"] = AutoConfigService.CreateVsCodeServerConfig(exePath)
-                        }
-                }.ToJsonString(new System.Text.Json.JsonSerializerOptions { WriteIndented = true });
-                ExportConfig(json, Strings.BalloonVsCodeCopied, "vscode");
+        var json = new JsonObject
+        {
+            ["servers"] = new JsonObject
+            {
+                ["solidworks"] = AutoConfigService.CreateVsCodeServerConfig(exePath)
+            }
+        }.ToJsonString(new JsonSerializerOptions { WriteIndented = true });
+
+        ExportText(json, Strings.BalloonVsCodeCopied, "vscode");
+    }
+
+    private void OnCopyOpenClawCommand(object? sender, EventArgs e)
+    {
+        var command = AutoConfigService.CreateOpenClawCommand(GetExePath());
+        ExportText(command, Strings.BalloonOpenClawCopied, "openclaw", ".txt");
     }
 
     private void OnOpenLog(object? sender, EventArgs e)
@@ -186,7 +200,7 @@ internal sealed class TrayApplicationContext : ApplicationContext, IDisposable
         }
     }
 
-    private void ExportConfig(string text, string successMessage, string fileStem)
+    private void ExportText(string text, string successMessage, string fileStem, string fileExtension = ".json")
     {
         try
         {
@@ -196,7 +210,7 @@ internal sealed class TrayApplicationContext : ApplicationContext, IDisposable
         }
         catch (System.Runtime.InteropServices.ExternalException)
         {
-            var path = WriteFallbackConfigFile(fileStem, text);
+            var path = WriteFallbackConfigFile(fileStem, text, fileExtension);
             ServerLogBuffer.Append("WARN", "App", Strings.LogClipboardFallback(path));
             Process.Start(new ProcessStartInfo(path) { UseShellExecute = true });
             _trayIcon.ShowBalloonTip(3000, Strings.BalloonClipboardBusy, Strings.BalloonClipboardFallback, ToolTipIcon.Warning);
@@ -212,11 +226,11 @@ internal sealed class TrayApplicationContext : ApplicationContext, IDisposable
         }
     }
 
-    private static string WriteFallbackConfigFile(string fileStem, string text)
+    private static string WriteFallbackConfigFile(string fileStem, string text, string fileExtension)
     {
         var path = Path.Combine(
             Path.GetTempPath(),
-            $"solidworks-mcp-{fileStem}-{DateTime.Now:yyyyMMdd-HHmmss}.json");
+            $"solidworks-mcp-{fileStem}-{DateTime.Now:yyyyMMdd-HHmmss}{fileExtension}");
         File.WriteAllText(path, text);
         return path;
     }

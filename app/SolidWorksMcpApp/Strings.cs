@@ -24,8 +24,10 @@ internal static class Strings
     public static string MenuStart      => IsChinese ? "启动"          : "Start";
     public static string MenuPause      => IsChinese ? "暂停"          : "Pause";
     public static string MenuMonitor    => IsChinese ? "打开监控面板"   : "Open Monitor";
-    public static string MenuVsCode     => IsChinese ? "导出 VS Code MCP 配置"  : "Export VS Code MCP Config";
-    public static string MenuClaude     => IsChinese ? "导出 Claude 配置"  : "Export Claude Config";
+    public static string MenuExportConfigs => IsChinese ? "复制配置/命令" : "Copy Config / Command";
+    public static string MenuVsCode     => IsChinese ? "复制 VS Code MCP 配置"  : "Copy VS Code MCP Config";
+    public static string MenuClaude     => IsChinese ? "复制 Claude 配置"  : "Copy Claude Config";
+    public static string MenuOpenClaw   => IsChinese ? "复制 OpenClaw 命令" : "Copy OpenClaw Command";
     public static string MenuOpenLog    => IsChinese ? "查看出错日志"       : "View Error Log";
     public static string MenuExit       => IsChinese ? "退出"             : "Exit";
 
@@ -59,6 +61,10 @@ internal static class Strings
         IsChinese ? "VS Code mcp.json 配置已复制到剪贴板。"
                   : "VS Code mcp.json config copied to clipboard.";
 
+    public static string BalloonOpenClawCopied =>
+        IsChinese ? "OpenClaw 命令已复制到剪贴板，请手动执行。"
+                  : "OpenClaw command copied to clipboard. Run it manually.";
+
     public static string BalloonClipboardFallback =>
         IsChinese ? "剪贴板暂时不可用，已打开临时配置文件供手动复制。"
                   : "Clipboard is temporarily unavailable. Opened a temporary config file for manual copy.";
@@ -68,7 +74,7 @@ internal static class Strings
                   : "No error log for this session.";
 
     public static string MessageClipboardFailed =>
-        IsChinese ? "导出配置失败。" : "Failed to export config.";
+        IsChinese ? "复制内容失败。" : "Failed to copy text.";
 
     public static string LogServerStarted =>
         IsChinese ? "托盘服务已启动。" : "Tray service started.";
@@ -86,7 +92,7 @@ internal static class Strings
         IsChinese ? $"客户端已断开: {name} (PID {pid})" : $"Client disconnected: {name} (PID {pid})";
 
     public static string LogClipboardFailed =>
-        IsChinese ? "导出配置失败" : "Failed to export config";
+        IsChinese ? "复制内容失败" : "Failed to copy text";
 
     public static string LogClipboardFallback(string path) =>
         IsChinese ? $"剪贴板被占用，已写入临时配置文件: {path}" : $"Clipboard busy, wrote temporary config file: {path}";

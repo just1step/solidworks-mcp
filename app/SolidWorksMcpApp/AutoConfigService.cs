@@ -123,4 +123,16 @@ internal static class AutoConfigService
             ["args"] = new JsonArray("--proxy", "--client", "VS Code")
         };
     }
+
+    internal static string CreateOpenClawCommand(string exePath)
+    {
+        var payload = new JsonObject
+        {
+            ["command"] = exePath,
+            ["args"] = new JsonArray("--proxy", "--client", "OpenClaw")
+        };
+
+        var escapedPayload = payload.ToJsonString().Replace("'", "''");
+        return $"$config = '{escapedPayload}'; openclaw mcp set solidworks $config";
+    }
 }
