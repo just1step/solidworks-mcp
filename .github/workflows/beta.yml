@@ -1,0 +1,66 @@
+name: Beta Build
+
+on:
+  push:
+    tags-ignore:
+      - "**"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  beta-build:
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: powershell
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup .NET SDK
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 8.0.x
+
+      - name: Restore bridge solution
+        run: dotnet restore bridge/SolidWorksBridge.sln --nologo
+
+      - name: Restore tray app
+        run: dotnet restore app/SolidWorksMcpApp/SolidWorksMcpApp.csproj --nologo
+
+      - name: Run bridge unit tests
+        run: dotnet test bridge/SolidWorksBridge.sln --configuration Release --no-restore --filter "Category!=Integration" --nologo
+
+      - name: Publish beta exe
+        run: |
+          dotnet publish app/SolidWorksMcpApp/SolidWorksMcpApp.csproj `
+            --configuration Release `
+            --runtime win-x64 `
+            --self-contained true `
+            --no-restore `
+            -p:PublishSingleFile=true `
+            -p:IncludeNativeLibrariesForSelfExtract=true `
+            -p:EnableCompressionInSingleFile=true `
+            -p:DebugType=None `
+            -p:DebugSymbols=false `
+            --output artifacts/beta/win-x64
+
+      - name: Write beta metadata
+        run: |
+          $lines = @(
+            "ref=${{ github.ref_name }}",
+            "sha=${{ github.sha }}",
+            "run=${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+          )
+          Set-Content -Path artifacts/beta/win-x64/beta.txt -Value $lines
+
+      - name: Upload beta artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: solidworks-mcp-beta-${{ github.run_number }}
+          path: |
+            artifacts/beta/win-x64/SolidWorksMcpApp.exe
+            artifacts/beta/win-x64/beta.txt
+          if-no-files-found: error

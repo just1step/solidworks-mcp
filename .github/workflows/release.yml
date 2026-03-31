@@ -1,0 +1,78 @@
+name: Release Build
+
+on:
+  release:
+    types:
+      - published
+
+permissions:
+  contents: write
+
+jobs:
+  release-build:
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: powershell
+    env:
+      RELEASE_TAG: ${{ github.event.release.tag_name }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup .NET SDK
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 8.0.x
+
+      - name: Restore bridge solution
+        run: dotnet restore bridge/SolidWorksBridge.sln --nologo
+
+      - name: Restore tray app
+        run: dotnet restore app/SolidWorksMcpApp/SolidWorksMcpApp.csproj --nologo
+
+      - name: Run bridge unit tests
+        run: dotnet test bridge/SolidWorksBridge.sln --configuration Release --no-restore --filter "Category!=Integration" --nologo
+
+      - name: Publish release exe
+        run: |
+          dotnet publish app/SolidWorksMcpApp/SolidWorksMcpApp.csproj `
+            --configuration Release `
+            --runtime win-x64 `
+            --self-contained true `
+            --no-restore `
+            -p:PublishSingleFile=true `
+            -p:IncludeNativeLibrariesForSelfExtract=true `
+            -p:EnableCompressionInSingleFile=true `
+            -p:DebugType=None `
+            -p:DebugSymbols=false `
+            --output artifacts/release/win-x64
+
+      - name: Rename release asset
+        id: asset
+        run: |
+          $assetName = "SolidWorksMcpApp-$env:RELEASE_TAG-win-x64.exe"
+          Move-Item artifacts/release/win-x64/SolidWorksMcpApp.exe "artifacts/release/win-x64/$assetName" -Force
+          "asset_name=$assetName" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
+
+      - name: Generate checksum
+        run: |
+          $assetPath = "artifacts/release/win-x64/${{ steps.asset.outputs.asset_name }}"
+          $hash = (Get-FileHash $assetPath -Algorithm SHA256).Hash.ToLowerInvariant()
+          Set-Content -Path "$assetPath.sha256" -Value "$hash  ${{ steps.asset.outputs.asset_name }}"
+
+      - name: Upload workflow artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: solidworks-mcp-release-${{ github.event.release.tag_name }}
+          path: |
+            artifacts/release/win-x64/${{ steps.asset.outputs.asset_name }}
+            artifacts/release/win-x64/${{ steps.asset.outputs.asset_name }}.sha256
+          if-no-files-found: error
+
+      - name: Upload release assets
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            artifacts/release/win-x64/${{ steps.asset.outputs.asset_name }}
+            artifacts/release/win-x64/${{ steps.asset.outputs.asset_name }}.sha256

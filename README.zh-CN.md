@@ -106,10 +106,12 @@ dotnet test SolidWorksBridge.sln
 ## 发布检查清单
 
 1. 在 [bridge](bridge) 执行 `dotnet test SolidWorksBridge.sln`。
-2. 在 [app/SolidWorksMcpApp](app/SolidWorksMcpApp) 执行 `dotnet build -c Release`。
-3. 将 `SolidWorksMcpApp.exe` 附加到 GitHub Release。
+2. 每次 push 后，从 `.github/workflows/beta.yml` 下载 beta 构建产物。
+3. 发布 GitHub Release 后，由 `.github/workflows/release.yml` 自动附加单文件 `SolidWorksMcpApp-<tag>-win-x64.exe` 和 `.sha256` 资产。
 
 ## GitHub Actions
 
-- `.github/workflows/ci.yml`：每次 push/PR 时构建并测试 .NET 项目。
+- `.github/workflows/ci.yml`：PR 校验工作流，负责构建 .NET 应用并运行 bridge 单元测试。
+- `.github/workflows/beta.yml`：每次 push 时构建 beta 单文件 exe 工件。
+- `.github/workflows/release.yml`：每次发布 GitHub Release 时构建并上传正式 exe 与 `.sha256` 资产。
 - `.github/workflows/solidworks-self-hosted.yml`：需要安装 SolidWorks 的自托管 runner 的手动工作流。

@@ -1,13 +1,14 @@
 name: CI
 
 on:
-  push:
-    branches:
-      - main
   pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
 
 jobs:
-  mcp-server:
+  validate:
     runs-on: windows-latest
     defaults:
       run:
@@ -16,8 +17,19 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Build .NET MCP server
-        run: dotnet build --configuration Release --nologo
+      - name: Setup .NET SDK
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 8.0.x
 
-      - name: Test .NET MCP server
-        run: dotnet test --no-build --configuration Release --nologo
+      - name: Restore bridge solution
+        run: dotnet restore bridge/SolidWorksBridge.sln --nologo
+
+      - name: Restore tray app
+        run: dotnet restore app/SolidWorksMcpApp/SolidWorksMcpApp.csproj --nologo
+
+      - name: Build tray app
+        run: dotnet build app/SolidWorksMcpApp/SolidWorksMcpApp.csproj --configuration Release --no-restore --nologo
+
+      - name: Run bridge unit tests
+        run: dotnet test bridge/SolidWorksBridge.sln --configuration Release --no-restore --filter "Category!=Integration" --nologo

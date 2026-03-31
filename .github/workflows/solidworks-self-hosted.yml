@@ -4,20 +4,18 @@ on:
   workflow_dispatch:
     inputs:
       runIntegration:
-        description: Run C# integration tests that require local SolidWorks
+        description: Run bridge integration tests that require local SolidWorks
         required: true
         default: true
         type: boolean
-      runAcceptance:
-        description: Run MCP acceptance tests against the local SolidWorks environment
+      publishArtifact:
+        description: Publish the tray app single-file exe as a workflow artifact
         required: true
         default: true
         type: boolean
-      createPackage:
-        description: Build the npm tarball artifact with the bundled bridge
-        required: true
-        default: true
-        type: boolean
+
+permissions:
+  contents: read
 
 jobs:
   solidworks-build:
@@ -32,60 +30,46 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: '20'
-          cache: npm
-          cache-dependency-path: mcp-server/package-lock.json
-
       - name: Setup .NET SDK
         uses: actions/setup-dotnet@v4
         with:
-          dotnet-version: '8.0.x'
-
-      - name: Install MCP server dependencies
-        working-directory: mcp-server
-        run: npm ci
+          dotnet-version: 8.0.x
 
       - name: Restore bridge solution
-        working-directory: bridge
-        run: dotnet restore SolidWorksBridge.sln
+        run: dotnet restore bridge/SolidWorksBridge.sln --nologo
 
-      - name: Build MCP server
-        working-directory: mcp-server
-        run: npm run build
+      - name: Restore tray app
+        run: dotnet restore app/SolidWorksMcpApp/SolidWorksMcpApp.csproj --nologo
 
-      - name: Run MCP server unit tests
-        working-directory: mcp-server
-        run: npm run test:unit
+      - name: Build tray app
+        run: dotnet build app/SolidWorksMcpApp/SolidWorksMcpApp.csproj --configuration Release --no-restore --nologo
 
       - name: Run bridge unit tests
-        working-directory: bridge
-        run: dotnet test SolidWorksBridge.sln --filter "Category!=Integration" --no-restore
+        run: dotnet test bridge/SolidWorksBridge.sln --configuration Release --no-restore --filter "Category!=Integration" --nologo
 
       - name: Run bridge integration tests
         if: ${{ inputs.runIntegration }}
-        working-directory: bridge
-        run: dotnet test SolidWorksBridge.sln --filter "Category=Integration" --logger "console;verbosity=detailed"
+        run: dotnet test bridge/SolidWorksBridge.sln --configuration Release --no-restore --filter "Category=Integration" --logger "console;verbosity=detailed" --nologo
 
-      - name: Run MCP acceptance tests
-        if: ${{ inputs.runAcceptance }}
-        working-directory: mcp-server
-        run: npm run test:acceptance
-
-      - name: Build npm package tarball
-        if: ${{ inputs.createPackage }}
-        id: pack
-        working-directory: mcp-server
+      - name: Publish tray app exe
+        if: ${{ inputs.publishArtifact }}
         run: |
-          npm pack | Tee-Object -FilePath pack-output.txt
-          $tarball = Get-Content pack-output.txt | Select-Object -Last 1
-          "tarball=$tarball" >> $env:GITHUB_OUTPUT
+          dotnet publish app/SolidWorksMcpApp/SolidWorksMcpApp.csproj `
+            --configuration Release `
+            --runtime win-x64 `
+            --self-contained true `
+            --no-restore `
+            -p:PublishSingleFile=true `
+            -p:IncludeNativeLibrariesForSelfExtract=true `
+            -p:EnableCompressionInSingleFile=true `
+            -p:DebugType=None `
+            -p:DebugSymbols=false `
+            --output artifacts/self-hosted/win-x64
 
-      - name: Upload npm package artifact
-        if: ${{ inputs.createPackage }}
+      - name: Upload tray app artifact
+        if: ${{ inputs.publishArtifact }}
         uses: actions/upload-artifact@v4
         with:
-          name: solidworks-mcp-package
-          path: mcp-server/${{ steps.pack.outputs.tarball }}
+          name: solidworks-mcp-self-hosted-${{ github.run_number }}
+          path: artifacts/self-hosted/win-x64/SolidWorksMcpApp.exe
+          if-no-files-found: error
