@@ -1,117 +1,168 @@
 ﻿# SolidWorks MCP Server
 
-[![English](https://img.shields.io/badge/English-README-black)](./README.md)
+语言切换：[English](./README.md) | 简体中文
 
-SolidWorks MCP Server 是专为 Windows 设计的 SolidWorks MCP 桌面自动化服务，供 VS Code、Claude Desktop 以及其他 MCP 客户端调用。
+SolidWorks MCP Server 是面向 Windows 的 SolidWorks MCP 桌面自动化服务，供 VS Code、Copilot、Claude Desktop 以及其他 MCP 客户端调用。项目以单一 exe 交付，内部包含托盘 Hub 和按需拉起的 Proxy 两种运行模式。
 
-## 演示
+## Demo 演示
 
 ![SolidWorks MCP demo](docs/media/demo.gif)
 
-项目以单一 exe 的形式交付，但运行时分为两种模式：
+这段演示主要体现了完整使用链路：
 
-- Hub 模式：托盘常驻进程，持有共享的 SolidWorks COM / STA 执行环境。
-- Proxy 模式：供 VS Code、Claude Desktop 等 MCP 客户端拉起的 stdio MCP 入口。
+- 启动托盘 Hub，并把 SolidWorks COM 调用统一串行到共享 STA 线程；
+- 让 VS Code 或 Claude Desktop 按需拉起 `--proxy` 模式；
+- 通过托盘监控面板查看连接状态、服务状态和最近日志；
+- 通过 MCP 调用文档、草图、特征、选择、装配等工具。
 
-Proxy 通过本地 Named Pipe 与托盘 Hub 通信；如果 Hub 尚未启动，Proxy 会自动唤醒它。
+## 快速导航
 
-## 项目目标
+- [使用指引](#使用指引)
+- [开发指引](#开发指引)
+- [提交 Issue 指引](#提交-issue-指引)
+- [关联库与参考链接](#关联库与参考链接)
 
-- 给 AI 代理提供稳定的 SolidWorks 自动化接口。
-- 把 CAD 操作拆成小而明确的工具。
-- 把 MCP 协议层和 SolidWorks COM 执行层解耦。
-- 运行时不占用前台窗口，以托盘图标的形式常驻后台。
+## 使用指引
 
-## 当前能力
-
-- 文档工具：连接、创建、打开、保存、关闭、列出、查询活动文档。
-- 选择工具：按名称选择、拓扑枚举、按索引精确选择、清空选择。
-- 草图工具：点、椭圆、多边形、文本、线、圆、矩形、圆弧。
-- 特征工具：拉伸、切除、旋转、圆角、倒角、抽壳、简单孔。
-- 装配工具：插入组件、列出组件、核心配合工具。
-
-## 环境要求
+### 环境要求
 
 - Windows 10/11
 - 本机已安装 SolidWorks
-- [.NET 8 运行时](https://dotnet.microsoft.com/download/dotnet/8.0)（源码构建需要 .NET 8 SDK）
-- VS Code 或 Claude Desktop（MCP 客户端）
+- [.NET 8 运行时](https://dotnet.microsoft.com/download/dotnet/8.0)；如果要从源码构建，则需要 .NET 8 SDK
+- 支持 stdio MCP Server 的客户端，例如 VS Code、Copilot、Claude Desktop
 
-## 快速开始
+### 直接运行
 
-### 直接运行 Release 包
+1. 从 [Releases](../../releases) 下载 `SolidWorksMcpApp.exe`。
+2. 双击启动 exe。
+3. 确认系统托盘中出现 SolidWorks MCP 图标。
+4. 右键托盘图标，可打开监控面板、导出客户端配置、暂停服务或查看日志。
 
-从 [Releases](../../releases) 页下载 `SolidWorksMcpApp.exe`，双击启动。  
-服务以托盘图标常驻，右键可导出 Claude Desktop 或 VS Code 配置，也可手动复制。
+同一个 exe 在运行时包含两种模式：
 
-> 服务在首次启动时会自动将配置写入 Claude Desktop 和 VS Code 的配置文件，无需手动操作。
+- Hub 模式：托盘常驻进程，持有共享的 SolidWorks COM / STA 执行环境。
+- Proxy 模式：供 MCP 客户端通过 `--proxy` 拉起的 stdio 入口。
 
-### 从源码构建
+Proxy 通过本地 Named Pipe 与 Hub 通信；如果 Hub 尚未启动，Proxy 会自动唤醒它。
+
+### 在 VS Code 中使用
+
+1. 启动 `SolidWorksMcpApp.exe`。
+2. 右键托盘图标，选择 **导出 VS Code 配置**。
+3. 将生成内容粘贴到 VS Code 的 `settings.json`，或者直接使用程序首次启动时自动写入的配置。
+4. 在 VS Code 中确认 `solidworks` MCP Server 已被识别并启用。
+
+### 在 Claude Desktop 中使用
+
+1. 启动 `SolidWorksMcpApp.exe`。
+2. 右键托盘图标，选择 **导出 Claude 配置**。
+3. 将生成内容粘贴到 `%APPDATA%\Claude\claude_desktop_config.json`，或者直接使用程序首次启动时自动写入的配置。
+4. 如有需要，重启 Claude Desktop 并确认 MCP Server 已加载。
+
+### 如何确认服务正常
+
+- 通过托盘菜单中的状态文案确认服务是否处于运行态。
+- 打开监控面板查看当前连接的客户端和最近日志。
+- 如果调用失败，检查 exe 同级目录的 `logs/{MachineName}_{timestamp}.txt`。
+
+## 开发指引
+
+### 仓库结构
+
+```text
+solidworks-mcp-server/
+├─ app/SolidWorksMcpApp/          # 托盘程序、MCP Host、打包入口
+├─ bridge/SolidWorksBridge/       # SolidWorks COM 侧实现
+├─ bridge/SolidWorksBridge.Tests/ # Bridge 单元测试
+├─ docs/media/                    # README 中使用的演示资源
+├─ .github/workflows/             # CI、beta、release、自托管工作流
+└─ .vscode/                       # 本地开发任务与启动配置
+```
+
+### 本地构建
 
 ```powershell
 cd app/SolidWorksMcpApp
 dotnet build -c Release
 ```
 
-编译产物位于 `bin/Release/net8.0-windows/win-x64/SolidWorksMcpApp.exe`。
+主程序输出位置：
 
-### 在 VS Code 中使用
+- `bin/Release/net8.0-windows/win-x64/SolidWorksMcpApp.exe`
 
-右键托盘图标 → **导出 VSCode 配置**，将内容粘贴到 `settings.json` 中；  
-或直接使用首次启动时自动写入的配置项。
+如果你使用 VS Code，也可以直接运行 [`.vscode/tasks.json`](./.vscode/tasks.json) 里的任务：
 
-### 在 Claude Desktop 中使用
+- `Build SolidWorks MCP App`
 
-右键托盘图标 → **导出 Claude 配置**，将内容粘贴到 `%APPDATA%\Claude\claude_desktop_config.json`；  
-或直接使用首次启动时自动写入的配置项。
+### 本地测试
 
-## 托盘菜单说明
-
-| 菜单项 | 说明 |
-|--------|------|
-| 状态: 运行中 / 已暂停 | 当前服务状态 |
-| 启动 | 从暂停状态恢复，开始接受工具调用 |
-| 暂停 | 暂停接受工具调用（不退出进程） |
-| 导出 VSCode 配置 | 生成 VS Code `settings.json` 片段并复制到剪贴板 |
-| 导出 Claude 配置 | 生成 Claude Desktop `claude_desktop_config.json` 片段并复制到剪贴板 |
-| 查看出错日志 | 在记事本中打开本次会话的错误日志 |
-| 退出 | 关闭托盘和服务进程 |
-
-> 菜单语言自动跟随 Windows 显示语言（当前支持简体中文和英文）。
-
-## 仓库结构
-
-```text
-solidworks-mcp-server/
-├─ app/SolidWorksMcpApp/  # C# MCP 服务 exe（托盘程序，stdio 传输）
-├─ bridge/               # C# SolidWorks COM bridge 和测试
-└─ .vscode/              # 本地开发用 MCP 配置
-```
-
-## 测试
+运行 bridge 测试：
 
 ```powershell
 cd bridge
 dotnet test SolidWorksBridge.sln
 ```
 
-## 开发说明
+若只做快速校验，可使用：
 
-- MCP 通过 `content[].text` 返回 JSON 文本结果。
-- MCP 客户端实际连接的是 `SolidWorksMcpApp.exe --proxy`；若托盘 Hub 未运行，会由 Proxy 自动启动。
-- `sw_extrude` / `sw_extrude_cut` 要求在草图编辑态下调用。
-- 错误日志写入 exe 同级目录的 `logs/{MachineName}_{timestamp}.txt`。
-- 服务在首次启动时会自动写入 `mcpServers.solidworks` 到 Claude Desktop 和 VS Code 配置中。
+```powershell
+dotnet test bridge/SolidWorksBridge.sln --configuration Release --filter "Category!=Integration"
+```
 
-## 发布检查清单
+### 本地打包
 
-1. 在 [bridge](bridge) 执行 `dotnet test SolidWorksBridge.sln`。
-2. 每次 push 后，从 `.github/workflows/beta.yml` 下载 beta 构建产物。
-3. 发布 GitHub Release 后，由 `.github/workflows/release.yml` 自动附加单个 `SolidWorksMcpApp-<tag>-win-x64.exe` 文件。
+生成单文件 Windows 包：
 
-## GitHub Actions
+```powershell
+dotnet publish app/SolidWorksMcpApp/SolidWorksMcpApp.csproj -c Release -r win-x64 --self-contained true
+```
 
-- `.github/workflows/ci.yml`：PR 校验工作流，负责构建 .NET 应用并运行 bridge 单元测试。
-- `.github/workflows/beta.yml`：每次 push 时构建 beta 单文件 exe 工件。
-- `.github/workflows/release.yml`：每次发布 GitHub Release 时构建并上传单个正式 exe 资产。
-- `.github/workflows/solidworks-self-hosted.yml`：需要安装 SolidWorks 的自托管 runner 的手动工作流。
+当前打包流程已经优化为用户最终只需下载一个 exe 即可运行。
+
+### CI / Release 指引
+
+- [`.github/workflows/ci.yml`](./.github/workflows/ci.yml)：PR 校验。
+- [`.github/workflows/beta.yml`](./.github/workflows/beta.yml)：每次 push 构建 beta 单文件 exe 工件。
+- [`.github/workflows/release.yml`](./.github/workflows/release.yml)：每次 GitHub Release 构建并上传单个正式 exe 资产。
+- [`.github/workflows/solidworks-self-hosted.yml`](./.github/workflows/solidworks-self-hosted.yml)：需要真实 SolidWorks 环境时使用的自托管工作流。
+
+## 提交 Issue 指引
+
+提交 Issue 之前，建议先做这些检查：
+
+- 在最新 `main` 分支或最新 release 二进制上确认问题仍然存在；
+- 先搜索已有 [Issues](../../issues)，避免重复提交；
+- 收集 exe 同级 `logs/` 目录下的相关日志；
+- 确认问题发生在 Hub 启动、客户端连接，还是具体某个工具调用阶段。
+
+提交 Issue 时，建议包含：
+
+- Windows 版本；
+- SolidWorks 版本；
+- MCP 客户端名称和版本；
+- 复现步骤；
+- 预期结果与实际结果；
+- 错误信息、截图或关键日志片段；
+- 问题是在发布版 exe 上复现，还是只在源码运行时复现。
+
+可使用以下入口：
+
+- [查看已有 Issues](../../issues)
+- [新建 Issue](../../issues/new)
+
+## 关联库与参考链接
+
+- [app/SolidWorksMcpApp](./app/SolidWorksMcpApp) — 当前面向用户交付的 Windows 托盘应用与 MCP Host。
+- [bridge/SolidWorksBridge](./bridge/SolidWorksBridge) — 负责 SolidWorks COM 交互的实现层。
+- [bridge/SolidWorksBridge.Tests](./bridge/SolidWorksBridge.Tests) — bridge 层测试用例。
+- [Model Context Protocol 官网](https://modelcontextprotocol.io/) — MCP 协议说明。
+- [ModelContextProtocol NuGet](https://www.nuget.org/packages/ModelContextProtocol/) — 本项目使用的 .NET MCP 包。
+- [SOLIDWORKS API Help](https://help.solidworks.com/) — 官方 SolidWorks API 参考文档。
+
+## 当前工具覆盖范围
+
+- 文档工具：连接、创建、打开、保存、关闭、列出、查询活动文档。
+- 选择工具：按名称选择、拓扑枚举、按索引精确选择、清空选择。
+- 草图工具：点、椭圆、多边形、文本、线、圆、矩形、圆弧。
+- 特征工具：拉伸、切除、旋转、圆角、倒角、抽壳、简单孔。
+- 装配工具：插入组件、列出组件、核心配合工具。

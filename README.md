@@ -1,101 +1,170 @@
 # SolidWorks MCP Server
 
-[![Simplified Chinese](https://img.shields.io/badge/%E7%AE%80%E4%BD%93%E4%B8%AD%E6%96%87-README-blue)](./README.zh-CN.md)
+Language: English | [简体中文](./README.zh-CN.md)
 
-SolidWorks MCP Server exposes SolidWorks desktop automation as a Windows-only MCP server for VS Code, Copilot, and other MCP clients.
+SolidWorks MCP Server exposes SolidWorks desktop automation as a Windows-only MCP server for VS Code, Copilot, Claude Desktop, and other MCP clients. The project is delivered as a single Windows exe with a tray-based Hub and an auto-waking Proxy entrypoint for MCP stdio clients.
 
 ## Demo
 
 ![SolidWorks MCP demo](docs/media/demo.gif)
 
-It ships as one Windows exe with two runtime modes:
+The demo highlights the full interaction loop:
 
-- Hub mode: tray app hosting the shared SolidWorks COM/STA world.
-- Proxy mode: stdio MCP endpoint used by VS Code, Copilot, Claude, and other MCP clients.
+- launch the tray-based Hub once and keep SolidWorks COM work on a shared STA thread;
+- let VS Code or Claude Desktop start Proxy instances on demand through `--proxy`;
+- inspect connections, status, and recent logs from the tray monitor window;
+- call SolidWorks document, sketch, feature, selection, and assembly tools through MCP.
 
-The proxy talks to the tray hub through a local named pipe and will auto-start the hub if it is not already running.
+## Quick Navigation
 
-## Why this repo exists
+- [Usage Guide](#usage-guide)
+- [Development Guide](#development-guide)
+- [Issue Guide](#issue-guide)
+- [Related Projects And Libraries](#related-projects-and-libraries)
 
-- Give AI agents a stable SolidWorks automation surface.
-- Keep CAD actions small, explicit, and testable.
-- Separate MCP concerns from SolidWorks COM concerns.
-- Support both local development and packaged distribution.
+## Usage Guide
 
-## What is included
-
-- Document tools: connect, create, open, save, close, list, inspect.
-- Selection tools: select by name, enumerate topology, exact entity selection, clear selection.
-- Sketch tools: point, ellipse, polygon, text, line, circle, rectangle, arc.
-- Feature tools: extrude, extrude cut, revolve, fillet, chamfer, shell, simple hole.
-- Assembly tools: insert component, list components, and the core mate set.
-
-## Requirements
+### Requirements
 
 - Windows 10/11
 - SolidWorks installed locally
-- [.NET 8 Runtime](https://dotnet.microsoft.com/download/dotnet/8.0) (or .NET 8 SDK for source builds)
-- VS Code or Claude Desktop for MCP client support
+- [.NET 8 Runtime](https://dotnet.microsoft.com/download/dotnet/8.0) for release binaries, or .NET 8 SDK for source builds
+- VS Code, Copilot, Claude Desktop, or another MCP client that supports stdio servers
 
-## Quick start
+### Download And Run
 
-### Run from release binary
+1. Download `SolidWorksMcpApp.exe` from the [Releases](../../releases) page.
+2. Double-click the exe.
+3. Confirm that the tray icon appears.
+4. Right-click the tray icon to open the monitor, export client config, pause the server, or inspect logs.
 
-Download `SolidWorksMcpApp.exe` from the [Releases](../../releases) page and double-click it.  
-The server appears as a tray icon. Right-click to export config for Claude Desktop or VS Code.
+The server has two runtime modes behind the same exe:
 
-### Build from source
+- Hub mode: the tray process that owns the shared SolidWorks COM/STA environment.
+- Proxy mode: the stdio MCP endpoint started by MCP clients with `--proxy`.
+
+The Proxy connects to the Hub through a local named pipe and auto-starts the Hub if it is not already running.
+
+### Connect VS Code
+
+1. Start `SolidWorksMcpApp.exe`.
+2. Right-click the tray icon and choose **Export VS Code Config**.
+3. Paste the generated snippet into your VS Code `settings.json`, or use the auto-written entry that the app creates on first launch.
+4. In VS Code, verify that the `solidworks` MCP server is visible and enabled.
+
+### Connect Claude Desktop
+
+1. Start `SolidWorksMcpApp.exe`.
+2. Right-click the tray icon and choose **Export Claude Config**.
+3. Paste the generated snippet into `%APPDATA%\Claude\claude_desktop_config.json`, or use the auto-written entry that the app creates on first launch.
+4. Restart Claude Desktop if needed and verify that the MCP server is detected.
+
+### Verify The Server Is Healthy
+
+- Use the tray icon text and menu to confirm the server is running.
+- Open the monitor window to inspect connected clients and recent logs.
+- If something fails, check `logs/{MachineName}_{timestamp}.txt` next to the exe.
+
+## Development Guide
+
+### Repository Layout
+
+```text
+solidworks-mcp-server/
+├─ app/SolidWorksMcpApp/          # Tray app, MCP server host, tray UI, packaging entrypoint
+├─ bridge/SolidWorksBridge/       # SolidWorks COM-facing services and runtime library
+├─ bridge/SolidWorksBridge.Tests/ # Unit tests for bridge services
+├─ docs/media/                    # README demo assets
+├─ .github/workflows/             # CI, beta, release, and self-hosted workflows
+└─ .vscode/                       # Local tasks and launch config for development
+```
+
+### Build
+
+Build the tray app from source:
 
 ```powershell
 cd app/SolidWorksMcpApp
 dotnet build -c Release
 ```
 
-The exe will be at `bin/Release/net8.0-windows/win-x64/SolidWorksMcpApp.exe`.
+The main output is:
 
-### Use in VS Code
+- `bin/Release/net8.0-windows/win-x64/SolidWorksMcpApp.exe`
 
-Right-click the tray icon → **Export VS Code Config** and paste into your VS Code `settings.json`,  
-or use the auto-written entry (the server writes the config automatically on first launch).
+You can also use the local VS Code task in [`.vscode/tasks.json`](./.vscode/tasks.json):
 
-### Use with Claude Desktop
+- `Build SolidWorks MCP App`
 
-Right-click the tray icon → **导出 Claude 配置** and paste into `%APPDATA%\Claude\claude_desktop_config.json`,  
-or use the auto-written entry (the server writes the config automatically on first launch).
+### Test
 
-## Repository layout
-
-```text
-solidworks-mcp-server/
-├─ app/SolidWorksMcpApp/  # C# MCP server exe (tray app, stdio transport)
-├─ bridge/               # C# SolidWorks COM bridge and tests
-└─ .vscode/              # workspace-local MCP config for development
-```
-
-## Tests
+Run the bridge test suite:
 
 ```powershell
 cd bridge
 dotnet test SolidWorksBridge.sln
 ```
 
-## Development notes
+For CI and fast local validation, the main non-integration command is:
 
-- The MCP server returns JSON text payloads in `content[].text`.
-- MCP clients connect to `SolidWorksMcpApp.exe --proxy`; the proxy auto-wakes the tray hub on demand.
-- Feature creation expects the sketch to be open when calling extrude / extrude-cut.
-- Error logs are written to `logs/{MachineName}_{timestamp}.txt` next to the exe.
-- The tray icon auto-writes `mcpServers.solidworks` into Claude Desktop and VS Code settings on first launch.
+```powershell
+dotnet test bridge/SolidWorksBridge.sln --configuration Release --filter "Category!=Integration"
+```
 
-## Release checklist
+### Package
 
-1. Run `dotnet test SolidWorksBridge.sln` in [bridge](bridge).
-2. Push a branch to get a beta workflow artifact from `.github/workflows/beta.yml`.
-3. Publish a GitHub Release to let `.github/workflows/release.yml` attach a single `SolidWorksMcpApp-<tag>-win-x64.exe` asset automatically.
+Build a single-file Windows package locally:
 
-## GitHub Actions
+```powershell
+dotnet publish app/SolidWorksMcpApp/SolidWorksMcpApp.csproj -c Release -r win-x64 --self-contained true
+```
 
-- `.github/workflows/ci.yml` — pull request validation for the .NET app and bridge tests.
-- `.github/workflows/beta.yml` — builds a beta single-file exe artifact on every push.
-- `.github/workflows/release.yml` — builds and uploads a single release exe asset on every published GitHub Release.
-- `.github/workflows/solidworks-self-hosted.yml` — manual workflow for a Windows self-hosted runner with SolidWorks installed.
+The current packaging flow is optimized so the published output can be a single exe for end users.
+
+### Release And CI
+
+- [`.github/workflows/ci.yml`](./.github/workflows/ci.yml) validates pull requests.
+- [`.github/workflows/beta.yml`](./.github/workflows/beta.yml) builds a beta single-file exe artifact on every push.
+- [`.github/workflows/release.yml`](./.github/workflows/release.yml) publishes a single release exe asset on each GitHub Release.
+- [`.github/workflows/solidworks-self-hosted.yml`](./.github/workflows/solidworks-self-hosted.yml) runs the self-hosted SolidWorks workflow when a real SolidWorks environment is required.
+
+## Issue Guide
+
+Before opening an issue:
+
+- check whether the problem still reproduces on the latest `main` branch or latest release binary;
+- search existing [Issues](../../issues) to avoid duplicates;
+- collect the relevant log file from the `logs/` directory next to the exe;
+- note whether the problem happens in Hub startup, client connection, or an actual SolidWorks tool call.
+
+When submitting an issue, include:
+
+- Windows version;
+- SolidWorks version;
+- MCP client name and version, such as VS Code or Claude Desktop;
+- exact reproduction steps;
+- expected behavior and actual behavior;
+- error messages, screenshots, or the relevant log excerpt;
+- whether the problem reproduces with the published exe or only from source.
+
+Use these links:
+
+- [Browse existing issues](../../issues)
+- [Open a new issue](../../issues/new)
+
+## Related Projects And Libraries
+
+- [app/SolidWorksMcpApp](./app/SolidWorksMcpApp) — the Windows tray app and MCP hosting layer.
+- [bridge/SolidWorksBridge](./bridge/SolidWorksBridge) — the SolidWorks COM-facing implementation used by the app.
+- [bridge/SolidWorksBridge.Tests](./bridge/SolidWorksBridge.Tests) — unit tests for the bridge behavior.
+- [Model Context Protocol](https://modelcontextprotocol.io/) — the protocol specification used by MCP clients and servers.
+- [ModelContextProtocol on NuGet](https://www.nuget.org/packages/ModelContextProtocol/) — the .NET package used by this project.
+- [SOLIDWORKS API Help](https://help.solidworks.com/) — the official SolidWorks API reference.
+
+## Current Tooling Coverage
+
+- Document tools: connect, create, open, save, close, list, inspect.
+- Selection tools: select by name, enumerate topology, exact entity selection, clear selection.
+- Sketch tools: point, ellipse, polygon, text, line, circle, rectangle, arc.
+- Feature tools: extrude, extrude cut, revolve, fillet, chamfer, shell, simple hole.
+- Assembly tools: insert component, list components, and the core mate set.
