@@ -1,13 +1,14 @@
 name: CI
 
 on:
-  push:
-    branches:
-      - main
   pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
 
 jobs:
-  mcp-server:
+  validate:
     runs-on: windows-latest
     defaults:
       run:
@@ -16,21 +17,19 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
+      - name: Setup .NET SDK
+        uses: actions/setup-dotnet@v4
         with:
-          node-version: '20'
-          cache: npm
-          cache-dependency-path: mcp-server/package-lock.json
+          dotnet-version: 8.0.x
 
-      - name: Install MCP server dependencies
-        working-directory: mcp-server
-        run: npm ci
+      - name: Restore bridge solution
+        run: dotnet restore bridge/SolidWorksBridge.sln --nologo
 
-      - name: Build MCP server
-        working-directory: mcp-server
-        run: npm run build
+      - name: Restore tray app
+        run: dotnet restore app/SolidWorksMcpApp/SolidWorksMcpApp.csproj --nologo
 
-      - name: Run MCP server unit tests
-        working-directory: mcp-server
-        run: npm run test:unit
+      - name: Build tray app
+        run: dotnet build app/SolidWorksMcpApp/SolidWorksMcpApp.csproj --configuration Release --no-restore --nologo
+
+      - name: Run bridge unit tests
+        run: dotnet test bridge/SolidWorksBridge.sln --configuration Release --no-restore --filter "Category!=Integration" --nologo

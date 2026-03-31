@@ -2,6 +2,18 @@
   "version": "2.0.0",
   "tasks": [
     {
+      "label": "Build SolidWorks MCP App",
+      "type": "shell",
+      "command": "dotnet",
+      "args": [
+        "build",
+        "${workspaceFolder}\\app\\SolidWorksMcpApp\\SolidWorksMcpApp.csproj",
+        "--no-incremental"
+      ],
+      "problemMatcher": "$msCompile",
+      "group": "build"
+    },
+    {
       "label": "Deploy SolidWorks MCP",
       "type": "shell",
       "command": "${workspaceFolder}\\scripts\\deploy-local.bat",
