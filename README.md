@@ -91,11 +91,11 @@ dotnet test SolidWorksBridge.sln
 
 1. Run `dotnet test SolidWorksBridge.sln` in [bridge](bridge).
 2. Push a branch to get a beta workflow artifact from `.github/workflows/beta.yml`.
-3. Publish a GitHub Release to let `.github/workflows/release.yml` attach the single-file `SolidWorksMcpApp-<tag>-win-x64.exe` asset automatically.
+3. Publish a GitHub Release to let `.github/workflows/release.yml` attach a single `SolidWorksMcpApp-<tag>-win-x64.exe` asset automatically.
 
 ## GitHub Actions
 
 - `.github/workflows/ci.yml` — pull request validation for the .NET app and bridge tests.
 - `.github/workflows/beta.yml` — builds a beta single-file exe artifact on every push.
-- `.github/workflows/release.yml` — builds and uploads the release exe plus `.sha256` asset on every published GitHub Release.
+- `.github/workflows/release.yml` — builds and uploads a single release exe asset on every published GitHub Release.
 - `.github/workflows/solidworks-self-hosted.yml` — manual workflow for a Windows self-hosted runner with SolidWorks installed.

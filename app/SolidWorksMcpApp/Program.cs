@@ -251,7 +251,7 @@ internal static class Program
     static void StartHubProcess()
     {
         var exePath = Environment.ProcessPath
-            ?? System.Reflection.Assembly.GetExecutingAssembly().Location;
+            ?? throw new InvalidOperationException("Process path is unavailable.");
 
         Process.Start(new ProcessStartInfo
         {

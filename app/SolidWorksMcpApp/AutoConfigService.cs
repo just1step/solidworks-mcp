@@ -21,7 +21,7 @@ internal static class AutoConfigService
     public static void WriteConfigs()
     {
         var exePath = Environment.ProcessPath
-                      ?? Assembly.GetExecutingAssembly().Location;
+                      ?? throw new InvalidOperationException("Process path is unavailable.");
 
         TryWriteClaudeConfig(exePath);
         TryWriteVsCodeConfig(exePath);

@@ -172,7 +172,7 @@ internal sealed class TrayApplicationContext : ApplicationContext, IDisposable
     }
 
     private static string GetExePath() =>
-        Environment.ProcessPath ?? Assembly.GetExecutingAssembly().Location;
+        Environment.ProcessPath ?? throw new InvalidOperationException("Process path is unavailable.");
 
     private static string EscapeJson(string value) =>
         value.Replace("\\", "\\\\").Replace("\"", "\\\"");

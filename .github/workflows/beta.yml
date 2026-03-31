@@ -40,27 +40,11 @@ jobs:
             --runtime win-x64 `
             --self-contained true `
             --no-restore `
-            -p:PublishSingleFile=true `
-            -p:IncludeNativeLibrariesForSelfExtract=true `
-            -p:EnableCompressionInSingleFile=true `
-            -p:DebugType=None `
-            -p:DebugSymbols=false `
             --output artifacts/beta/win-x64
-
-      - name: Write beta metadata
-        run: |
-          $lines = @(
-            "ref=${{ github.ref_name }}",
-            "sha=${{ github.sha }}",
-            "run=${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
-          )
-          Set-Content -Path artifacts/beta/win-x64/beta.txt -Value $lines
 
       - name: Upload beta artifact
         uses: actions/upload-artifact@v4
         with:
           name: solidworks-mcp-beta-${{ github.run_number }}
-          path: |
-            artifacts/beta/win-x64/SolidWorksMcpApp.exe
-            artifacts/beta/win-x64/beta.txt
+          path: artifacts/beta/win-x64/SolidWorksMcpApp.exe
           if-no-files-found: error

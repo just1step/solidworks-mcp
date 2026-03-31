@@ -17,10 +17,7 @@ internal static class ServerState
     /// </summary>
     public static void InitLogFile()
     {
-        var exeDir = Path.GetDirectoryName(
-                         Environment.ProcessPath
-                         ?? System.Reflection.Assembly.GetExecutingAssembly().Location)
-                     ?? Directory.GetCurrentDirectory();
+        var exeDir = AppContext.BaseDirectory;
 
         var logsDir = Path.Combine(exeDir, "logs");
         Directory.CreateDirectory(logsDir);
