@@ -60,14 +60,4 @@ public class FeatureTools(StaDispatcher sta, IFeatureService feature)
         var info = await sta.InvokeAsync(() => feature.Shell(thickness));
         return JsonSerializer.Serialize(info);
     }
-
-    [McpServerTool, Description("Create a simple hole at the selected point on a face.")]
-    public async Task<string> SimpleHole(
-        [Description("Hole diameter in meters")] double diameter,
-        [Description("Hole depth in meters")] double depth,
-        [Description("End condition: Blind=0, ThroughAll=1, MidPlane=6")] int endCondition = 0)
-    {
-        var info = await sta.InvokeAsync(() => feature.SimpleHole(diameter, depth, (EndCondition)endCondition));
-        return JsonSerializer.Serialize(info);
-    }
 }

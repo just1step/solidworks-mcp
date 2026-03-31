@@ -314,14 +314,6 @@ public class AppBootstrapper
             return Task.FromResult<object?>(info);
         });
 
-        _messageHandler.Register("sw.feature.simple_hole", req =>
-        {
-            var p = req.GetParams<SimpleHoleParams>()
-                ?? throw new ArgumentException("params required: {diameter, depth, endCondition?}");
-            var info = _featureService.SimpleHole(p.Diameter, p.Depth, p.EndCondition);
-            return Task.FromResult<object?>(info);
-        });
-
         // ── Assembly ──────────────────────────────────────────────
         _messageHandler.Register("sw.assembly.insert_component", req =>
         {
@@ -572,13 +564,6 @@ public class AppBootstrapper
     public class ShellParams
     {
         [System.Text.Json.Serialization.JsonPropertyName("thickness")] public double Thickness { get; set; }
-    }
-
-    public class SimpleHoleParams
-    {
-        [System.Text.Json.Serialization.JsonPropertyName("diameter")] public double Diameter { get; set; }
-        [System.Text.Json.Serialization.JsonPropertyName("depth")] public double Depth { get; set; }
-        [System.Text.Json.Serialization.JsonPropertyName("endCondition")] public EndCondition EndCondition { get; set; } = EndCondition.Blind;
     }
 
     public class InsertComponentParams

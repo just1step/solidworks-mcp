@@ -1,5 +1,6 @@
 using Moq;
 using SolidWorks.Interop.sldworks;
+using SolidWorks.Interop.swconst;
 using SolidWorksBridge.SolidWorks;
 
 namespace SolidWorksBridge.Tests.SolidWorks;
@@ -372,26 +373,4 @@ public class FeatureServiceTests
         Assert.Equal("Chamfer", info.Type);
     }
 
-    // ─────────────────────────────────────────────────────────────
-    // SimpleHole
-    // ─────────────────────────────────────────────────────────────
-
-    [Fact]
-    public void SimpleHole_ReturnsFeatureInfo_WithSimpleHoleType()
-    {
-        var (manager, _, _, doc) = ConnectedWithFm();
-        doc.Setup(d => d.SimpleHole3(
-                It.IsAny<double>(), It.IsAny<bool>(), It.IsAny<bool>(), It.IsAny<bool>(),
-                It.IsAny<int>(), It.IsAny<int>(),
-                It.IsAny<double>(), It.IsAny<double>(),
-                It.IsAny<bool>(), It.IsAny<bool>(), It.IsAny<bool>(), It.IsAny<bool>(),
-                It.IsAny<double>(), It.IsAny<double>(),
-            It.IsAny<bool>(), It.IsAny<bool>(), It.IsAny<bool>(), It.IsAny<bool>()));
-        doc.Setup(d => d.IFeatureByPositionReverse(0)).Returns(FakeFeature("Hole1"));
-
-        var info = new FeatureService(manager.Object).SimpleHole(0.01, 0.02);
-
-        Assert.Equal("Hole1", info.Name);
-        Assert.Equal("SimpleHole", info.Type);
-    }
 }

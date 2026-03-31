@@ -182,31 +182,6 @@ public class FeatureServiceIntegrationTests
 
     [Fact]
     [Trait("Category", "Integration")]
-    public void Integration_SimpleHole_OnSelectedFacePoint_CreatesFeature()
-    {
-        var (sel, sketch, feature) = RealServices();
-        OpenRectSketch(sel, sketch);
-        feature.Extrude(0.02);
-
-        var firstFace = sel.ListEntities(SelectableEntityType.Face).First();
-        var selectedFace = sel.SelectEntity(SelectableEntityType.Face, firstFace.Index);
-        Assert.True(selectedFace.Success, selectedFace.Message);
-
-        var point = CreateSketchPointOnSelectedFace();
-
-        sel.ClearSelection();
-        selectedFace = sel.SelectEntity(SelectableEntityType.Face, firstFace.Index);
-        Assert.True(selectedFace.Success, selectedFace.Message);
-        SelectSketchPoint(point);
-
-        var info = feature.SimpleHole(0.005, 0.01);
-
-        Assert.Equal("SimpleHole", info.Type);
-        Assert.False(string.IsNullOrEmpty(info.Name));
-    }
-
-    [Fact]
-    [Trait("Category", "Integration")]
     public void Integration_ExtrudeCut_OnSelectedTopFaceSketch_CreatesFeature()
     {
         var (sel, sketch, feature) = RealServices();

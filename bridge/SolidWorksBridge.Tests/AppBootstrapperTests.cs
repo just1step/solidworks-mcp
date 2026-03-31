@@ -85,7 +85,7 @@ public class AppBootstrapperTests
             "sw.sketch.add_rectangle", "sw.sketch.add_arc",
             "sw.feature.extrude", "sw.feature.extrude_cut",
             "sw.feature.revolve", "sw.feature.fillet",
-            "sw.feature.chamfer", "sw.feature.shell", "sw.feature.simple_hole",
+            "sw.feature.chamfer", "sw.feature.shell",
             "sw.assembly.insert_component",
             "sw.assembly.add_mate_coincident", "sw.assembly.add_mate_concentric",
             "sw.assembly.add_mate_parallel",

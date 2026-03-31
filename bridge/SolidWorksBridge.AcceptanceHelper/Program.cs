@@ -54,7 +54,6 @@ internal static class Program
             "prepare-fillet" => session.PrepareFillet(),
             "prepare-chamfer" => session.PrepareChamfer(),
             "prepare-shell" => session.PrepareShell(),
-            "prepare-simple-hole" => session.PrepareSimpleHole(),
             "prepare-mate-coincident" => session.PrepareMate(MatePreparationKind.Coincident),
             "prepare-mate-parallel" => session.PrepareMate(MatePreparationKind.Parallel),
             "prepare-mate-distance" => session.PrepareMate(MatePreparationKind.Distance),
@@ -156,14 +155,6 @@ internal sealed class AcceptanceSession : IDisposable
         ResetSession();
         CreateBoxPart(0.06, 0.04, 0.02);
         SelectFirstPlanarFace();
-        return ActiveDocumentInfo();
-    }
-
-    public object PrepareSimpleHole()
-    {
-        ResetSession();
-        CreateBoxPart(0.06, 0.04, 0.02);
-        SelectPlanarFaceAndSketchPoint();
         return ActiveDocumentInfo();
     }
 
@@ -372,24 +363,6 @@ internal sealed class AcceptanceSession : IDisposable
         var face = FindTopPlanarFace()
             ?? throw new InvalidOperationException("No top planar face found on the active solid body.");
         SelectEntity((IEntity)face, append: false);
-    }
-
-    private void SelectPlanarFaceAndSketchPoint()
-    {
-        _selection.ClearSelection();
-        var face = FindFirstPlanarFace()
-            ?? throw new InvalidOperationException("No planar face found on the active solid body.");
-        SelectEntity((IEntity)face, append: false);
-
-        _sketch.InsertSketch();
-        var point = _manager.SwApp!.SketchManager!.CreatePoint(0, 0, 0)
-            ?? throw new InvalidOperationException("Failed to create a sketch point on the selected planar face.");
-        _sketch.FinishSketch();
-
-        _selection.ClearSelection();
-        SelectEntity((IEntity)face, append: false);
-        SelectComObject(point, append: true);
-        EnsureSelectionCountAtLeast(2, "simple-hole setup");
     }
 
     private IFace2? FindFirstPlanarFace()

@@ -202,5 +202,5 @@ Use these links:
 - View tools: standard orientation switching and incremental view rotation.
 - Selection tools: select by name, enumerate topology, exact entity selection, clear selection.
 - Sketch tools: point, ellipse, polygon, text, line, circle, rectangle, arc.
-- Feature tools: extrude, extrude cut, revolve, fillet, chamfer, shell, simple hole.
+- Feature tools: extrude, extrude cut, revolve, fillet, chamfer, shell.
 - Assembly tools: insert component, list components, and the core mate set.

@@ -22,7 +22,6 @@ public interface IFeatureService
     FeatureInfo Fillet(double radius);
     FeatureInfo Chamfer(double distance);
     FeatureInfo Shell(double thickness);
-    FeatureInfo SimpleHole(double diameter, double depth, EndCondition endCondition = EndCondition.Blind);
 }
 
 public class FeatureService : IFeatureService
@@ -176,28 +175,6 @@ public class FeatureService : IFeatureService
                 "Shell failed — ensure open faces are selected");
 
         return new FeatureInfo(feature.Name, "Shell");
-    }
-
-    public FeatureInfo SimpleHole(double diameter, double depth, EndCondition endCondition = EndCondition.Blind)
-    {
-        _cm.EnsureConnected();
-        var doc = GetModelDoc();
-
-        doc.SimpleHole3(
-            Dia: diameter, Sd: true, Flip: false, Dir: true,
-            T1: (int)endCondition, T2: 0,
-            D1: depth, D2: 0,
-            Dchk1: false, Dchk2: false,
-            Ddir1: false, Ddir2: false,
-            Dang1: 0, Dang2: 0,
-            OffsetReverse1: false, OffsetReverse2: false,
-            TranslateSurface1: false, TranslateSurface2: false);
-
-        var feature = doc.IFeatureByPositionReverse(0)
-            ?? throw new InvalidOperationException(
-                "SimpleHole failed — ensure a face point is selected");
-
-        return new FeatureInfo(feature.Name, "SimpleHole");
     }
 
     private IFeatureManager GetFeatureManager()
