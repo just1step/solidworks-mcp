@@ -1,24 +1,26 @@
-# SolidWorks MCP Server
+﻿# SolidWorks MCP Server
 
 [![English](https://img.shields.io/badge/English-README-black)](./README.md)
 
-SolidWorks MCP Server 是一个面向 Windows 的 SolidWorks MCP 服务，供 VS Code、Copilot 以及其他 MCP 客户端调用。
+SolidWorks MCP Server 是专为 Windows 设计的 SolidWorks MCP 桌面自动化服务，供 VS Code、Claude Desktop 以及其他 MCP 客户端调用。
 
 ## 演示
 
 ![SolidWorks MCP demo](docs/media/demo.gif)
 
-项目由两层组成：
+项目以单一 exe 的形式交付，但运行时分为两种模式：
 
-- Node.js MCP Server：负责 MCP stdio、参数校验和 tool 注册。
-- C# Bridge：负责通过本地 Named Pipe 调用 SolidWorks COM API。
+- Hub 模式：托盘常驻进程，持有共享的 SolidWorks COM / STA 执行环境。
+- Proxy 模式：供 VS Code、Claude Desktop 等 MCP 客户端拉起的 stdio MCP 入口。
+
+Proxy 通过本地 Named Pipe 与托盘 Hub 通信；如果 Hub 尚未启动，Proxy 会自动唤醒它。
 
 ## 项目目标
 
 - 给 AI 代理提供稳定的 SolidWorks 自动化接口。
 - 把 CAD 操作拆成小而明确的工具。
 - 把 MCP 协议层和 SolidWorks COM 执行层解耦。
-- 同时支持源码开发、npm 分发和 VS Code 安装。
+- 运行时不占用前台窗口，以托盘图标的形式常驻后台。
 
 ## 当前能力
 
@@ -30,145 +32,63 @@ SolidWorks MCP Server 是一个面向 Windows 的 SolidWorks MCP 服务，供 VS
 
 ## 环境要求
 
-- Windows
+- Windows 10/11
 - 本机已安装 SolidWorks
-- 源码构建需要 .NET 8 SDK
-- Node.js 18+
-- 如果要在编辑器里使用，建议使用支持 MCP 的 VS Code
-
-当前 bridge 仍然直接引用本机 SolidWorks Interop DLL，所以分发目标仍然是“已安装 SolidWorks 的 Windows 机器”。
+- [.NET 8 运行时](https://dotnet.microsoft.com/download/dotnet/8.0)（源码构建需要 .NET 8 SDK）
+- VS Code 或 Claude Desktop（MCP 客户端）
 
 ## 快速开始
 
-### 从源码开发运行
+### 直接运行 Release 包
+
+从 [Releases](../../releases) 页下载 `SolidWorksMcpApp.exe`，双击启动。  
+服务以托盘图标常驻，右键可导出 Claude Desktop 或 VS Code 配置，也可手动复制。
+
+> 服务在首次启动时会自动将配置写入 Claude Desktop 和 VS Code 的配置文件，无需手动操作。
+
+### 从源码构建
 
 ```powershell
-cd mcp-server
-npm install
-npm run build
-
-cd ..\bridge
-dotnet build SolidWorksBridge.sln
+cd app/SolidWorksMcpApp
+dotnet build -c Release
 ```
 
-运行 MCP server：
+编译产物位于 `bin/Release/net8.0-windows/win-x64/SolidWorksMcpApp.exe`。
 
-```powershell
-cd mcp-server
-node dist/index.js
-```
+### 在 VS Code 中使用
 
-服务会优先复用已有的 `SolidWorksMcpBridge` pipe，必要时自动拉起 bridge。
+右键托盘图标 → **导出 VSCode 配置**，将内容粘贴到 `settings.json` 中；  
+或直接使用首次启动时自动写入的配置项。
 
-### 在 VS Code 中本地开发使用
+### 在 Claude Desktop 中使用
 
-仓库已经自带 [.vscode/mcp.json](.vscode/mcp.json)，适合仓库内开发调试。
+右键托盘图标 → **导出 Claude 配置**，将内容粘贴到 `%APPDATA%\Claude\claude_desktop_config.json`；  
+或直接使用首次启动时自动写入的配置项。
 
-1. 先构建 bridge 和 MCP server。
-2. 用 VS Code 打开仓库根目录。
-3. 执行 `MCP: List Servers`。
-4. 首次提示时信任 `solidworks-mcp-server`。
+## 托盘菜单说明
 
-### 通过 npm 在 VS Code 中使用
+| 菜单项 | 说明 |
+|--------|------|
+| 状态: 运行中 / 已暂停 | 当前服务状态 |
+| 启动 | 从暂停状态恢复，开始接受工具调用 |
+| 暂停 | 暂停接受工具调用（不退出进程） |
+| 导出 VSCode 配置 | 生成 VS Code `settings.json` 片段并复制到剪贴板 |
+| 导出 Claude 配置 | 生成 Claude Desktop `claude_desktop_config.json` 片段并复制到剪贴板 |
+| 查看出错日志 | 在记事本中打开本次会话的错误日志 |
+| 退出 | 关闭托盘和服务进程 |
 
-发布到 npm 后，推荐先安装全局命令：
-
-```powershell
-npm install -g solidworks-mcp
-```
-
-然后在用户级或工作区级 `mcp.json` 中注册服务：
-
-```json
-{
-	"servers": {
-		"solidworks-mcp-server": {
-			"type": "stdio",
-			"command": "solidworks-mcp-server"
-		}
-	}
-}
-```
-
-如果 VS Code 在 Windows 下没有继承 npm 全局 bin 目录，建议直接写入 shim 的绝对路径：
-
-```json
-{
-	"servers": {
-		"solidworks-mcp-server": {
-			"type": "stdio",
-			"command": "C:/Users/<you>/AppData/Roaming/npm/solidworks-mcp-server.cmd"
-		}
-	}
-}
-```
-
-如果你不想全局安装，也可以直接使用 `npx`：
-
-```json
-{
-	"servers": {
-		"solidworks-mcp-server": {
-			"type": "stdio",
-			"command": "C:/Program Files/nodejs/npx.cmd",
-			"args": ["-y", "solidworks-mcp"]
-		}
-	}
-}
-```
-
-## npm 分发
-
-可发布的 npm 包位于 [mcp-server/package.json](mcp-server/package.json)。
-
-包内包含：
-
-- `dist/` 编译后的 MCP server
-- `vendor/bridge/` 发布后的 `SolidWorksBridge.exe` 产物
-- `bin/solidworks-mcp-server.cmd` Windows CLI 入口
-
-本地生成 tarball：
-
-```powershell
-cd mcp-server
-npm pack
-```
-
-`npm pack` 会触发 `prepack`，自动完成：
-
-1. 构建 TypeScript MCP server。
-2. 以 Release 模式发布 C# bridge。
-3. 把 bridge 打包进 `mcp-server/vendor/bridge`。
-
-未来发布到 npm 后，推荐安装方式为：
-
-```powershell
-npm install -g solidworks-mcp
-solidworks-mcp-server
-```
-
-如果你需要覆盖 bridge 路径，可以设置 `SOLIDWORKS_MCP_BRIDGE_ROOT`，其值应指向包含 `SolidWorksBridge.exe` 的目录。
+> 菜单语言自动跟随 Windows 显示语言（当前支持简体中文和英文）。
 
 ## 仓库结构
 
 ```text
 solidworks-mcp-server/
-├─ bridge/            # C# COM bridge 和测试
-├─ mcp-server/        # 可发布 npm 包
-├─ scripts/           # 仓库级构建与测试脚本
-└─ .vscode/           # 本地开发用 MCP 配置
+├─ app/SolidWorksMcpApp/  # C# MCP 服务 exe（托盘程序，stdio 传输）
+├─ bridge/               # C# SolidWorks COM bridge 和测试
+└─ .vscode/              # 本地开发用 MCP 配置
 ```
 
 ## 测试
-
-Node 测试：
-
-```powershell
-cd mcp-server
-npm test
-```
-
-Bridge 测试：
 
 ```powershell
 cd bridge
@@ -177,12 +97,19 @@ dotnet test SolidWorksBridge.sln
 
 ## 开发说明
 
-- MCP 当前仍通过 `content[].text` 返回 JSON 文本结果。
-- `sw_extrude` 和 `sw_extrude_cut` 仍要求在草图编辑态下直接调用。
-- 仓库里的 `.vscode/mcp.json` 保留给本地开发使用；最终用户可以直接把已发布的 npm 包接入 VS Code。
+- MCP 通过 `content[].text` 返回 JSON 文本结果。
+- MCP 客户端实际连接的是 `SolidWorksMcpApp.exe --proxy`；若托盘 Hub 未运行，会由 Proxy 自动启动。
+- `sw_extrude` / `sw_extrude_cut` 要求在草图编辑态下调用。
+- 错误日志写入 exe 同级目录的 `logs/{MachineName}_{timestamp}.txt`。
+- 服务在首次启动时会自动写入 `mcpServers.solidworks` 到 Claude Desktop 和 VS Code 配置中。
 
 ## 发布检查清单
 
-1. 在 [mcp-server](mcp-server) 里执行 `npm test`。
-2. 在 [bridge](bridge) 里执行 `dotnet test SolidWorksBridge.sln`。
-3. 在 [mcp-server](mcp-server) 里执行 `npm pack` 并检查 tarball。
+1. 在 [bridge](bridge) 执行 `dotnet test SolidWorksBridge.sln`。
+2. 在 [app/SolidWorksMcpApp](app/SolidWorksMcpApp) 执行 `dotnet build -c Release`。
+3. 将 `SolidWorksMcpApp.exe` 附加到 GitHub Release。
+
+## GitHub Actions
+
+- `.github/workflows/ci.yml`：每次 push/PR 时构建并测试 .NET 项目。
+- `.github/workflows/solidworks-self-hosted.yml`：需要安装 SolidWorks 的自托管 runner 的手动工作流。

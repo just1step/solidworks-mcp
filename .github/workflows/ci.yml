@@ -16,21 +16,8 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: '20'
-          cache: npm
-          cache-dependency-path: mcp-server/package-lock.json
+      - name: Build .NET MCP server
+        run: dotnet build --configuration Release --nologo
 
-      - name: Install MCP server dependencies
-        working-directory: mcp-server
-        run: npm ci
-
-      - name: Build MCP server
-        working-directory: mcp-server
-        run: npm run build
-
-      - name: Run MCP server unit tests
-        working-directory: mcp-server
-        run: npm run test:unit
+      - name: Test .NET MCP server
+        run: dotnet test --no-build --configuration Release --nologo

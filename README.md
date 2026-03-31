@@ -8,10 +8,12 @@ SolidWorks MCP Server exposes SolidWorks desktop automation as a Windows-only MC
 
 ![SolidWorks MCP demo](docs/media/demo.gif)
 
-It ships as two layers:
+It ships as one Windows exe with two runtime modes:
 
-- A Node.js MCP server that validates tool input and speaks stdio MCP.
-- A C# bridge that talks to SolidWorks through COM over a local named pipe.
+- Hub mode: tray app hosting the shared SolidWorks COM/STA world.
+- Proxy mode: stdio MCP endpoint used by VS Code, Copilot, Claude, and other MCP clients.
+
+The proxy talks to the tray hub through a local named pipe and will auto-start the hub if it is not already running.
 
 ## Why this repo exists
 
@@ -30,145 +32,47 @@ It ships as two layers:
 
 ## Requirements
 
-- Windows
+- Windows 10/11
 - SolidWorks installed locally
-- .NET 8 SDK for source builds
-- Node.js 18+
-- VS Code with MCP support if you want editor integration
-
-The bridge still references the local SolidWorks Interop DLLs, so packaging is Windows-only and assumes a machine with SolidWorks installed.
+- [.NET 8 Runtime](https://dotnet.microsoft.com/download/dotnet/8.0) (or .NET 8 SDK for source builds)
+- VS Code or Claude Desktop for MCP client support
 
 ## Quick start
 
-### Development from source
+### Run from release binary
+
+Download `SolidWorksMcpApp.exe` from the [Releases](../../releases) page and double-click it.  
+The server appears as a tray icon. Right-click to export config for Claude Desktop or VS Code.
+
+### Build from source
 
 ```powershell
-cd mcp-server
-npm install
-npm run build
-
-cd ..\bridge
-dotnet build SolidWorksBridge.sln
+cd app/SolidWorksMcpApp
+dotnet build -c Release
 ```
 
-Run the MCP server from the repo:
+The exe will be at `bin/Release/net8.0-windows/win-x64/SolidWorksMcpApp.exe`.
 
-```powershell
-cd mcp-server
-node dist/index.js
-```
+### Use in VS Code
 
-The server will try to reuse an existing `SolidWorksMcpBridge` pipe, and if needed it will auto-start the bridge.
+Right-click the tray icon → **Export VS Code Config** and paste into your VS Code `settings.json`,  
+or use the auto-written entry (the server writes the config automatically on first launch).
 
-### Use in VS Code during development
+### Use with Claude Desktop
 
-This repo already includes [.vscode/mcp.json](.vscode/mcp.json) for workspace-local development.
-
-1. Build the bridge and the MCP server.
-2. Open the repository in VS Code.
-3. Run `MCP: List Servers`.
-4. Trust `solidworks-mcp-server` when prompted.
-
-### Use in VS Code from npm
-
-After publishing to npm, the lightweight install flow is:
-
-```powershell
-npm install -g solidworks-mcp
-```
-
-Then register the server in your user or workspace `mcp.json`:
-
-```json
-{
-	"servers": {
-		"solidworks-mcp-server": {
-			"type": "stdio",
-			"command": "solidworks-mcp-server"
-		}
-	}
-}
-```
-
-If VS Code does not inherit your npm global bin folder on Windows, point to the shim explicitly instead:
-
-```json
-{
-	"servers": {
-		"solidworks-mcp-server": {
-			"type": "stdio",
-			"command": "C:/Users/<you>/AppData/Roaming/npm/solidworks-mcp-server.cmd"
-		}
-	}
-}
-```
-
-If you prefer not to install globally, use `npx` instead:
-
-```json
-{
-	"servers": {
-		"solidworks-mcp-server": {
-			"type": "stdio",
-			"command": "C:/Program Files/nodejs/npx.cmd",
-			"args": ["-y", "solidworks-mcp"]
-		}
-	}
-}
-```
-
-## npm distribution
-
-The publishable npm package lives in [mcp-server/package.json](mcp-server/package.json).
-
-What it packages:
-
-- `dist/` compiled MCP server output
-- `vendor/bridge/` published `SolidWorksBridge.exe` bundle
-- `bin/solidworks-mcp-server.cmd` Windows CLI entrypoint
-
-Build a local tarball:
-
-```powershell
-cd mcp-server
-npm pack
-```
-
-`npm pack` runs `prepack`, which now:
-
-1. Builds the TypeScript MCP server.
-2. Publishes the C# bridge in Release mode.
-3. Bundles the bridge into `mcp-server/vendor/bridge`.
-
-After publishing to npm, the intended install flow is:
-
-```powershell
-npm install -g solidworks-mcp
-solidworks-mcp-server
-```
-
-If you need to override the packaged bridge location, set `SOLIDWORKS_MCP_BRIDGE_ROOT` to a directory containing `SolidWorksBridge.exe`.
+Right-click the tray icon → **导出 Claude 配置** and paste into `%APPDATA%\Claude\claude_desktop_config.json`,  
+or use the auto-written entry (the server writes the config automatically on first launch).
 
 ## Repository layout
 
 ```text
 solidworks-mcp-server/
-├─ bridge/            # C# COM bridge and tests
-├─ mcp-server/        # publishable npm package
-├─ scripts/           # repo-level build and test helpers
-└─ .vscode/           # workspace-local MCP config for development
+├─ app/SolidWorksMcpApp/  # C# MCP server exe (tray app, stdio transport)
+├─ bridge/               # C# SolidWorks COM bridge and tests
+└─ .vscode/              # workspace-local MCP config for development
 ```
 
 ## Tests
-
-Node tests:
-
-```powershell
-cd mcp-server
-npm test
-```
-
-Bridge tests:
 
 ```powershell
 cd bridge
@@ -177,26 +81,19 @@ dotnet test SolidWorksBridge.sln
 
 ## Development notes
 
-- The MCP server currently returns JSON text payloads in `content[].text`.
-- Feature creation still expects `sw_extrude` and `sw_extrude_cut` to run while the sketch is open.
-- The repo keeps `.vscode/mcp.json` for local development; end users can point VS Code at the published npm package instead.
+- The MCP server returns JSON text payloads in `content[].text`.
+- MCP clients connect to `SolidWorksMcpApp.exe --proxy`; the proxy auto-wakes the tray hub on demand.
+- Feature creation expects the sketch to be open when calling extrude / extrude-cut.
+- Error logs are written to `logs/{MachineName}_{timestamp}.txt` next to the exe.
+- The tray icon auto-writes `mcpServers.solidworks` into Claude Desktop and VS Code settings on first launch.
 
 ## Release checklist
 
-1. Run `npm test` in [mcp-server](mcp-server).
-2. Run `dotnet test SolidWorksBridge.sln` in [bridge](bridge).
-3. Run `npm pack` in [mcp-server](mcp-server) and verify the tarball.
+1. Run `dotnet test SolidWorksBridge.sln` in [bridge](bridge).
+2. Run `dotnet build -c Release` in [app/SolidWorksMcpApp](app/SolidWorksMcpApp).
+3. Attach `SolidWorksMcpApp.exe` to the GitHub release.
 
 ## GitHub Actions
 
-This repository now supports two GitHub Actions paths:
-
-1. Hosted CI on `windows-latest` for MCP server install, TypeScript build, and Node unit tests.
-2. Self-hosted Windows CI for bridge build, SolidWorks-dependent integration tests, acceptance tests, and `npm pack`.
-
-The split is necessary because the bridge project still references the local SolidWorks interop DLLs under `C:/Program Files/SOLIDWORKS Corp/...`, so GitHub-hosted runners cannot build or package the bridge end to end.
-
-Workflow files:
-
-- `.github/workflows/ci.yml`: GitHub-hosted checks safe to run on every push and pull request.
-- `.github/workflows/solidworks-self-hosted.yml`: manual workflow for a Windows self-hosted runner labeled `solidworks`.
+- `.github/workflows/ci.yml` — builds and tests the .NET project on every push/PR.
+- `.github/workflows/solidworks-self-hosted.yml` — manual workflow for a Windows self-hosted runner with SolidWorks installed.
