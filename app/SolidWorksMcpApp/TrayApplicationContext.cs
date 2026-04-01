@@ -212,7 +212,7 @@ internal sealed class TrayApplicationContext : ApplicationContext, IDisposable
         {
             var path = WriteFallbackConfigFile(fileStem, text, fileExtension);
             ServerLogBuffer.Append("WARN", "App", Strings.LogClipboardFallback(path));
-            Process.Start(new ProcessStartInfo(path) { UseShellExecute = true });
+            OpenFallbackTextFile(path);
             _trayIcon.ShowBalloonTip(3000, Strings.BalloonClipboardBusy, Strings.BalloonClipboardFallback, ToolTipIcon.Warning);
         }
         catch (Exception ex)
@@ -233,6 +233,26 @@ internal sealed class TrayApplicationContext : ApplicationContext, IDisposable
             $"solidworks-mcp-{fileStem}-{DateTime.Now:yyyyMMdd-HHmmss}{fileExtension}");
         File.WriteAllText(path, text);
         return path;
+    }
+
+    private static void OpenFallbackTextFile(string path)
+    {
+        try
+        {
+            Process.Start(new ProcessStartInfo("notepad.exe")
+            {
+                UseShellExecute = true,
+                Arguments = $"\"{path}\""
+            });
+        }
+        catch
+        {
+            Process.Start(new ProcessStartInfo("explorer.exe")
+            {
+                UseShellExecute = true,
+                Arguments = $"/select,\"{path}\""
+            });
+        }
     }
 
     protected override void Dispose(bool disposing)

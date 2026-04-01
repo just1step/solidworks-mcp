@@ -40,7 +40,7 @@ public class FeatureService : IFeatureService
     {
         _cm.EnsureConnected();
         var doc = GetModelDoc();
-        EnsureActiveSketchHasClosedProfile(doc, "IModelDoc2.FeatureBoss2", "extrude");
+        EnsureAvailableSketchHasClosedProfile(doc, "IModelDoc2.FeatureBoss2", "extrude");
         var topFeatureBefore = CaptureFeatureSnapshot(doc.IFeatureByPositionReverse(0));
         var bodyBefore = CaptureBodySignature(doc);
 
@@ -87,7 +87,7 @@ public class FeatureService : IFeatureService
     {
         _cm.EnsureConnected();
         var doc = GetModelDoc();
-        EnsureActiveSketchHasClosedProfile(doc, "IFeatureManager.FeatureCut4", "cut extrude");
+        EnsureAvailableSketchHasClosedProfile(doc, "IFeatureManager.FeatureCut4", "cut extrude");
         var featureManager = GetFeatureManager();
         var topFeatureBefore = CaptureFeatureSnapshot(doc.IFeatureByPositionReverse(0));
         var bodyBefore = CaptureBodySignature(doc);
@@ -158,7 +158,7 @@ public class FeatureService : IFeatureService
     {
         _cm.EnsureConnected();
         var doc = GetModelDoc();
-        EnsureActiveSketchHasClosedProfile(doc, "IFeatureManager.FeatureRevolve2", isCut ? "cut revolve" : "revolve");
+        EnsureAvailableSketchHasClosedProfile(doc, "IFeatureManager.FeatureRevolve2", isCut ? "cut revolve" : "revolve");
         var fm = GetFeatureManager();
         double angleRad = angleDegrees * Math.PI / 180.0;
 
@@ -233,12 +233,15 @@ public class FeatureService : IFeatureService
             ?? throw new InvalidOperationException("No active document");
     }
 
-    private static void EnsureActiveSketchHasClosedProfile(IModelDoc2 doc, string apiName, string operationName)
+    private static void EnsureAvailableSketchHasClosedProfile(IModelDoc2 doc, string apiName, string operationName)
     {
-        if (doc.GetActiveSketch2() is not ISketch sketch)
+        var sketchContext = ResolveSketchForProfileValidation(doc);
+        if (sketchContext == null)
         {
             return;
         }
+
+        var (sketch, source) = sketchContext.Value;
 
         var segments = (object[]?)sketch.GetSketchSegments() ?? Array.Empty<object>();
         int segmentCount = segments.Length;
@@ -256,6 +259,7 @@ public class FeatureService : IFeatureService
                 $"The active sketch is empty, so {operationName} cannot create a feature.",
                 new Dictionary<string, object?>
                 {
+                    ["sketchSource"] = source,
                     ["segmentCount"] = segmentCount,
                     ["contourCount"] = contourCount,
                     ["closedContourCount"] = closedContourCount,
@@ -270,6 +274,7 @@ public class FeatureService : IFeatureService
                 $"The active sketch contains open contours, so {operationName} cannot create a solid feature. Close every open loop first or use a closed-shape sketch tool such as AddCircle, AddRectangle, or AddPolygon.",
                 new Dictionary<string, object?>
                 {
+                    ["sketchSource"] = source,
                     ["segmentCount"] = segmentCount,
                     ["contourCount"] = contourCount,
                     ["closedContourCount"] = closedContourCount,
@@ -285,6 +290,7 @@ public class FeatureService : IFeatureService
                 $"The active sketch does not contain any valid sketch regions, so {operationName} cannot create a solid feature. The contours may overlap, self-intersect, or otherwise fail to form a usable profile.",
                 new Dictionary<string, object?>
                 {
+                    ["sketchSource"] = source,
                     ["segmentCount"] = segmentCount,
                     ["contourCount"] = contourCount,
                     ["closedContourCount"] = closedContourCount,
@@ -292,6 +298,38 @@ public class FeatureService : IFeatureService
                     ["regionCount"] = regionCount,
                 });
         }
+    }
+
+    private static (ISketch Sketch, string Source)? ResolveSketchForProfileValidation(IModelDoc2 doc)
+    {
+        if (doc.GetActiveSketch2() is ISketch activeSketch)
+        {
+            return (activeSketch, "active-sketch");
+        }
+
+        var topFeature = doc.IFeatureByPositionReverse(0);
+        if (topFeature == null || !IsSketchLike(SafeGetTypeName(topFeature)))
+        {
+            return null;
+        }
+
+        try
+        {
+            if (topFeature.GetSpecificFeature2() is ISketch topSketch)
+            {
+                return (topSketch, "top-profile-feature");
+            }
+        }
+        catch (COMException)
+        {
+            return null;
+        }
+        catch (TargetInvocationException)
+        {
+            return null;
+        }
+
+        return null;
     }
 
     private void NormalizeSketchStateForFeatureCut(IModelDoc2 doc)
