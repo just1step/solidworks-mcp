@@ -8,7 +8,7 @@ namespace SolidWorksMcpApp.Tools;
 [McpServerToolType]
 public class SketchTools(StaDispatcher sta, ISketchService sketch)
 {
-    [McpServerTool, Description("Open a new sketch on the currently selected datum plane or planar face. InsertSketch requires exactly one valid sketch host selection.")]
+    [McpServerTool, Description("Open a new sketch on the currently selected datum plane or planar face. This is only valid after exactly one planar face or datum plane has already been selected.")]
     public async Task<string> InsertSketch()
     {
         await sta.InvokeLoggedAsync(nameof(InsertSketch), null, sketch.InsertSketch);

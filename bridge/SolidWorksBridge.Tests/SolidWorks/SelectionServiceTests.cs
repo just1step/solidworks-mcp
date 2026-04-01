@@ -1,5 +1,6 @@
 using Moq;
 using SolidWorks.Interop.sldworks;
+using SolidWorks.Interop.swconst;
 using SolidWorksBridge.SolidWorks;
 
 namespace SolidWorksBridge.Tests.SolidWorks;
@@ -116,6 +117,17 @@ public class SelectionServiceTests
         feature.Setup(f => f.Name).Returns(name);
         feature.Setup(f => f.GetTypeName2()).Returns(typeName);
         feature.Setup(f => f.GetNextFeature()).Returns(next);
+        return feature.Object;
+    }
+
+    private static Feature FeatureNode(string name, string typeName, object[]? children = null, Feature? next = null, bool canSelect = true)
+    {
+        var feature = new Mock<Feature>();
+        feature.Setup(f => f.Name).Returns(name);
+        feature.Setup(f => f.GetTypeName2()).Returns(typeName);
+        feature.Setup(f => f.GetNextFeature()).Returns(next);
+        feature.Setup(f => f.GetChildren()).Returns(children ?? Array.Empty<object>());
+        feature.Setup(f => f.Select2(false, -1)).Returns(canSelect);
         return feature.Object;
     }
 
@@ -319,6 +331,42 @@ public class SelectionServiceTests
     }
 
     [Fact]
+    public void ListFeatureTree_ReturnsFeatureMetadata()
+    {
+        var cut = FeatureNode("Cut-Extrude1", "CutExtrude");
+        var looseSketch = FeatureNode("Sketch3", "ProfileFeature", next: cut);
+        var usedSketch = FeatureNode("Sketch2", "ProfileFeature", children: [new object()], next: looseSketch);
+
+        var (manager, _, doc) = ConnectedWithDoc();
+        doc.Setup(d => d.FirstFeature()).Returns(usedSketch);
+
+        var result = new SelectionService(manager.Object).ListFeatureTree();
+
+        Assert.Collection(result,
+            item =>
+            {
+                Assert.Equal(0, item.Index);
+                Assert.Equal("Sketch2", item.Name);
+                Assert.Equal("ProfileFeature", item.TypeName);
+                Assert.True(item.IsSketch);
+                Assert.True(item.HasChildren);
+            },
+            item =>
+            {
+                Assert.Equal(1, item.Index);
+                Assert.Equal("Sketch3", item.Name);
+                Assert.True(item.IsSketch);
+                Assert.False(item.HasChildren);
+            },
+            item =>
+            {
+                Assert.Equal(2, item.Index);
+                Assert.Equal("Cut-Extrude1", item.Name);
+                Assert.False(item.IsSketch);
+            });
+    }
+
+    [Fact]
     public void ListReferencePlanes_NoActiveDocument_ThrowsInvalidOperation()
     {
         var manager = ConnectedNoDoc();
@@ -391,6 +439,113 @@ public class SelectionServiceTests
         var manager = ConnectedNoDoc();
 
         Assert.Throws<InvalidOperationException>(() => new SelectionService(manager.Object).SelectEntity(SelectableEntityType.Face, 0));
+    }
+
+    [Fact]
+    public void DeleteFeatureByName_DeletesMatchingFeature()
+    {
+        var sketch = FeatureNode("Sketch7", "ProfileFeature");
+        var extension = new Mock<ModelDocExtension>();
+        extension.Setup(e => e.DeleteSelection2(0)).Returns(true);
+
+        var (manager, _, doc) = ConnectedWithDoc();
+        doc.Setup(d => d.FirstFeature()).Returns(sketch);
+        doc.SetupGet(d => d.Extension).Returns(extension.Object);
+
+        var result = new SelectionService(manager.Object).DeleteFeatureByName("Sketch7");
+
+        Assert.True(result.Success);
+        extension.Verify(e => e.DeleteSelection2(0), Times.Once);
+        doc.Verify(d => d.ClearSelection2(true), Times.Exactly(2));
+    }
+
+    [Fact]
+    public void DeleteFeatureByName_WhenSketchIsActive_Throws()
+    {
+        var sketch = FeatureNode("Sketch7", "ProfileFeature");
+        var (manager, _, doc) = ConnectedWithDoc();
+        doc.Setup(d => d.FirstFeature()).Returns(sketch);
+        doc.Setup(d => d.GetActiveSketch2()).Returns(new object());
+
+        var error = Assert.Throws<InvalidOperationException>(() => new SelectionService(manager.Object).DeleteFeatureByName("Sketch7"));
+
+        Assert.Contains("Finish the active sketch", error.Message);
+    }
+
+    [Fact]
+    public void DeleteUnusedSketches_DeletesOnlyLooseSketches()
+    {
+        var cut = FeatureNode("Boss-Extrude1", "BossExtrude");
+        var looseSketch = FeatureNode("Sketch4", "ProfileFeature", next: cut);
+        var usedSketch = FeatureNode("Sketch3", "ProfileFeature", children: [new object()], next: looseSketch);
+        var extension = new Mock<ModelDocExtension>();
+        extension.Setup(e => e.DeleteSelection2(0)).Returns(true);
+
+        var (manager, _, doc) = ConnectedWithDoc();
+        doc.Setup(d => d.FirstFeature()).Returns(usedSketch);
+        doc.SetupGet(d => d.Extension).Returns(extension.Object);
+        doc.Setup(d => d.GetActiveSketch2()).Returns((object?)null);
+
+        var result = new SelectionService(manager.Object).DeleteUnusedSketches();
+
+        Assert.Equal(1, result.DeletedCount);
+        Assert.Equal(["Sketch4"], result.DeletedFeatureNames);
+        Assert.Empty(result.FailedFeatureNames);
+        extension.Verify(e => e.DeleteSelection2(0), Times.Once);
+    }
+
+    [Fact]
+    public void DeleteUnusedSketches_WhenSketchIsActive_Throws()
+    {
+        var sketch = FeatureNode("Sketch9", "ProfileFeature");
+        var (manager, _, doc) = ConnectedWithDoc();
+        doc.Setup(d => d.FirstFeature()).Returns(sketch);
+        doc.Setup(d => d.GetActiveSketch2()).Returns(new object());
+
+        var error = Assert.Throws<InvalidOperationException>(() => new SelectionService(manager.Object).DeleteUnusedSketches());
+
+        Assert.Contains("Finish the active sketch", error.Message);
+    }
+
+    [Fact]
+    public void ListFeatureTree_WhenSketchIsActive_Throws()
+    {
+        var sketch = FeatureNode("Sketch9", "ProfileFeature");
+        var (manager, _, doc) = ConnectedWithDoc();
+        doc.Setup(d => d.FirstFeature()).Returns(sketch);
+        doc.Setup(d => d.GetActiveSketch2()).Returns(new object());
+
+        var error = Assert.Throws<InvalidOperationException>(() => new SelectionService(manager.Object).ListFeatureTree());
+
+        Assert.Contains("Finish the active sketch", error.Message);
+    }
+
+    [Fact]
+    public void GetEditState_WhenSketchIsActive_ReturnsUnsafeState()
+    {
+        var (manager, _, doc) = ConnectedWithDoc();
+        doc.Setup(d => d.GetActiveSketch2()).Returns(new object());
+
+        var state = new SelectionService(manager.Object).GetEditState();
+
+        Assert.True(state.IsEditing);
+        Assert.Equal("sketch", state.EditMode);
+        Assert.False(state.CanReadFeatureTree);
+        Assert.False(state.CanDeleteFeatures);
+    }
+
+    [Fact]
+    public void GetEditState_WhenNotEditing_ReturnsSafeState()
+    {
+        var (manager, _, doc) = ConnectedWithDoc();
+        doc.Setup(d => d.GetActiveSketch2()).Returns((object?)null);
+
+        var state = new SelectionService(manager.Object).GetEditState();
+
+        Assert.False(state.IsEditing);
+        Assert.Equal("none", state.EditMode);
+        Assert.True(state.CanReadFeatureTree);
+        Assert.True(state.CanDeleteFeatures);
     }
 
     // ─────────────────────────────────────────────────────────────

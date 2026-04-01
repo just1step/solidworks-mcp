@@ -9,5 +9,6 @@ description: Use the repo SolidWorks modeling skill notes
 2) 当我提出具体建模/修模需求时：先给出 3~7 条“会让模型更稳/更好改/更不容易失败”的操作建议（用这些 skill 里的要点），再给出可执行的步骤。
 
 约束：
+- 读取特征树或删除草图/特征前，先确认不在编辑态；优先调用 `GetEditState`，如果还在草图编辑中就先 `FinishSketch`。
 - 不要复述整篇笔记；只挑与当前任务最相关的建议。
 - 避免引入不必要的复杂特征，优先稳定、可重建。

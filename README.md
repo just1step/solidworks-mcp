@@ -88,6 +88,7 @@ Once the server is connected to SolidWorks, the current document toolset covers 
 - Switch to a standard orientation with `ShowStandardView`, using values such as `front`, `top`, `right`, or `isometric`.
 - Rotate the current model view with `RotateView(xDegrees, yDegrees, zDegrees)` when you need incremental camera control instead of a standard view preset.
 - Export the current viewport to a PNG file with `ExportCurrentViewPng`. When `includeBase64Data = true`, the tool result also contains the PNG payload as base64 for MCP clients that can render image data directly.
+- For FeatureManager inspection or cleanup flows, call `GetEditState` first. If the active document is still editing a sketch, exit sketch mode before `ListFeatureTree`, `DeleteFeatureByName`, or `DeleteUnusedSketches`.
 
 Typical examples:
 
@@ -97,6 +98,7 @@ Undo(steps=2)
 ShowStandardView(view="top")
 RotateView(xDegrees=15, zDegrees=45)
 ExportCurrentViewPng(outputPath="C:\\temp\\gearbox.png", width=1600, height=900)
+GetEditState()
 ```
 
 ## Development Guide

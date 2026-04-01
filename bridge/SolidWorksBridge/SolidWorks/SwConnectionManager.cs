@@ -509,6 +509,9 @@ public class SwConnectionManager : ISwConnectionManager
 {
     private readonly ISwComConnector _connector;
     private ISldWorksApp? _swApp;
+    private const int RpcServerUnavailable = unchecked((int)0x800706BA);
+    private const int RpcCallFailed = unchecked((int)0x800706BE);
+    private const int RpcDisconnected = unchecked((int)0x80010108);
 
     public SwConnectionManager(ISwComConnector connector)
     {
@@ -521,13 +524,17 @@ public class SwConnectionManager : ISwConnectionManager
 
     public void Connect()
     {
-        if (_swApp != null) return;
+        if (TryUseCurrentSession())
+        {
+            return;
+        }
 
         // Try to attach to running instance first
-        _swApp = _connector.GetActiveInstance();
+        var runningInstance = _connector.GetActiveInstance();
 
-        if (_swApp != null)
+        if (runningInstance != null && IsConnectionAlive(runningInstance))
         {
+            _swApp = runningInstance;
             _swApp.Visible = true;
             return;
         }
@@ -544,7 +551,48 @@ public class SwConnectionManager : ISwConnectionManager
 
     public void EnsureConnected()
     {
+        Connect();
+
         if (!IsConnected)
             throw SolidWorksApiErrorFactory.NotConnected();
     }
+
+    private bool TryUseCurrentSession()
+    {
+        if (_swApp == null)
+        {
+            return false;
+        }
+
+        if (IsConnectionAlive(_swApp))
+        {
+            return true;
+        }
+
+        _swApp = null;
+        return false;
+    }
+
+    private static bool IsConnectionAlive(ISldWorksApp swApp)
+    {
+        try
+        {
+            _ = swApp.GetDocumentCount();
+            return true;
+        }
+        catch (COMException ex) when (IsDisconnectedComException(ex))
+        {
+            return false;
+        }
+        catch (COMException)
+        {
+            // Busy or modal SolidWorks sessions should remain connected.
+            return true;
+        }
+    }
+
+    private static bool IsDisconnectedComException(COMException ex)
+        => ex.HResult == RpcServerUnavailable
+        || ex.HResult == RpcCallFailed
+        || ex.HResult == RpcDisconnected;
 }

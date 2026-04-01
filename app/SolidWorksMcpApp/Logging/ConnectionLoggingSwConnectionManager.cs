@@ -16,12 +16,21 @@ internal sealed class ConnectionLoggingSwConnectionManager(
         ServerLogBuffer.Append("INFO", "COM", "Connect requested.");
         try
         {
+            var previousApp = inner.SwApp;
             bool wasConnected = inner.IsConnected;
             inner.Connect();
+            var currentApp = inner.SwApp;
 
-            if (wasConnected)
+            if (wasConnected && ReferenceEquals(previousApp, currentApp))
             {
                 ServerLogBuffer.Append("INFO", "COM", "Connect reused the existing SolidWorks session.");
+                return;
+            }
+
+            if (wasConnected && inner.IsConnected)
+            {
+                ServerLogBuffer.Append("INFO", "COM", "Connect refreshed the SolidWorks session.");
+                CaptureAndLogContext();
                 return;
             }
 

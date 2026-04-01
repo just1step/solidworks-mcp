@@ -27,6 +27,34 @@ public record SolidWorksContextInfo(
     IReadOnlyList<ReferencePlaneInfo> ReferencePlanes);
 
 /// <summary>
+/// Lightweight description of a top-level FeatureManager node.
+/// </summary>
+public record FeatureTreeItemInfo(
+    int Index,
+    string Name,
+    string TypeName,
+    bool IsSketch,
+    bool HasChildren);
+
+/// <summary>
+/// Lightweight description of whether the active document is currently in an edit mode
+/// that blocks safe feature-tree reads or delete operations.
+/// </summary>
+public record EditStateInfo(
+    bool IsEditing,
+    string EditMode,
+    bool CanReadFeatureTree,
+    bool CanDeleteFeatures);
+
+/// <summary>
+/// Result of deleting one or more features from the active document.
+/// </summary>
+public record DeleteFeaturesResult(
+    int DeletedCount,
+    IReadOnlyList<string> DeletedFeatureNames,
+    IReadOnlyList<string> FailedFeatureNames);
+
+/// <summary>
 /// Supported selectable topology entity kinds.
 /// </summary>
 public enum SelectableEntityType
@@ -77,6 +105,17 @@ public interface ISelectionService
     SolidWorksContextInfo GetSolidWorksContext();
 
     /// <summary>
+    /// Enumerate the active document's top-level FeatureManager nodes.
+    /// </summary>
+    IReadOnlyList<FeatureTreeItemInfo> ListFeatureTree();
+
+    /// <summary>
+    /// Report whether the active document is currently editing a sketch or is otherwise in a safe state
+    /// for feature-tree reads and delete operations.
+    /// </summary>
+    EditStateInfo GetEditState();
+
+    /// <summary>
     /// Select a topology entity by the index returned from <see cref="ListEntities"/>.
     /// </summary>
     SelectionResult SelectEntity(
@@ -85,6 +124,16 @@ public interface ISelectionService
         bool append = false,
         int mark = 0,
         string? componentName = null);
+
+    /// <summary>
+    /// Delete a top-level feature or sketch by its feature-tree name.
+    /// </summary>
+    SelectionResult DeleteFeatureByName(string featureName);
+
+    /// <summary>
+    /// Delete loose sketches that are present in the FeatureManager but are not consumed by downstream features.
+    /// </summary>
+    DeleteFeaturesResult DeleteUnusedSketches();
 
     /// <summary>Clear the current selection set.</summary>
     void ClearSelection();
@@ -122,6 +171,14 @@ public class SelectionService : ISelectionService
         SelectableEntityType EntityType,
         string? ComponentName,
         double[]? Box);
+
+    private sealed record FeatureNode(
+        Feature Feature,
+        int Index,
+        string Name,
+        string TypeName,
+        bool IsSketch,
+        bool HasChildren);
 
     private readonly ISwConnectionManager _cm;
 
@@ -201,6 +258,30 @@ public class SelectionService : ISelectionService
         return new SolidWorksContextInfo(language, planes);
     }
 
+    public IReadOnlyList<FeatureTreeItemInfo> ListFeatureTree()
+    {
+        _cm.EnsureConnected();
+        var doc = GetActiveModelDoc();
+        EnsureNotEditing(doc, "reading the FeatureManager tree");
+
+        return EnumerateFeatureTree(doc)
+            .Select(node => new FeatureTreeItemInfo(
+                node.Index,
+                node.Name,
+                node.TypeName,
+                node.IsSketch,
+                node.HasChildren))
+            .ToList()
+            .AsReadOnly();
+    }
+
+    public EditStateInfo GetEditState()
+    {
+        _cm.EnsureConnected();
+        var doc = GetActiveModelDoc();
+        return GetEditState(doc);
+    }
+
     public SelectionResult SelectEntity(
         SelectableEntityType entityType,
         int index,
@@ -235,6 +316,57 @@ public class SelectionService : ISelectionService
         return ok
             ? new SelectionResult(true, $"Selected {entityType} at index {index}")
             : new SelectionResult(false, $"Failed to select {entityType} at index {index}");
+    }
+
+    public SelectionResult DeleteFeatureByName(string featureName)
+    {
+        if (string.IsNullOrWhiteSpace(featureName))
+        {
+            throw new ArgumentException("featureName must not be empty", nameof(featureName));
+        }
+
+        _cm.EnsureConnected();
+        var doc = GetActiveModelDoc();
+        EnsureNotEditing(doc, $"deleting feature '{featureName}'");
+        var feature = EnumerateFeatureTree(doc)
+            .FirstOrDefault(node => string.Equals(node.Name, featureName, StringComparison.OrdinalIgnoreCase));
+
+        if (feature == null)
+        {
+            return new SelectionResult(false, $"Could not find feature '{featureName}' in the FeatureManager tree.");
+        }
+
+        return TryDeleteFeature(doc, feature.Feature)
+            ? new SelectionResult(true, $"Deleted feature '{feature.Name}'.")
+            : new SelectionResult(false, $"Failed to delete feature '{feature.Name}'.");
+    }
+
+    public DeleteFeaturesResult DeleteUnusedSketches()
+    {
+        _cm.EnsureConnected();
+        var doc = GetActiveModelDoc();
+        EnsureNotEditing(doc, "deleting unused sketches");
+
+        var deleted = new List<string>();
+        var failed = new List<string>();
+        var looseSketches = EnumerateFeatureTree(doc)
+            .Where(node => node.IsSketch && !node.HasChildren)
+            .OrderByDescending(node => node.Index)
+            .ToList();
+
+        foreach (var sketch in looseSketches)
+        {
+            if (TryDeleteFeature(doc, sketch.Feature))
+            {
+                deleted.Add(sketch.Name);
+            }
+            else
+            {
+                failed.Add(sketch.Name);
+            }
+        }
+
+        return new DeleteFeaturesResult(deleted.Count, deleted.AsReadOnly(), failed.AsReadOnly());
     }
 
     public void ClearSelection()
@@ -290,6 +422,27 @@ public class SelectionService : ISelectionService
                 name,
                 selectionName ?? name,
                 selectionType ?? "PLANE");
+
+            index++;
+        }
+    }
+
+    private static IEnumerable<FeatureNode> EnumerateFeatureTree(IModelDoc2 doc)
+    {
+        int index = 0;
+        for (var feature = doc.FirstFeature() as Feature; feature != null; feature = feature.GetNextFeature() as Feature)
+        {
+            string typeName = SafeGetFeatureTypeName(feature) ?? "Unknown";
+            string name = SafeGetFeatureName(feature)
+                ?? $"Feature{index + 1}";
+
+            yield return new FeatureNode(
+                feature,
+                index,
+                name,
+                typeName,
+                IsSketchLike(typeName),
+                HasChildFeatures(feature));
 
             index++;
         }
@@ -493,6 +646,88 @@ public class SelectionService : ISelectionService
             object[] objects => objects.OfType<double>().ToArray(),
             _ => null,
         };
+    }
+
+    private static bool IsSketchLike(string? typeName)
+    {
+        if (string.IsNullOrWhiteSpace(typeName))
+        {
+            return false;
+        }
+
+        return string.Equals(typeName, "ProfileFeature", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(typeName, "3DProfileFeature", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static bool HasChildFeatures(Feature feature)
+    {
+        try
+        {
+            return (feature.GetChildren() as object[] ?? Array.Empty<object>()).Length > 0;
+        }
+        catch (COMException)
+        {
+            return false;
+        }
+        catch (TargetInvocationException)
+        {
+            return false;
+        }
+    }
+
+    private static bool TryDeleteFeature(IModelDoc2 doc, Feature feature)
+    {
+        try
+        {
+            doc.ClearSelection2(true);
+            if (!feature.Select2(false, -1))
+            {
+                return false;
+            }
+
+            bool deleted = doc.Extension.DeleteSelection2(0);
+            doc.ClearSelection2(true);
+            return deleted;
+        }
+        catch (COMException)
+        {
+            doc.ClearSelection2(true);
+            return false;
+        }
+        catch (TargetInvocationException)
+        {
+            doc.ClearSelection2(true);
+            return false;
+        }
+    }
+
+    private static EditStateInfo GetEditState(IModelDoc2 doc)
+    {
+        if (doc.GetActiveSketch2() != null)
+        {
+            return new EditStateInfo(
+                IsEditing: true,
+                EditMode: "sketch",
+                CanReadFeatureTree: false,
+                CanDeleteFeatures: false);
+        }
+
+        return new EditStateInfo(
+            IsEditing: false,
+            EditMode: "none",
+            CanReadFeatureTree: true,
+            CanDeleteFeatures: true);
+    }
+
+    private static void EnsureNotEditing(IModelDoc2 doc, string operation)
+    {
+        var state = GetEditState(doc);
+        if (!state.IsEditing)
+        {
+            return;
+        }
+
+        throw new InvalidOperationException($"Finish the active {state.EditMode} before {operation}.");
     }
 
     private static SelectData CreateSelectData(ISelectionMgr selectionManager, int mark)

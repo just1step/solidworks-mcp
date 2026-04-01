@@ -174,6 +174,12 @@ public class AppBootstrapper
             return Task.FromResult<object?>(result);
         });
 
+        _messageHandler.Register("sw.select.get_edit_state", _ =>
+        {
+            var result = _selectionService.GetEditState();
+            return Task.FromResult<object?>(result);
+        });
+
         _messageHandler.Register("sw.select.entity", req =>
         {
             var p = req.GetParams<SelectEntityParams>()

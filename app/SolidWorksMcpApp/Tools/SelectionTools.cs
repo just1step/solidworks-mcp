@@ -8,6 +8,20 @@ namespace SolidWorksMcpApp.Tools;
 [McpServerToolType]
 public class SelectionTools(StaDispatcher sta, ISelectionService selection)
 {
+    [McpServerTool, Description("Report whether the active document is currently editing a sketch or is otherwise in a safe state for FeatureManager tree reads and delete operations. Use this before ListFeatureTree, DeleteFeatureByName, or DeleteUnusedSketches; if IsEditing is true, finish the sketch first.")]
+    public async Task<string> GetEditState()
+    {
+        var state = await sta.InvokeLoggedAsync(nameof(GetEditState), null, selection.GetEditState);
+        return JsonSerializer.Serialize(state);
+    }
+
+    [McpServerTool, Description("List the active document's top-level FeatureManager tree items so modeling steps can be verified against the real tree state. This tool only works in non-edit state, so check GetEditState and finish any active sketch first.")]
+    public async Task<string> ListFeatureTree()
+    {
+        var list = await sta.InvokeLoggedAsync(nameof(ListFeatureTree), null, selection.ListFeatureTree);
+        return JsonSerializer.Serialize(list);
+    }
+
     [McpServerTool, Description("Select an entity in SolidWorks by name and selection type string. For datum planes, prefer 'PLANE'; common SolidWorks enum names like 'swSelDATUMPLANES' are also accepted and retried with compatible aliases.")]
     public async Task<string> SelectByName(
         [Description("Name of the entity to select")] string name,
@@ -39,6 +53,21 @@ public class SelectionTools(StaDispatcher sta, ISelectionService selection)
     {
         var type = Enum.Parse<SelectableEntityType>(entityType, ignoreCase: true);
         var result = await sta.InvokeLoggedAsync(nameof(SelectEntity), new { entityType = type.ToString(), index, append, mark, componentName }, () => selection.SelectEntity(type, index, append, mark, componentName));
+        return JsonSerializer.Serialize(result);
+    }
+
+    [McpServerTool, Description("Delete a top-level FeatureManager item by its exact feature-tree name. This is only valid in non-edit state; call GetEditState first and finish any active sketch before deleting.")]
+    public async Task<string> DeleteFeatureByName(
+        [Description("Exact feature-tree name, e.g. Sketch3 or Cut-Extrude2")] string featureName)
+    {
+        var result = await sta.InvokeLoggedAsync(nameof(DeleteFeatureByName), new { featureName }, () => selection.DeleteFeatureByName(featureName));
+        return JsonSerializer.Serialize(result);
+    }
+
+    [McpServerTool, Description("Delete loose sketches that exist in the FeatureManager tree but are not consumed by downstream features. This is only valid in non-edit state; call GetEditState first and finish any active sketch before cleanup.")]
+    public async Task<string> DeleteUnusedSketches()
+    {
+        var result = await sta.InvokeLoggedAsync(nameof(DeleteUnusedSketches), null, selection.DeleteUnusedSketches);
         return JsonSerializer.Serialize(result);
     }
 
