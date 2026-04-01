@@ -95,6 +95,14 @@ public interface ISelectionService
 /// </summary>
 public class SelectionService : ISelectionService
 {
+    private enum StandardPlaneKind
+    {
+        Unknown = 0,
+        Front,
+        Top,
+        Right,
+    }
+
     private static readonly IReadOnlyDictionary<string, string[]> SelectionTypeAliases =
         new Dictionary<string, string[]>(StringComparer.OrdinalIgnoreCase)
         {
@@ -138,6 +146,18 @@ public class SelectionService : ISelectionService
                     ? $"Selected '{name}'"
                     : $"Selected '{name}' using selection type '{candidateType}' (requested '{selType}')";
                 return new SelectionResult(true, message);
+            }
+        }
+
+        // Localized SolidWorks installs may rename the default planes.
+        // For plane selections, retry by matching semantic plane kind (front/top/right)
+        // against discovered reference planes from the active feature tree.
+        if (IsPlaneSelection(selType))
+        {
+            var fallback = TrySelectLocalizedStandardPlane(doc, name, selType);
+            if (fallback != null)
+            {
+                return fallback;
             }
         }
 
@@ -283,6 +303,81 @@ public class SelectionService : ISelectionService
         }
 
         return [selType];
+    }
+
+    private static bool IsPlaneSelection(string selType)
+        => ExpandSelectionTypes(selType)
+            .Any(type => string.Equals(type, "PLANE", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(type, "swSelDATUMPLANES", StringComparison.OrdinalIgnoreCase));
+
+    private static SelectionResult? TrySelectLocalizedStandardPlane(IModelDoc2 doc, string requestedName, string requestedType)
+    {
+        var requestedKind = GetStandardPlaneKind(requestedName);
+        if (requestedKind == StandardPlaneKind.Unknown)
+        {
+            return null;
+        }
+
+        var planes = EnumerateReferencePlanes(doc).ToList();
+        var plane = planes.FirstOrDefault(candidate =>
+        {
+            var planeKind = GetStandardPlaneKind(candidate.Name);
+            if (planeKind == StandardPlaneKind.Unknown)
+            {
+                planeKind = GetStandardPlaneKind(candidate.SelectionName);
+            }
+
+            return planeKind == requestedKind;
+        });
+
+        if (plane == null)
+        {
+            return null;
+        }
+
+        var candidateTypes = ExpandSelectionTypes(requestedType)
+            .Concat(ExpandSelectionTypes(plane.SelectionType))
+            .Distinct(StringComparer.OrdinalIgnoreCase);
+
+        foreach (var candidateType in candidateTypes)
+        {
+            bool ok = doc.SelectByID(plane.SelectionName, candidateType, 0, 0, 0);
+            if (ok)
+            {
+                return new SelectionResult(
+                    true,
+                    $"Selected '{plane.SelectionName}' via localized fallback for '{requestedName}' (type '{candidateType}')");
+            }
+        }
+
+        return null;
+    }
+
+    private static StandardPlaneKind GetStandardPlaneKind(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            return StandardPlaneKind.Unknown;
+        }
+
+        var text = value.Trim().ToLowerInvariant();
+
+        if (text.Contains("front") || text.Contains("前视") || text.Contains("前基准") || text.Contains("前平面"))
+        {
+            return StandardPlaneKind.Front;
+        }
+
+        if (text.Contains("top") || text.Contains("上视") || text.Contains("上基准") || text.Contains("上平面"))
+        {
+            return StandardPlaneKind.Top;
+        }
+
+        if (text.Contains("right") || text.Contains("右视") || text.Contains("右基准") || text.Contains("右平面"))
+        {
+            return StandardPlaneKind.Right;
+        }
+
+        return StandardPlaneKind.Unknown;
     }
 
     private IEnumerable<(IBody2 Body, string? ComponentName)> EnumerateBodyContexts()

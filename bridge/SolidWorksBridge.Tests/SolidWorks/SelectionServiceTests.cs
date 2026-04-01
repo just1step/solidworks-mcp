@@ -165,6 +165,28 @@ public class SelectionServiceTests
     }
 
     [Fact]
+    public void SelectByName_FallsBackToLocalizedStandardPlane_WhenEnglishNameFails()
+    {
+        var (manager, _, doc) = ConnectedWithDoc();
+
+        var top = RefPlaneFeature("上视基准面", "上视基准面", "PLANE");
+        var front = RefPlaneFeature("前视基准面", "前视基准面", "PLANE", top);
+
+        doc.Setup(d => d.FirstFeature()).Returns(front);
+        doc.Setup(d => d.SelectByID("Front Plane", "PLANE", 0, 0, 0)).Returns(false);
+        doc.Setup(d => d.SelectByID("Front Plane", "swSelDATUMPLANES", 0, 0, 0)).Returns(false);
+        doc.Setup(d => d.SelectByID("前视基准面", "PLANE", 0, 0, 0)).Returns(true);
+
+        var result = new SelectionService(manager.Object).SelectByName("Front Plane", "PLANE");
+
+        Assert.True(result.Success);
+        Assert.Contains("localized fallback", result.Message);
+        Assert.Contains("前视基准面", result.Message);
+        doc.Verify(d => d.SelectByID("Front Plane", "PLANE", 0, 0, 0), Times.Once);
+        doc.Verify(d => d.SelectByID("前视基准面", "PLANE", 0, 0, 0), Times.Once);
+    }
+
+    [Fact]
     public void SelectByName_Failure_ReturnsFailureResult()
     {
         var (manager, _, doc) = ConnectedWithDoc();
