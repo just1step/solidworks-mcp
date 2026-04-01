@@ -15,7 +15,7 @@ public class AssemblyTools(StaDispatcher sta, IAssemblyService assembly)
         [Description("Y position in meters (default 0)")] double y = 0,
         [Description("Z position in meters (default 0)")] double z = 0)
     {
-        var info = await sta.InvokeAsync(() => assembly.InsertComponent(filePath, x, y, z));
+        var info = await sta.InvokeLoggedAsync(nameof(InsertComponent), new { filePath, x, y, z }, () => assembly.InsertComponent(filePath, x, y, z));
         return JsonSerializer.Serialize(info);
     }
 
@@ -23,24 +23,24 @@ public class AssemblyTools(StaDispatcher sta, IAssemblyService assembly)
     public async Task<string> AddMateCoincident(
         [Description("Mate alignment: None=0, AntiAligned=1, Closest=2")] int align = 2)
     {
-        await sta.InvokeAsync(() => assembly.AddMateCoincident((MateAlign)align));
-        return "Coincident mate added.";
+        var result = await sta.InvokeLoggedAsync(nameof(AddMateCoincident), new { align }, () => assembly.AddMateCoincident((MateAlign)align));
+        return JsonSerializer.Serialize(result);
     }
 
     [McpServerTool, Description("Add a Concentric mate between the two currently-selected cylindrical faces or circular edges.")]
     public async Task<string> AddMateConcentric(
         [Description("Mate alignment: None=0, AntiAligned=1, Closest=2")] int align = 2)
     {
-        await sta.InvokeAsync(() => assembly.AddMateConcentric((MateAlign)align));
-        return "Concentric mate added.";
+        var result = await sta.InvokeLoggedAsync(nameof(AddMateConcentric), new { align }, () => assembly.AddMateConcentric((MateAlign)align));
+        return JsonSerializer.Serialize(result);
     }
 
     [McpServerTool, Description("Add a Parallel mate between the two currently-selected planar faces or edges.")]
     public async Task<string> AddMateParallel(
         [Description("Mate alignment: None=0, AntiAligned=1, Closest=2")] int align = 2)
     {
-        await sta.InvokeAsync(() => assembly.AddMateParallel((MateAlign)align));
-        return "Parallel mate added.";
+        var result = await sta.InvokeLoggedAsync(nameof(AddMateParallel), new { align }, () => assembly.AddMateParallel((MateAlign)align));
+        return JsonSerializer.Serialize(result);
     }
 
     [McpServerTool, Description("Add a Distance mate between the two currently-selected entities.")]
@@ -48,8 +48,8 @@ public class AssemblyTools(StaDispatcher sta, IAssemblyService assembly)
         [Description("Distance between the entities in meters")] double distance,
         [Description("Mate alignment: None=0, AntiAligned=1, Closest=2")] int align = 2)
     {
-        await sta.InvokeAsync(() => assembly.AddMateDistance(distance, (MateAlign)align));
-        return "Distance mate added.";
+        var result = await sta.InvokeLoggedAsync(nameof(AddMateDistance), new { distance, align }, () => assembly.AddMateDistance(distance, (MateAlign)align));
+        return JsonSerializer.Serialize(result);
     }
 
     [McpServerTool, Description("Add an Angle mate between the two currently-selected planar entities.")]
@@ -57,14 +57,14 @@ public class AssemblyTools(StaDispatcher sta, IAssemblyService assembly)
         [Description("Angle between the entities in degrees")] double angleDegrees,
         [Description("Mate alignment: None=0, AntiAligned=1, Closest=2")] int align = 2)
     {
-        await sta.InvokeAsync(() => assembly.AddMateAngle(angleDegrees, (MateAlign)align));
-        return "Angle mate added.";
+        var result = await sta.InvokeLoggedAsync(nameof(AddMateAngle), new { angleDegrees, align }, () => assembly.AddMateAngle(angleDegrees, (MateAlign)align));
+        return JsonSerializer.Serialize(result);
     }
 
     [McpServerTool, Description("List all components in the active SolidWorks assembly.")]
     public async Task<string> ListComponents()
     {
-        var list = await sta.InvokeAsync(assembly.ListComponents);
+        var list = await sta.InvokeLoggedAsync(nameof(ListComponents), null, assembly.ListComponents);
         return JsonSerializer.Serialize(list);
     }
 }

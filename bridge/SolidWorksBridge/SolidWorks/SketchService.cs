@@ -1,4 +1,5 @@
 using SolidWorks.Interop.sldworks;
+using SolidWorks.Interop.swconst;
 
 namespace SolidWorksBridge.SolidWorks;
 
@@ -62,7 +63,16 @@ public class SketchService : ISketchService
     public void InsertSketch()
     {
         _cm.EnsureConnected();
+        var doc = GetModelDoc();
+        ValidateSketchHostSelection(doc);
         GetSketchManager().InsertSketch(true);
+
+        if (doc.GetActiveSketch2() == null)
+        {
+            throw SolidWorksApiErrorFactory.FromValidationFailure(
+                "ISketchManager.InsertSketch",
+                "SolidWorks did not enter sketch edit mode. Ensure a plane or planar face is selected before inserting a sketch.");
+        }
     }
 
     public void FinishSketch()
@@ -73,6 +83,13 @@ public class SketchService : ISketchService
                 "No active document. Open a document and select a face/plane first.");
         doc.ClearSelection2(true);
         GetSketchManager().InsertSketch(true);
+
+        if (doc.GetActiveSketch2() != null)
+        {
+            throw SolidWorksApiErrorFactory.FromValidationFailure(
+                "ISketchManager.InsertSketch",
+                "SolidWorks remained in sketch edit mode after FinishSketch.");
+        }
     }
 
     public SketchEntityInfo AddPoint(double x, double y)
@@ -80,7 +97,10 @@ public class SketchService : ISketchService
         _cm.EnsureConnected();
         var skm = GetSketchManager();
         var point = skm.CreatePoint(x, y, 0)
-            ?? throw new InvalidOperationException("Failed to create sketch point");
+            ?? throw SolidWorksApiErrorFactory.FromValidationFailure(
+                "ISketchManager.CreatePoint",
+                "SolidWorks did not create the sketch point.",
+                new Dictionary<string, object?> { ["x"] = x, ["y"] = y });
         return new SketchEntityInfo("Point", x, y, x, y);
     }
 
@@ -89,7 +109,9 @@ public class SketchService : ISketchService
         _cm.EnsureConnected();
         var skm = GetSketchManager();
         var ellipse = skm.CreateEllipse(cx, cy, 0, majorX, majorY, 0, minorX, minorY, 0)
-            ?? throw new InvalidOperationException("Failed to create sketch ellipse");
+            ?? throw SolidWorksApiErrorFactory.FromValidationFailure(
+                "ISketchManager.CreateEllipse",
+                "SolidWorks did not create the sketch ellipse.");
         return new SketchEntityInfo("Ellipse", cx, cy, majorX, majorY);
     }
 
@@ -98,7 +120,9 @@ public class SketchService : ISketchService
         _cm.EnsureConnected();
         var skm = GetSketchManager();
         var polygon = skm.CreatePolygon(cx, cy, 0, x, y, 0, sides, inscribed)
-            ?? throw new InvalidOperationException("Failed to create sketch polygon");
+            ?? throw SolidWorksApiErrorFactory.FromValidationFailure(
+                "ISketchManager.CreatePolygon",
+                "SolidWorks did not create the sketch polygon.");
         return new SketchEntityInfo("Polygon", cx, cy, x, y);
     }
 
@@ -114,7 +138,9 @@ public class SketchService : ISketchService
             ?? throw new InvalidOperationException(
                 "No active document. Open a document and select a face/plane first.");
         var sketchText = doc.InsertSketchText(x, y, 0, text, 0, 0, 0, 100, 100)
-            ?? throw new InvalidOperationException("Failed to create sketch text");
+            ?? throw SolidWorksApiErrorFactory.FromValidationFailure(
+                "IModelDoc2.InsertSketchText",
+                "SolidWorks did not create sketch text.");
         return new SketchEntityInfo("Text", x, y, x, y);
     }
 
@@ -123,7 +149,9 @@ public class SketchService : ISketchService
         _cm.EnsureConnected();
         var skm = GetSketchManager();
         var line = skm.CreateLine(x1, y1, 0, x2, y2, 0)
-            ?? throw new InvalidOperationException("Failed to create sketch line");
+            ?? throw SolidWorksApiErrorFactory.FromValidationFailure(
+                "ISketchManager.CreateLine",
+                "SolidWorks did not create the sketch line.");
         return new SketchEntityInfo("Line", x1, y1, x2, y2);
     }
 
@@ -132,7 +160,10 @@ public class SketchService : ISketchService
         _cm.EnsureConnected();
         var skm = GetSketchManager();
         var circle = skm.CreateCircleByRadius(cx, cy, 0, radius)
-            ?? throw new InvalidOperationException("Failed to create sketch circle");
+            ?? throw SolidWorksApiErrorFactory.FromValidationFailure(
+                "ISketchManager.CreateCircleByRadius",
+                "SolidWorks did not create the sketch circle.",
+                new Dictionary<string, object?> { ["cx"] = cx, ["cy"] = cy, ["radius"] = radius });
         return new SketchEntityInfo("Circle", cx, cy, cx + radius, cy);
     }
 
@@ -141,7 +172,9 @@ public class SketchService : ISketchService
         _cm.EnsureConnected();
         var skm = GetSketchManager();
         var rect = skm.CreateCornerRectangle(x1, y1, 0, x2, y2, 0)
-            ?? throw new InvalidOperationException("Failed to create sketch rectangle");
+            ?? throw SolidWorksApiErrorFactory.FromValidationFailure(
+                "ISketchManager.CreateCornerRectangle",
+                "SolidWorks did not create the sketch rectangle.");
         return new SketchEntityInfo("Rectangle", x1, y1, x2, y2);
     }
 
@@ -150,7 +183,9 @@ public class SketchService : ISketchService
         _cm.EnsureConnected();
         var skm = GetSketchManager();
         var arc = skm.CreateArc(cx, cy, 0, x1, y1, 0, x2, y2, 0, (short)direction)
-            ?? throw new InvalidOperationException("Failed to create sketch arc");
+            ?? throw SolidWorksApiErrorFactory.FromValidationFailure(
+                "ISketchManager.CreateArc",
+                "SolidWorks did not create the sketch arc.");
         return new SketchEntityInfo("Arc", cx, cy, x2, y2);
     }
 
@@ -161,6 +196,81 @@ public class SketchService : ISketchService
         return _cm.SwApp!.SketchManager
             ?? throw new InvalidOperationException(
                 "No active document. Open a document and select a face/plane first.");
+    }
+
+    private IModelDoc2 GetModelDoc()
+    {
+        return _cm.SwApp!.IActiveDoc2
+            ?? throw new InvalidOperationException(
+                "No active document. Open a document and select a face/plane first.");
+    }
+
+    private static void ValidateSketchHostSelection(IModelDoc2 doc)
+    {
+        var selectionManager = doc.ISelectionManager;
+        if (selectionManager == null)
+        {
+            return;
+        }
+
+        int selectedCount = selectionManager.GetSelectedObjectCount2(-1);
+        if (selectedCount != 1)
+        {
+            throw SolidWorksApiErrorFactory.FromValidationFailure(
+                "ISketchManager.InsertSketch",
+                "InsertSketch requires exactly one selected planar face or datum plane.",
+                new Dictionary<string, object?>
+                {
+                    ["selectedCount"] = selectedCount,
+                });
+        }
+
+        int selectedType = selectionManager.GetSelectedObjectType3(1, -1);
+        if (selectedType == (int)swSelectType_e.swSelDATUMPLANES)
+        {
+            return;
+        }
+
+        if (selectedType == (int)swSelectType_e.swSelFACES)
+        {
+            var face = selectionManager.GetSelectedObject6(1, -1) as IFace2;
+            if (face == null)
+            {
+                throw SolidWorksApiErrorFactory.FromValidationFailure(
+                    "ISketchManager.InsertSketch",
+                    "SolidWorks reported a selected face, but the face object could not be resolved.");
+            }
+
+            var surface = face.GetSurface() as ISurface;
+            if (surface == null)
+            {
+                throw SolidWorksApiErrorFactory.FromValidationFailure(
+                    "ISketchManager.InsertSketch",
+                    "SolidWorks reported a selected face, but the face surface could not be resolved.");
+            }
+
+            if (surface.IsPlane())
+            {
+                return;
+            }
+
+            throw SolidWorksApiErrorFactory.FromValidationFailure(
+                "ISketchManager.InsertSketch",
+                "InsertSketch can only start on a planar face or datum plane, but the selected face is not planar.",
+                new Dictionary<string, object?>
+                {
+                    ["selectedType"] = Enum.GetName(typeof(swSelectType_e), selectedType) ?? selectedType.ToString(),
+                    ["surfaceIdentity"] = surface.Identity(),
+                });
+        }
+
+        throw SolidWorksApiErrorFactory.FromValidationFailure(
+            "ISketchManager.InsertSketch",
+            "InsertSketch requires a selected planar face or datum plane.",
+            new Dictionary<string, object?>
+            {
+                ["selectedType"] = Enum.GetName(typeof(swSelectType_e), selectedType) ?? selectedType.ToString(),
+            });
     }
 
 }

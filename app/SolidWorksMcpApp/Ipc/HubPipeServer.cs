@@ -1,6 +1,7 @@
 using System.IO.Pipes;
 using System.Text;
 using System.Text.Json;
+using SolidWorksMcpApp.Logging;
 
 namespace SolidWorksMcpApp.Ipc;
 
@@ -34,7 +35,11 @@ internal sealed class HubPipeServer
     }
 
     /// <summary>Starts the accept loop on a thread-pool thread and returns immediately.</summary>
-    public void Start() => Task.Run(AcceptLoopAsync);
+    public void Start()
+    {
+        ServerLogBuffer.Append("INFO", "Hub", $"Hub pipe server starting on '{PipeName}'.");
+        Task.Run(AcceptLoopAsync);
+    }
 
     // ── Accept loop ──────────────────────────────────────────────────────
 
@@ -53,17 +58,21 @@ internal sealed class HubPipeServer
                     PipeOptions.Asynchronous);
 
                 await pipe.WaitForConnectionAsync(_ct);
+                ServerLogBuffer.Append("INFO", "Hub", "Inbound hub pipe connection established.");
 
                 // Handle each client concurrently; cleanup guaranteed by finally.
                 _ = HandleClientAsync(pipe);
             }
             catch (OperationCanceledException) { break; }
-            catch
+            catch (Exception ex)
             {
+                ServerLogBuffer.Append("ERROR", "Hub", "Hub accept loop iteration failed.", ex);
                 pipe?.Dispose();
                 await Task.Delay(500).ConfigureAwait(false);
             }
         }
+
+        ServerLogBuffer.Append("INFO", "Hub", "Hub pipe server stopped.");
     }
 
     // ── Per-client handler ───────────────────────────────────────────────
@@ -75,13 +84,25 @@ internal sealed class HubPipeServer
         {
             // ── 1. Read connect handshake ─────────────────────────────────
             var connectLine = await ReadLineAsync(pipe, _ct);
-            if (connectLine is null) return;
+            if (connectLine is null)
+            {
+                ServerLogBuffer.Append("WARN", "Hub", "Hub client disconnected before sending the connect handshake.");
+                return;
+            }
 
             JsonElement msg;
             try { msg = JsonSerializer.Deserialize<JsonElement>(connectLine); }
-            catch { return; }
+            catch (Exception ex)
+            {
+                ServerLogBuffer.Append("WARN", "Hub", $"Invalid hub connect handshake: {connectLine}", ex);
+                return;
+            }
 
-            if (GetString(msg, "type") != "connect") return;
+            if (GetString(msg, "type") != "connect")
+            {
+                ServerLogBuffer.Append("WARN", "Hub", $"Unexpected first hub message: {connectLine}");
+                return;
+            }
 
             client = new ClientInfo
             {
@@ -90,18 +111,26 @@ internal sealed class HubPipeServer
                        ? p.GetInt32() : 0,
             };
             ClientRegistry.Add(client);
+            ServerLogBuffer.Append("INFO", "Hub", $"Hub handshake received from {client.Name} (PID {client.Pid}, session {client.SessionId}).");
 
             // ── 2. Send ready ─────────────────────────────────────────────
             var readyBytes = Encoding.UTF8.GetBytes(
                 JsonSerializer.Serialize(new { type = "ready", sessionId = client.SessionId }) + "\n");
             await pipe.WriteAsync(readyBytes, _ct);
             await pipe.FlushAsync(_ct);
+            ServerLogBuffer.Append("INFO", "Hub", $"Hub ready sent for session {client.SessionId}.");
 
             // ── 3. Run full MCP session on this pipe ──────────────────────
             // The session runner uses WithStreamServerTransport(pipe, pipe).
+            ServerLogBuffer.Append("INFO", "Hub", $"Starting MCP session {client.SessionId} for {client.Name}.");
             await _sessionRunner(pipe, client, _ct);
+            ServerLogBuffer.Append("INFO", "Hub", $"MCP session {client.SessionId} ended.");
         }
-        catch { /* abrupt disconnect — cleaned up in finally */ }
+        catch (Exception ex)
+        {
+            var sessionId = client?.SessionId ?? "<unknown>";
+            ServerLogBuffer.Append("ERROR", "Hub", $"Hub client session {sessionId} failed.", ex);
+        }
         finally
         {
             if (client is not null) ClientRegistry.Remove(client.SessionId);

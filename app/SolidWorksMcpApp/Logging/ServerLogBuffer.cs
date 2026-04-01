@@ -14,15 +14,20 @@ internal static class ServerLogBuffer
 
     public static event Action? Changed;
 
-    public static void Append(string level, string source, string message)
+    public static void Append(string level, string source, string message, Exception? exception = null)
     {
+        var renderedMessage = exception is null
+            ? message
+            : $"{message} | {exception.GetType().Name}: {exception.Message}";
+
         lock (_lock)
         {
-            _entries.Add(new ServerLogEntry(DateTime.Now, level, source, message));
+            _entries.Add(new ServerLogEntry(DateTime.Now, level, source, renderedMessage));
             if (_entries.Count > MaxEntries)
                 _entries.RemoveRange(0, _entries.Count - MaxEntries);
         }
 
+        ServerFileLog.Append(level, source, message, exception);
         Changed?.Invoke();
     }
 

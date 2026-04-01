@@ -115,7 +115,7 @@ public class SwConnectionManagerTests
         var connector = new Mock<ISwComConnector>();
         var manager = new SwConnectionManager(connector.Object);
 
-        Assert.Throws<InvalidOperationException>(() => manager.EnsureConnected());
+        Assert.Throws<SolidWorksApiException>(() => manager.EnsureConnected());
     }
 
     [Fact]

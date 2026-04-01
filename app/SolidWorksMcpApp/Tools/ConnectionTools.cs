@@ -10,14 +10,14 @@ public class ConnectionTools(StaDispatcher sta, ISwConnectionManager connection)
     [McpServerTool, Description("Connect to the currently running SolidWorks instance via COM.")]
     public async Task<string> SolidWorksConnect()
     {
-        await sta.InvokeAsync(connection.Connect);
+        await sta.InvokeLoggedAsync(nameof(SolidWorksConnect), null, connection.Connect);
         return "Connected to SolidWorks.";
     }
 
     [McpServerTool, Description("Disconnect from SolidWorks and release the COM connection.")]
     public async Task<string> SolidWorksDisconnect()
     {
-        await sta.InvokeAsync(connection.Disconnect);
+        await sta.InvokeLoggedAsync(nameof(SolidWorksDisconnect), null, connection.Disconnect);
         return "Disconnected from SolidWorks.";
     }
 }

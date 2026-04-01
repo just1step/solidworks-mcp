@@ -61,6 +61,10 @@ public class AppBootstrapperTests
         };
     }
 
+    private static SwOpenResult OpenedDoc(string path, int type = 1) =>
+        new(new SwDocumentInfo(path, Path.GetFileNameWithoutExtension(path), type),
+            new SwApiDiagnostics(0, Array.Empty<SwCodeInfo>(), 0, Array.Empty<SwCodeInfo>()));
+
     // ─────────────────────────────────────────────────────────────
     // Registration
     // ─────────────────────────────────────────────────────────────
@@ -183,7 +187,7 @@ public class AppBootstrapperTests
         var (bootstrapper, _, docSvc, handler) = Build();
         bootstrapper.RegisterHandlers();
         const string path = @"C:\model.sldprt";
-        var expected = new SwDocumentInfo(path, "model", 1);
+        var expected = OpenedDoc(path);
         docSvc.Setup(d => d.OpenDocument(path)).Returns(expected);
 
         var response = await handler.HandleAsync(Req("sw.open_document", new { path }));

@@ -7,26 +7,64 @@ internal sealed class ConnectionLoggingSwConnectionManager(
     ISwConnectionManager inner,
     Func<ISelectionService> selectionServiceFactory) : ISwConnectionManager
 {
-    private static readonly object s_fileLock = new();
-
     public bool IsConnected => inner.IsConnected;
 
     public ISldWorksApp? SwApp => inner.SwApp;
 
     public void Connect()
     {
-        bool wasConnected = inner.IsConnected;
-        inner.Connect();
-
-        if (!wasConnected && inner.IsConnected)
+        ServerLogBuffer.Append("INFO", "COM", "Connect requested.");
+        try
         {
-            CaptureAndLogContext();
+            bool wasConnected = inner.IsConnected;
+            inner.Connect();
+
+            if (wasConnected)
+            {
+                ServerLogBuffer.Append("INFO", "COM", "Connect reused the existing SolidWorks session.");
+                return;
+            }
+
+            if (inner.IsConnected)
+            {
+                ServerLogBuffer.Append("INFO", "COM", "Connected to SolidWorks.");
+                CaptureAndLogContext();
+            }
+        }
+        catch (Exception ex)
+        {
+            ServerLogBuffer.Append("ERROR", "COM", "Connect failed.", ex);
+            throw;
         }
     }
 
-    public void Disconnect() => inner.Disconnect();
+    public void Disconnect()
+    {
+        ServerLogBuffer.Append("INFO", "COM", "Disconnect requested.");
+        try
+        {
+            inner.Disconnect();
+            ServerLogBuffer.Append("INFO", "COM", "Disconnected from SolidWorks.");
+        }
+        catch (Exception ex)
+        {
+            ServerLogBuffer.Append("ERROR", "COM", "Disconnect failed.", ex);
+            throw;
+        }
+    }
 
-    public void EnsureConnected() => inner.EnsureConnected();
+    public void EnsureConnected()
+    {
+        try
+        {
+            inner.EnsureConnected();
+        }
+        catch (Exception ex)
+        {
+            ServerLogBuffer.Append("ERROR", "COM", "EnsureConnected failed.", ex);
+            throw;
+        }
+    }
 
     private void CaptureAndLogContext()
     {
@@ -34,36 +72,11 @@ internal sealed class ConnectionLoggingSwConnectionManager(
         {
             var context = selectionServiceFactory().GetSolidWorksContext();
             string payload = JsonSerializer.Serialize(context);
-            Append("INFO", "SolidWorks", $"SolidWorks context after connect: {payload}");
+            ServerLogBuffer.Append("INFO", "COM", $"SolidWorks context after connect: {payload}");
         }
         catch (Exception ex)
         {
-            Append("WARN", "SolidWorks", $"Connected to SolidWorks, but failed to capture context: {ex.Message}");
-        }
-    }
-
-    private static void Append(string level, string source, string message)
-    {
-        ServerLogBuffer.Append(level, source, message);
-
-        if (string.IsNullOrWhiteSpace(ServerState.LogFilePath))
-        {
-            return;
-        }
-
-        var client = ServerState.ConnectedClientName is { } name ? $" [{name}]" : string.Empty;
-        var line = $"[{level}]{client} {DateTime.Now:yyyy-MM-dd HH:mm:ss} {source}: {message}";
-
-        try
-        {
-            lock (s_fileLock)
-            {
-                File.AppendAllText(ServerState.LogFilePath, line + Environment.NewLine);
-            }
-        }
-        catch
-        {
-            // Never fail the connection because logging could not be persisted.
+            ServerLogBuffer.Append("WARN", "COM", "Connected to SolidWorks, but failed to capture context.", ex);
         }
     }
 }

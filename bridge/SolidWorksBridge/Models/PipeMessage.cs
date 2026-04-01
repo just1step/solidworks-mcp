@@ -47,6 +47,9 @@ public class PipeResponse
 
     public static PipeResponse Failure(string id, int code, string message) =>
         new() { Id = id, Error = new PipeError { Code = code, Message = message } };
+
+    public static PipeResponse Failure(string id, int code, string message, object? data) =>
+        new() { Id = id, Error = new PipeError { Code = code, Message = message, Data = data } };
 }
 
 /// <summary>
@@ -59,6 +62,10 @@ public class PipeError
 
     [JsonPropertyName("message")]
     public string Message { get; set; } = string.Empty;
+
+    [JsonPropertyName("data")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public object? Data { get; set; }
 }
 
 /// <summary>

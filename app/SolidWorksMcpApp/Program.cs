@@ -36,10 +36,13 @@ internal static class Program
 
         // ── Tray / Hub mode (double-click, one singleton) ─────────────────
         ServerState.InitLogFile();
+        WireGlobalExceptionLogging();
+        ServerLogBuffer.Append("INFO", "App", $"Session log file: {ServerState.LogFilePath}");
 
         using var mutex = new Mutex(true, "Global\\SolidWorksMcpServer_TrayInstance", out bool createdNew);
         if (!createdNew)
         {
+            ServerLogBuffer.Append("WARN", "App", "Tray startup skipped because another hub instance is already running.");
             MessageBox.Show(Strings.AlreadyRunning, Strings.AppTitle,
                 MessageBoxButtons.OK, MessageBoxIcon.Information);
             return;
@@ -66,6 +69,27 @@ internal static class Program
         // Tray closed → cancel everything.
         cts.Cancel();
         if (sharedSvc is IDisposable d) d.Dispose();
+    }
+
+    static void WireGlobalExceptionLogging()
+    {
+        AppDomain.CurrentDomain.UnhandledException += (_, e) =>
+        {
+            if (e.ExceptionObject is Exception ex)
+            {
+                ServerLogBuffer.Append("FATAL", "App", "Unhandled process exception.", ex);
+            }
+            else
+            {
+                ServerLogBuffer.Append("FATAL", "App", $"Unhandled non-exception object: {e.ExceptionObject}");
+            }
+        };
+
+        TaskScheduler.UnobservedTaskException += (_, e) =>
+        {
+            ServerLogBuffer.Append("ERROR", "App", "Unobserved task exception.", e.Exception);
+            e.SetObserved();
+        };
     }
 
     // ── Proxy mode ───────────────────────────────────────────────────────

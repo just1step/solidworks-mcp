@@ -144,6 +144,23 @@ public class SelectionServiceTests
 
         Assert.True(result.Success);
         Assert.Contains("Front Plane", result.Message);
+        doc.Verify(d => d.ClearSelection2(true), Times.Once);
+        doc.Verify(d => d.SelectByID("Front Plane", "PLANE", 0, 0, 0), Times.Once);
+    }
+
+    [Fact]
+    public void SelectByName_RetriesKnownAlias_WhenOriginalTypeFails()
+    {
+        var (manager, _, doc) = ConnectedWithDoc();
+        doc.Setup(d => d.SelectByID("Front Plane", "swSelDATUMPLANES", 0, 0, 0)).Returns(false);
+        doc.Setup(d => d.SelectByID("Front Plane", "PLANE", 0, 0, 0)).Returns(true);
+
+        var result = new SelectionService(manager.Object).SelectByName("Front Plane", "swSelDATUMPLANES");
+
+        Assert.True(result.Success);
+        Assert.Contains("PLANE", result.Message);
+        doc.Verify(d => d.ClearSelection2(true), Times.Once);
+        doc.Verify(d => d.SelectByID("Front Plane", "swSelDATUMPLANES", 0, 0, 0), Times.Once);
         doc.Verify(d => d.SelectByID("Front Plane", "PLANE", 0, 0, 0), Times.Once);
     }
 
@@ -313,6 +330,26 @@ public class SelectionServiceTests
         Assert.True(result.Success);
         Assert.Equal(7, selectData.Object.Mark);
         entity.Verify(e => e.Select4(true, It.IsAny<SelectData>()), Times.Once);
+    }
+
+    [Fact]
+    public void SelectEntity_WhenReplacingSelection_ClearsSelectionFirst()
+    {
+        var face = Face([0d, 0d, 0d, 1d, 1d, 1d]);
+        var entity = face.As<IEntity>();
+        var selectData = new Mock<SelectData>();
+        var selectionManager = new Mock<SelectionMgr>();
+        selectionManager.Setup(m => m.CreateSelectData()).Returns(selectData.Object);
+
+        var (manager, _, _, model) = ConnectedWithPartDoc(BodyWith(face.Object));
+        model.Setup(d => d.ISelectionManager).Returns(selectionManager.Object);
+        entity.Setup(e => e.Select4(false, It.IsAny<SelectData>())).Returns(true);
+
+        var result = new SelectionService(manager.Object).SelectEntity(SelectableEntityType.Face, 0, append: false);
+
+        Assert.True(result.Success);
+        model.Verify(d => d.ClearSelection2(true), Times.Once);
+        entity.Verify(e => e.Select4(false, It.IsAny<SelectData>()), Times.Once);
     }
 
     [Fact]

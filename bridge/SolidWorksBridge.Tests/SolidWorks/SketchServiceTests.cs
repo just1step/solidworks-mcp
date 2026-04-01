@@ -1,5 +1,6 @@
 using Moq;
 using SolidWorks.Interop.sldworks;
+using SolidWorks.Interop.swconst;
 using SolidWorksBridge.SolidWorks;
 
 namespace SolidWorksBridge.Tests.SolidWorks;
@@ -18,8 +19,15 @@ public class SketchServiceTests
         ConnectedWithSketchMgr()
     {
         var skm = new Mock<ISketchManager>();
+        var doc = new Mock<IModelDoc2>();
+        var selectionManager = new Mock<SelectionMgr>();
+        selectionManager.Setup(m => m.GetSelectedObjectCount2(-1)).Returns(1);
+        selectionManager.Setup(m => m.GetSelectedObjectType3(1, -1)).Returns((int)swSelectType_e.swSelDATUMPLANES);
+        doc.Setup(d => d.GetActiveSketch2()).Returns(new object());
+        doc.Setup(d => d.ISelectionManager).Returns(selectionManager.Object);
         var swApp = new Mock<ISldWorksApp>();
         swApp.Setup(s => s.SketchManager).Returns(skm.Object);
+        swApp.Setup(s => s.IActiveDoc2).Returns(doc.Object);
 
         var manager = new Mock<ISwConnectionManager>();
         manager.Setup(m => m.IsConnected).Returns(true);
@@ -120,6 +128,28 @@ public class SketchServiceTests
         manager.Verify(m => m.EnsureConnected(), Times.Once);
     }
 
+    [Fact]
+    public void InsertSketch_WhenMultipleHostsSelected_ThrowsDetailedError()
+    {
+        var skm = new Mock<ISketchManager>();
+        var selectionManager = new Mock<SelectionMgr>();
+        selectionManager.Setup(m => m.GetSelectedObjectCount2(-1)).Returns(2);
+        var doc = new Mock<IModelDoc2>();
+        doc.Setup(d => d.ISelectionManager).Returns(selectionManager.Object);
+        var swApp = new Mock<ISldWorksApp>();
+        swApp.Setup(s => s.SketchManager).Returns(skm.Object);
+        swApp.Setup(s => s.IActiveDoc2).Returns(doc.Object);
+        var manager = new Mock<ISwConnectionManager>();
+        manager.Setup(m => m.IsConnected).Returns(true);
+        manager.Setup(m => m.SwApp).Returns(swApp.Object);
+        manager.Setup(m => m.EnsureConnected());
+
+        var error = Assert.Throws<SolidWorksApiException>(() => new SketchService(manager.Object).InsertSketch());
+
+        Assert.Contains("exactly one selected planar face or datum plane", error.Message);
+        skm.Verify(s => s.InsertSketch(true), Times.Never);
+    }
+
     // ─────────────────────────────────────────────────────────────
     // AddPoint
     // ─────────────────────────────────────────────────────────────
@@ -147,7 +177,7 @@ public class SketchServiceTests
         skm.Setup(s => s.CreatePoint(It.IsAny<double>(), It.IsAny<double>(), It.IsAny<double>()))
             .Returns((SketchPoint?)null!);
 
-        Assert.Throws<InvalidOperationException>(() => new SketchService(manager.Object).AddPoint(0, 0));
+        Assert.Throws<SolidWorksApiException>(() => new SketchService(manager.Object).AddPoint(0, 0));
     }
 
     // ─────────────────────────────────────────────────────────────
@@ -180,7 +210,7 @@ public class SketchServiceTests
                 It.IsAny<double>(), It.IsAny<double>(), It.IsAny<double>()))
             .Returns((SketchSegment?)null!);
 
-        Assert.Throws<InvalidOperationException>(() => new SketchService(manager.Object).AddEllipse(0, 0, 0.03, 0, 0, 0.01));
+        Assert.Throws<SolidWorksApiException>(() => new SketchService(manager.Object).AddEllipse(0, 0, 0.03, 0, 0, 0.01));
     }
 
     // ─────────────────────────────────────────────────────────────
@@ -212,7 +242,7 @@ public class SketchServiceTests
                 It.IsAny<int>(), It.IsAny<bool>()))
             .Returns((object?)null!);
 
-        Assert.Throws<InvalidOperationException>(() => new SketchService(manager.Object).AddPolygon(0, 0, 0.02, 0, 6, true));
+        Assert.Throws<SolidWorksApiException>(() => new SketchService(manager.Object).AddPolygon(0, 0, 0.02, 0, 6, true));
     }
 
     // ─────────────────────────────────────────────────────────────
@@ -256,7 +286,7 @@ public class SketchServiceTests
                 It.IsAny<int>(), It.IsAny<int>(), It.IsAny<int>(), It.IsAny<int>(), It.IsAny<int>()))
             .Returns((object?)null!);
 
-        Assert.Throws<InvalidOperationException>(() => new SketchService(manager.Object).AddText(0, 0, "HELLO"));
+        Assert.Throws<SolidWorksApiException>(() => new SketchService(manager.Object).AddText(0, 0, "HELLO"));
     }
 
     // ─────────────────────────────────────────────────────────────
@@ -289,7 +319,7 @@ public class SketchServiceTests
            .Returns((SketchSegment?)null!);
 
         var svc = new SketchService(manager.Object);
-        Assert.Throws<InvalidOperationException>(() => svc.AddLine(0, 0, 0.01, 0.01));
+        Assert.Throws<SolidWorksApiException>(() => svc.AddLine(0, 0, 0.01, 0.01));
     }
 
     // ─────────────────────────────────────────────────────────────
@@ -320,7 +350,7 @@ public class SketchServiceTests
                                               It.IsAny<double>(), It.IsAny<double>()))
            .Returns((SketchSegment?)null!);
 
-        Assert.Throws<InvalidOperationException>(() => new SketchService(manager.Object).AddCircle(0, 0, 0.01));
+        Assert.Throws<SolidWorksApiException>(() => new SketchService(manager.Object).AddCircle(0, 0, 0.01));
     }
 
     // ─────────────────────────────────────────────────────────────
@@ -352,7 +382,7 @@ public class SketchServiceTests
                                It.IsAny<double>(), It.IsAny<double>(), It.IsAny<double>(), It.IsAny<double>()))
            .Returns((object?)null!);
 
-        Assert.Throws<InvalidOperationException>(() => new SketchService(manager.Object).AddRectangle(0, 0, 0.1, 0.1));
+        Assert.Throws<SolidWorksApiException>(() => new SketchService(manager.Object).AddRectangle(0, 0, 0.1, 0.1));
     }
 
     // ─────────────────────────────────────────────────────────────
@@ -385,7 +415,7 @@ public class SketchServiceTests
                                    It.IsAny<short>()))
            .Returns((SketchSegment?)null!);
 
-        Assert.Throws<InvalidOperationException>(() =>
+        Assert.Throws<SolidWorksApiException>(() =>
             new SketchService(manager.Object).AddArc(0, 0, 0.01, 0, 0, 0.01, 1));
     }
 }

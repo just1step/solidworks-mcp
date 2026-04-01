@@ -40,6 +40,9 @@ public class FeatureService : IFeatureService
     {
         _cm.EnsureConnected();
         var doc = GetModelDoc();
+        EnsureActiveSketchHasClosedProfile(doc, "IModelDoc2.FeatureBoss2", "extrude");
+        var topFeatureBefore = CaptureFeatureSnapshot(doc.IFeatureByPositionReverse(0));
+        var bodyBefore = CaptureBodySignature(doc);
 
         doc.FeatureBoss2(
             Sd: true, Flip: flipDirection, Dir: !flipDirection,
@@ -51,9 +54,31 @@ public class FeatureService : IFeatureService
             OffsetReverse1: false, OffsetReverse2: false,
             TranslateSurface1: false, TranslateSurface2: false);
 
-        var feature = doc.IFeatureByPositionReverse(0)
-            ?? throw new InvalidOperationException(
-                "Extrude failed — ensure a sketch is in edit mode on the active document");
+        var topFeatureAfter = CaptureFeatureSnapshot(doc.IFeatureByPositionReverse(0));
+        var bodyAfter = CaptureBodySignature(doc);
+        var feature = ResolveCreatedSolidFeature(topFeatureBefore, topFeatureAfter)
+            ?? throw SolidWorksApiErrorFactory.FromValidationFailure(
+                "IModelDoc2.FeatureBoss2",
+                "SolidWorks did not create a new extrude feature.",
+                new Dictionary<string, object?>
+                {
+                    ["beforeFeature"] = FormatFeature(topFeatureBefore),
+                    ["afterFeature"] = FormatFeature(topFeatureAfter),
+                    ["depth"] = depth,
+                });
+
+        if (!BodyTopologyChanged(bodyBefore, bodyAfter))
+        {
+            throw SolidWorksApiErrorFactory.FromValidationFailure(
+                "IModelDoc2.FeatureBoss2",
+                "SolidWorks did not change the solid body during extrude.",
+                new Dictionary<string, object?>
+                {
+                    ["beforeBody"] = FormatBody(bodyBefore),
+                    ["afterBody"] = FormatBody(bodyAfter),
+                    ["feature"] = FormatFeature(topFeatureAfter),
+                });
+        }
 
         return new FeatureInfo(feature.Name, "Extrude");
     }
@@ -62,6 +87,7 @@ public class FeatureService : IFeatureService
     {
         _cm.EnsureConnected();
         var doc = GetModelDoc();
+        EnsureActiveSketchHasClosedProfile(doc, "IFeatureManager.FeatureCut4", "cut extrude");
         var featureManager = GetFeatureManager();
         var topFeatureBefore = CaptureFeatureSnapshot(doc.IFeatureByPositionReverse(0));
         var bodyBefore = CaptureBodySignature(doc);
@@ -100,13 +126,29 @@ public class FeatureService : IFeatureService
         var topFeatureAfter = CaptureFeatureSnapshot(doc.IFeatureByPositionReverse(0));
         var bodyAfter = CaptureBodySignature(doc);
         var feature = ResolveCreatedCutFeature(returnedFeature, topFeatureBefore, topFeatureAfter)
-            ?? throw new InvalidOperationException(
-                $"ExtrudeCut did not create a new cut feature. Before={FormatFeature(topFeatureBefore)}, Returned={FormatFeature(CaptureFeatureSnapshot(returnedFeature))}, After={FormatFeature(topFeatureAfter)}");
+            ?? throw SolidWorksApiErrorFactory.FromValidationFailure(
+                "IFeatureManager.FeatureCut4",
+                "SolidWorks did not create a new cut feature.",
+                new Dictionary<string, object?>
+                {
+                    ["beforeFeature"] = FormatFeature(topFeatureBefore),
+                    ["returnedFeature"] = FormatFeature(CaptureFeatureSnapshot(returnedFeature)),
+                    ["afterFeature"] = FormatFeature(topFeatureAfter),
+                });
 
         if (!BodyTopologyChanged(bodyBefore, bodyAfter))
         {
-            throw new InvalidOperationException(
-                $"ExtrudeCut did not change the solid body. BeforeBody={FormatBody(bodyBefore)}, AfterBody={FormatBody(bodyAfter)}, BeforeFeature={FormatFeature(topFeatureBefore)}, Returned={FormatFeature(CaptureFeatureSnapshot(returnedFeature))}, AfterFeature={FormatFeature(topFeatureAfter)}");
+            throw SolidWorksApiErrorFactory.FromValidationFailure(
+                "IFeatureManager.FeatureCut4",
+                "SolidWorks did not change the solid body during cut extrude.",
+                new Dictionary<string, object?>
+                {
+                    ["beforeBody"] = FormatBody(bodyBefore),
+                    ["afterBody"] = FormatBody(bodyAfter),
+                    ["beforeFeature"] = FormatFeature(topFeatureBefore),
+                    ["returnedFeature"] = FormatFeature(CaptureFeatureSnapshot(returnedFeature)),
+                    ["afterFeature"] = FormatFeature(topFeatureAfter),
+                });
         }
 
         return new FeatureInfo(feature.Name, "ExtrudeCut");
@@ -115,6 +157,8 @@ public class FeatureService : IFeatureService
     public FeatureInfo Revolve(double angleDegrees, bool isCut = false)
     {
         _cm.EnsureConnected();
+        var doc = GetModelDoc();
+        EnsureActiveSketchHasClosedProfile(doc, "IFeatureManager.FeatureRevolve2", isCut ? "cut revolve" : "revolve");
         var fm = GetFeatureManager();
         double angleRad = angleDegrees * Math.PI / 180.0;
 
@@ -189,6 +233,67 @@ public class FeatureService : IFeatureService
             ?? throw new InvalidOperationException("No active document");
     }
 
+    private static void EnsureActiveSketchHasClosedProfile(IModelDoc2 doc, string apiName, string operationName)
+    {
+        if (doc.GetActiveSketch2() is not ISketch sketch)
+        {
+            return;
+        }
+
+        var segments = (object[]?)sketch.GetSketchSegments() ?? Array.Empty<object>();
+        int segmentCount = segments.Length;
+        int contourCount = sketch.GetSketchContourCount();
+        int regionCount = sketch.GetSketchRegionCount();
+        var contourObjects = (object[]?)sketch.GetSketchContours() ?? Array.Empty<object>();
+        var contours = contourObjects.OfType<ISketchContour>().ToList();
+        int closedContourCount = contours.Count(contour => contour.IsClosed());
+        int openContourCount = Math.Max(contourCount - closedContourCount, 0);
+
+        if (segmentCount == 0)
+        {
+            throw SolidWorksApiErrorFactory.FromValidationFailure(
+                apiName,
+                $"The active sketch is empty, so {operationName} cannot create a feature.",
+                new Dictionary<string, object?>
+                {
+                    ["segmentCount"] = segmentCount,
+                    ["contourCount"] = contourCount,
+                    ["closedContourCount"] = closedContourCount,
+                    ["regionCount"] = regionCount,
+                });
+        }
+
+        if (openContourCount > 0)
+        {
+            throw SolidWorksApiErrorFactory.FromValidationFailure(
+                apiName,
+                $"The active sketch contains open contours, so {operationName} cannot create a solid feature. Close every open loop first or use a closed-shape sketch tool such as AddCircle, AddRectangle, or AddPolygon.",
+                new Dictionary<string, object?>
+                {
+                    ["segmentCount"] = segmentCount,
+                    ["contourCount"] = contourCount,
+                    ["closedContourCount"] = closedContourCount,
+                    ["openContourCount"] = openContourCount,
+                    ["regionCount"] = regionCount,
+                });
+        }
+
+        if (regionCount == 0)
+        {
+            throw SolidWorksApiErrorFactory.FromValidationFailure(
+                apiName,
+                $"The active sketch does not contain any valid sketch regions, so {operationName} cannot create a solid feature. The contours may overlap, self-intersect, or otherwise fail to form a usable profile.",
+                new Dictionary<string, object?>
+                {
+                    ["segmentCount"] = segmentCount,
+                    ["contourCount"] = contourCount,
+                    ["closedContourCount"] = closedContourCount,
+                    ["openContourCount"] = openContourCount,
+                    ["regionCount"] = regionCount,
+                });
+        }
+    }
+
     private void NormalizeSketchStateForFeatureCut(IModelDoc2 doc)
     {
         if (doc.GetActiveSketch2() == null)
@@ -219,6 +324,15 @@ public class FeatureService : IFeatureService
         }
 
         return null;
+    }
+
+    private static Feature? ResolveCreatedSolidFeature(
+        FeatureSnapshot topFeatureBefore,
+        FeatureSnapshot topFeatureAfter)
+    {
+        return IsNewSolidFeature(topFeatureAfter, topFeatureBefore)
+            ? topFeatureAfter.Feature
+            : null;
     }
 
     private static bool IsNewSolidFeature(FeatureSnapshot candidate, FeatureSnapshot baseline)

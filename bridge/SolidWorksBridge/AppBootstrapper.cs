@@ -98,8 +98,8 @@ public class AppBootstrapper
             var p = req.GetParams<PathParams>()
                 ?? throw new ArgumentException("params required: {path}");
 
-            _documentService.SaveDocument(p.Path);
-            return Task.FromResult<object?>(new { saved = true });
+            var result = _documentService.SaveDocument(p.Path);
+            return Task.FromResult<object?>(result);
         });
 
         _messageHandler.Register("sw.save_document_as", req =>
@@ -326,38 +326,38 @@ public class AppBootstrapper
         _messageHandler.Register("sw.assembly.add_mate_coincident", req =>
         {
             var p = req.GetParams<MateAlignParams>() ?? new MateAlignParams();
-            _assemblyService.AddMateCoincident(p.Align);
-            return Task.FromResult<object?>(new { added = true });
+            var result = _assemblyService.AddMateCoincident(p.Align);
+            return Task.FromResult<object?>(result);
         });
 
         _messageHandler.Register("sw.assembly.add_mate_concentric", req =>
         {
             var p = req.GetParams<MateAlignParams>() ?? new MateAlignParams();
-            _assemblyService.AddMateConcentric(p.Align);
-            return Task.FromResult<object?>(new { added = true });
+            var result = _assemblyService.AddMateConcentric(p.Align);
+            return Task.FromResult<object?>(result);
         });
 
         _messageHandler.Register("sw.assembly.add_mate_parallel", req =>
         {
             var p = req.GetParams<MateAlignParams>() ?? new MateAlignParams();
-            _assemblyService.AddMateParallel(p.Align);
-            return Task.FromResult<object?>(new { added = true });
+            var result = _assemblyService.AddMateParallel(p.Align);
+            return Task.FromResult<object?>(result);
         });
 
         _messageHandler.Register("sw.assembly.add_mate_distance", req =>
         {
             var p = req.GetParams<MateDistanceParams>()
                 ?? throw new ArgumentException("params required: {distance}");
-            _assemblyService.AddMateDistance(p.Distance, p.Align);
-            return Task.FromResult<object?>(new { added = true });
+            var result = _assemblyService.AddMateDistance(p.Distance, p.Align);
+            return Task.FromResult<object?>(result);
         });
 
         _messageHandler.Register("sw.assembly.add_mate_angle", req =>
         {
             var p = req.GetParams<MateAngleParams>()
                 ?? throw new ArgumentException("params required: {angleDegrees}");
-            _assemblyService.AddMateAngle(p.AngleDegrees, p.Align);
-            return Task.FromResult<object?>(new { added = true });
+            var result = _assemblyService.AddMateAngle(p.AngleDegrees, p.Align);
+            return Task.FromResult<object?>(result);
         });
 
         _messageHandler.Register("sw.assembly.list_components", _ =>

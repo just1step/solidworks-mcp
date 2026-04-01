@@ -8,12 +8,12 @@ namespace SolidWorksMcpApp.Tools;
 [McpServerToolType]
 public class SelectionTools(StaDispatcher sta, ISelectionService selection)
 {
-    [McpServerTool, Description("Select an entity in SolidWorks by name and selection type string (e.g. 'Front Plane', 'swSelDATUMPLANES').")]
+    [McpServerTool, Description("Select an entity in SolidWorks by name and selection type string. For datum planes, prefer 'PLANE'; common SolidWorks enum names like 'swSelDATUMPLANES' are also accepted and retried with compatible aliases.")]
     public async Task<string> SelectByName(
         [Description("Name of the entity to select")] string name,
         [Description("SolidWorks selection type string, e.g. 'swSelDATUMPLANES', 'swSelFACES'")] string selType)
     {
-        var result = await sta.InvokeAsync(() => selection.SelectByName(name, selType));
+        var result = await sta.InvokeLoggedAsync(nameof(SelectByName), new { name, selType }, () => selection.SelectByName(name, selType));
         return JsonSerializer.Serialize(result);
     }
 
@@ -25,7 +25,7 @@ public class SelectionTools(StaDispatcher sta, ISelectionService selection)
         var type = entityType is null
             ? (SelectableEntityType?)null
             : Enum.Parse<SelectableEntityType>(entityType, ignoreCase: true);
-        var list = await sta.InvokeAsync(() => selection.ListEntities(type, componentName));
+        var list = await sta.InvokeLoggedAsync(nameof(ListEntities), new { entityType = type?.ToString(), componentName }, () => selection.ListEntities(type, componentName));
         return JsonSerializer.Serialize(list);
     }
 
@@ -38,14 +38,14 @@ public class SelectionTools(StaDispatcher sta, ISelectionService selection)
         [Description("Component name for assembly context. Leave null for top-level.")] string? componentName = null)
     {
         var type = Enum.Parse<SelectableEntityType>(entityType, ignoreCase: true);
-        var result = await sta.InvokeAsync(() => selection.SelectEntity(type, index, append, mark, componentName));
+        var result = await sta.InvokeLoggedAsync(nameof(SelectEntity), new { entityType = type.ToString(), index, append, mark, componentName }, () => selection.SelectEntity(type, index, append, mark, componentName));
         return JsonSerializer.Serialize(result);
     }
 
     [McpServerTool, Description("Clear the current selection set in SolidWorks.")]
     public async Task<string> ClearSelection()
     {
-        await sta.InvokeAsync(selection.ClearSelection);
+        await sta.InvokeLoggedAsync(nameof(ClearSelection), null, selection.ClearSelection);
         return "Selection cleared.";
     }
 }

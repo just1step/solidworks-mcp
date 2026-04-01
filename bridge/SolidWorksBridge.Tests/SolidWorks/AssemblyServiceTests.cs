@@ -1,5 +1,6 @@
 using Moq;
 using SolidWorks.Interop.sldworks;
+using SolidWorks.Interop.swconst;
 using SolidWorksBridge.SolidWorks;
 
 namespace SolidWorksBridge.Tests.SolidWorks;
@@ -269,7 +270,7 @@ public class AssemblyServiceTests
     public void AddMate_NullReturnFromApi_Throws()
     {
         var (manager, assy) = ConnectedWithAssy();
-        int errOut = 1;
+        int errOut = (int)swAddMateError_e.swAddMateError_IncorrectSelections;
         assy.Setup(a => a.AddMate5(
                 It.IsAny<int>(), It.IsAny<int>(), It.IsAny<bool>(),
                 It.IsAny<double>(), It.IsAny<double>(), It.IsAny<double>(),
@@ -279,7 +280,7 @@ public class AssemblyServiceTests
                 out errOut))
             .Returns((Mate2)null!);
 
-        Assert.Throws<InvalidOperationException>(() =>
+        Assert.Throws<SolidWorksApiException>(() =>
             new AssemblyService(manager.Object).AddMateCoincident());
     }
 

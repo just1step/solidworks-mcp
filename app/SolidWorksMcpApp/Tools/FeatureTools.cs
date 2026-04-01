@@ -8,32 +8,32 @@ namespace SolidWorksMcpApp.Tools;
 [McpServerToolType]
 public class FeatureTools(StaDispatcher sta, IFeatureService feature)
 {
-    [McpServerTool, Description("Extrude the active sketch profile to create a boss/base feature.")]
+    [McpServerTool, Description("Extrude the active sketch profile to create a boss/base feature. Requires at least one closed contour in the current sketch.")]
     public async Task<string> Extrude(
         [Description("Extrusion depth in meters")] double depth,
         [Description("End condition: Blind=0, ThroughAll=1, MidPlane=6")] int endCondition = 0,
         [Description("Flip the extrusion direction")] bool flipDirection = false)
     {
-        var info = await sta.InvokeAsync(() => feature.Extrude(depth, (EndCondition)endCondition, flipDirection));
+        var info = await sta.InvokeLoggedAsync(nameof(Extrude), new { depth, endCondition, flipDirection }, () => feature.Extrude(depth, (EndCondition)endCondition, flipDirection));
         return JsonSerializer.Serialize(info);
     }
 
-    [McpServerTool, Description("Extrude-cut the active sketch profile to remove material.")]
+    [McpServerTool, Description("Extrude-cut the active sketch profile to remove material. Requires at least one closed contour in the current sketch.")]
     public async Task<string> ExtrudeCut(
         [Description("Cut depth in meters")] double depth,
         [Description("End condition: Blind=0, ThroughAll=1, MidPlane=6")] int endCondition = 0,
         [Description("Flip the cut direction")] bool flipDirection = false)
     {
-        var info = await sta.InvokeAsync(() => feature.ExtrudeCut(depth, (EndCondition)endCondition, flipDirection));
+        var info = await sta.InvokeLoggedAsync(nameof(ExtrudeCut), new { depth, endCondition, flipDirection }, () => feature.ExtrudeCut(depth, (EndCondition)endCondition, flipDirection));
         return JsonSerializer.Serialize(info);
     }
 
-    [McpServerTool, Description("Revolve the active sketch profile around the selected axis.")]
+    [McpServerTool, Description("Revolve the active sketch profile around the selected axis. Requires a closed profile in the current sketch and a selected axis.")]
     public async Task<string> Revolve(
         [Description("Revolve angle in degrees (0-360)")] double angleDegrees,
         [Description("True to create a cut revolve; False for a boss revolve")] bool isCut = false)
     {
-        var info = await sta.InvokeAsync(() => feature.Revolve(angleDegrees, isCut));
+        var info = await sta.InvokeLoggedAsync(nameof(Revolve), new { angleDegrees, isCut }, () => feature.Revolve(angleDegrees, isCut));
         return JsonSerializer.Serialize(info);
     }
 
@@ -41,7 +41,7 @@ public class FeatureTools(StaDispatcher sta, IFeatureService feature)
     public async Task<string> Fillet(
         [Description("Fillet radius in meters")] double radius)
     {
-        var info = await sta.InvokeAsync(() => feature.Fillet(radius));
+        var info = await sta.InvokeLoggedAsync(nameof(Fillet), new { radius }, () => feature.Fillet(radius));
         return JsonSerializer.Serialize(info);
     }
 
@@ -49,7 +49,7 @@ public class FeatureTools(StaDispatcher sta, IFeatureService feature)
     public async Task<string> Chamfer(
         [Description("Chamfer distance in meters")] double distance)
     {
-        var info = await sta.InvokeAsync(() => feature.Chamfer(distance));
+        var info = await sta.InvokeLoggedAsync(nameof(Chamfer), new { distance }, () => feature.Chamfer(distance));
         return JsonSerializer.Serialize(info);
     }
 
@@ -57,7 +57,7 @@ public class FeatureTools(StaDispatcher sta, IFeatureService feature)
     public async Task<string> Shell(
         [Description("Shell wall thickness in meters")] double thickness)
     {
-        var info = await sta.InvokeAsync(() => feature.Shell(thickness));
+        var info = await sta.InvokeLoggedAsync(nameof(Shell), new { thickness }, () => feature.Shell(thickness));
         return JsonSerializer.Serialize(info);
     }
 }

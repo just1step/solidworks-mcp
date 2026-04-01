@@ -25,6 +25,9 @@ public class DocumentServiceTests
     private static SwDocumentInfo FakeDoc(string path = @"C:\model.sldprt", int type = 1) =>
         new(path, System.IO.Path.GetFileNameWithoutExtension(path), type);
 
+    private static SwOpenResult FakeOpenResult(string path = @"C:\model.sldprt", int type = 1) =>
+        new(FakeDoc(path, type), new SwApiDiagnostics(0, Array.Empty<SwCodeInfo>(), 0, Array.Empty<SwCodeInfo>()));
+
     // ─────────────────────────────────────────────────────────────
     // NewDocument
     // ─────────────────────────────────────────────────────────────
@@ -122,11 +125,11 @@ public class DocumentServiceTests
     // ─────────────────────────────────────────────────────────────
 
     [Fact]
-    public void OpenDocument_ValidPath_ReturnsDocumentInfo()
+    public void OpenDocument_ValidPath_ReturnsOpenResult()
     {
         var (manager, swApp) = ConnectedMocks();
         const string path = @"C:\part.sldprt";
-        var expected = FakeDoc(path);
+        var expected = FakeOpenResult(path);
         swApp.Setup(s => s.OpenDoc(path)).Returns(expected);
 
         var svc = new DocumentService(manager.Object);
@@ -140,7 +143,8 @@ public class DocumentServiceTests
     public void OpenDocument_SwReturnsNull_ThrowsInvalidOperation()
     {
         var (manager, swApp) = ConnectedMocks();
-        swApp.Setup(s => s.OpenDoc(It.IsAny<string>())).Returns((SwDocumentInfo?)null);
+        swApp.Setup(s => s.OpenDoc(It.IsAny<string>()))
+            .Throws(new InvalidOperationException("SolidWorks failed to open document"));
 
         var svc = new DocumentService(manager.Object);
         Assert.Throws<InvalidOperationException>(() => svc.OpenDocument(@"C:\missing.sldprt"));
@@ -193,10 +197,14 @@ public class DocumentServiceTests
     {
         var (manager, swApp) = ConnectedMocks();
         const string path = @"C:\part.sldprt";
+        var expected = new SwSaveResult(path, path, "sldprt", false, 0, 0,
+            new SwApiDiagnostics(0, Array.Empty<SwCodeInfo>(), 0, Array.Empty<SwCodeInfo>()));
+        swApp.Setup(s => s.SaveDoc(path)).Returns(expected);
 
         var svc = new DocumentService(manager.Object);
-        svc.SaveDocument(path);
+        var result = svc.SaveDocument(path);
 
+        Assert.Equal(expected, result);
         swApp.Verify(s => s.SaveDoc(path), Times.Once);
     }
 

@@ -1,4 +1,6 @@
 using System.Collections.Concurrent;
+using System.Text.Json;
+using SolidWorksMcpApp.Logging;
 
 namespace SolidWorksMcpApp;
 
@@ -47,5 +49,60 @@ public sealed class StaDispatcher : IDisposable
     public Task InvokeAsync(Action action) =>
         InvokeAsync<object?>(() => { action(); return null; });
 
+    public async Task<T> InvokeLoggedAsync<T>(string operationName, object? arguments, Func<T> func)
+    {
+        string argumentText = FormatPayload(arguments);
+        ServerLogBuffer.Append("INFO", "COM", $"{operationName} started{argumentText}.");
+
+        try
+        {
+            var result = await InvokeAsync(func);
+            string resultText = FormatPayload(result);
+            ServerLogBuffer.Append("INFO", "COM", $"{operationName} completed{resultText}.");
+            return result;
+        }
+        catch (Exception ex)
+        {
+            ServerLogBuffer.Append("ERROR", "COM", $"{operationName} failed{argumentText}.", ex);
+            throw;
+        }
+    }
+
+    public Task InvokeLoggedAsync(string operationName, object? arguments, Action action) =>
+        InvokeLoggedAsync<object?>(operationName, arguments, () =>
+        {
+            action();
+            return null;
+        });
+
     public void Dispose() => _queue.CompleteAdding();
+
+    private static string FormatPayload(object? payload)
+    {
+        if (payload is null)
+        {
+            return string.Empty;
+        }
+
+        try
+        {
+            string json = JsonSerializer.Serialize(payload);
+            if (string.IsNullOrWhiteSpace(json) || json == "{}" || json == "[]" || json == "null")
+            {
+                return string.Empty;
+            }
+
+            const int maxLength = 1200;
+            if (json.Length > maxLength)
+            {
+                json = json[..maxLength] + "...(truncated)";
+            }
+
+            return $" | payload={json}";
+        }
+        catch
+        {
+            return $" | payload={payload}";
+        }
+    }
 }

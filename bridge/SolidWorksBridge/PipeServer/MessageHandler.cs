@@ -1,4 +1,5 @@
 using SolidWorksBridge.Models;
+using SolidWorksBridge.SolidWorks;
 
 namespace SolidWorksBridge.PipeServer;
 
@@ -66,6 +67,14 @@ public class MessageHandler
         {
             var result = await handler(request);
             return PipeResponse.Success(request.Id, result);
+        }
+        catch (SolidWorksApiException ex)
+        {
+            return PipeResponse.Failure(
+                request.Id,
+                ex.PipeErrorCode,
+                ex.Message,
+                ex.ToErrorData());
         }
         catch (Exception ex)
         {

@@ -8,6 +8,8 @@ namespace SolidWorksBridge.SolidWorks;
 /// </summary>
 public record ComponentInfo(string Name, string Path);
 
+public record MateOperationResult(string MateType, int ErrorStatus, string ErrorName, string ErrorDescription);
+
 /// <summary>
 /// Mate type for assembly constraints.
 /// Values match swMateType_e.
@@ -46,27 +48,27 @@ public interface IAssemblyService
     /// <summary>
     /// Add a Coincident mate between the two currently-selected entities.
     /// </summary>
-    void AddMateCoincident(MateAlign align = MateAlign.Closest);
+    MateOperationResult AddMateCoincident(MateAlign align = MateAlign.Closest);
 
     /// <summary>
     /// Add a Concentric mate between the two currently-selected entities.
     /// </summary>
-    void AddMateConcentric(MateAlign align = MateAlign.Closest);
+    MateOperationResult AddMateConcentric(MateAlign align = MateAlign.Closest);
 
     /// <summary>
     /// Add a Parallel mate between the two currently-selected entities.
     /// </summary>
-    void AddMateParallel(MateAlign align = MateAlign.Closest);
+    MateOperationResult AddMateParallel(MateAlign align = MateAlign.Closest);
 
     /// <summary>
     /// Add a Distance mate between the two currently-selected entities.
     /// </summary>
-    void AddMateDistance(double distance, MateAlign align = MateAlign.Closest);
+    MateOperationResult AddMateDistance(double distance, MateAlign align = MateAlign.Closest);
 
     /// <summary>
     /// Add an Angle mate between the two currently-selected entities.
     /// </summary>
-    void AddMateAngle(double angleDegrees, MateAlign align = MateAlign.Closest);
+    MateOperationResult AddMateAngle(double angleDegrees, MateAlign align = MateAlign.Closest);
 
     /// <summary>
     /// List all top-level components in the active assembly.
@@ -102,19 +104,19 @@ public class AssemblyService : IAssemblyService
         return new ComponentInfo(comp.Name2, comp.GetPathName());
     }
 
-    public void AddMateCoincident(MateAlign align = MateAlign.Closest)
+    public MateOperationResult AddMateCoincident(MateAlign align = MateAlign.Closest)
         => AddMate(MateType.Coincident, align);
 
-    public void AddMateConcentric(MateAlign align = MateAlign.Closest)
+    public MateOperationResult AddMateConcentric(MateAlign align = MateAlign.Closest)
         => AddMate(MateType.Concentric, align);
 
-    public void AddMateParallel(MateAlign align = MateAlign.Closest)
+    public MateOperationResult AddMateParallel(MateAlign align = MateAlign.Closest)
         => AddMate(MateType.Parallel, align);
 
-    public void AddMateDistance(double distance, MateAlign align = MateAlign.Closest)
+    public MateOperationResult AddMateDistance(double distance, MateAlign align = MateAlign.Closest)
         => AddMate(MateType.Distance, align, distance: distance);
 
-    public void AddMateAngle(double angleDegrees, MateAlign align = MateAlign.Closest)
+    public MateOperationResult AddMateAngle(double angleDegrees, MateAlign align = MateAlign.Closest)
         => AddMate(MateType.Angle, align, angle: angleDegrees * Math.PI / 180.0);
 
     public IReadOnlyList<ComponentInfo> ListComponents()
@@ -143,7 +145,7 @@ public class AssemblyService : IAssemblyService
             ?? throw new InvalidOperationException("Active document is not an assembly");
     }
 
-    private void AddMate(MateType type, MateAlign align,
+    private MateOperationResult AddMate(MateType type, MateAlign align,
         double distance = 0, double angle = 0)
     {
         _cm.EnsureConnected();
@@ -163,7 +165,21 @@ public class AssemblyService : IAssemblyService
 
         var mateError = (swAddMateError_e)errors;
         if (mate == null || mateError != swAddMateError_e.swAddMateError_NoError)
-            throw new InvalidOperationException(
-                $"AddMate5 failed (type={type}, errors={errors}/{mateError}) — ensure two compatible entities are selected");
+        {
+            throw SolidWorksApiErrorFactory.FromMateFailure(
+                "IAssemblyDoc.AddMate5",
+                $"Failed to create {type} mate.",
+                errors,
+                new Dictionary<string, object?>
+                {
+                    ["mateType"] = type,
+                    ["align"] = align,
+                    ["distance"] = distance,
+                    ["angleRadians"] = angle,
+                });
+        }
+
+        var codeInfo = SolidWorksApiErrorFactory.DecodeValue<swAddMateError_e>(errors);
+        return new MateOperationResult(type.ToString(), errors, codeInfo.Name, codeInfo.Description);
     }
 }

@@ -95,6 +95,19 @@ public interface ISelectionService
 /// </summary>
 public class SelectionService : ISelectionService
 {
+    private static readonly IReadOnlyDictionary<string, string[]> SelectionTypeAliases =
+        new Dictionary<string, string[]>(StringComparer.OrdinalIgnoreCase)
+        {
+            ["swSelDATUMPLANES"] = ["swSelDATUMPLANES", "PLANE"],
+            ["PLANE"] = ["PLANE", "swSelDATUMPLANES"],
+            ["swSelFACES"] = ["swSelFACES", "FACE"],
+            ["FACE"] = ["FACE", "swSelFACES"],
+            ["swSelEDGES"] = ["swSelEDGES", "EDGE"],
+            ["EDGE"] = ["EDGE", "swSelEDGES"],
+            ["swSelVERTICES"] = ["swSelVERTICES", "VERTEX"],
+            ["VERTEX"] = ["VERTEX", "swSelVERTICES"],
+        };
+
     private sealed record EntityCandidate(
         int Index,
         IEntity Entity,
@@ -113,11 +126,22 @@ public class SelectionService : ISelectionService
     {
         _cm.EnsureConnected();
         var doc = GetActiveModelDoc();
-        // SelectByID(name, type, x, y, z) — x/y/z are 0,0,0 for named geometry
-        bool ok = doc.SelectByID(name, selType, 0, 0, 0);
-        return ok
-            ? new SelectionResult(true, $"Selected '{name}'")
-            : new SelectionResult(false, $"Could not select '{name}' (type: {selType})");
+        doc.ClearSelection2(true);
+
+        foreach (var candidateType in ExpandSelectionTypes(selType))
+        {
+            // SelectByID(name, type, x, y, z) — x/y/z are 0,0,0 for named geometry
+            bool ok = doc.SelectByID(name, candidateType, 0, 0, 0);
+            if (ok)
+            {
+                string message = string.Equals(candidateType, selType, StringComparison.OrdinalIgnoreCase)
+                    ? $"Selected '{name}'"
+                    : $"Selected '{name}' using selection type '{candidateType}' (requested '{selType}')";
+                return new SelectionResult(true, message);
+            }
+        }
+
+        return new SelectionResult(false, $"Could not select '{name}' (type: {selType})");
     }
 
     public IReadOnlyList<SelectableEntityInfo> ListEntities(
@@ -179,6 +203,12 @@ public class SelectionService : ISelectionService
 
         var selectionManager = GetActiveModelDoc().ISelectionManager
             ?? throw new InvalidOperationException("No selection manager available.");
+
+        if (!append)
+        {
+            GetActiveModelDoc().ClearSelection2(true);
+        }
+
         var selectData = CreateSelectData(selectionManager, mark);
 
         bool ok = candidate.Entity.Select4(append, selectData);
@@ -243,6 +273,16 @@ public class SelectionService : ISelectionService
 
             index++;
         }
+    }
+
+    private static IEnumerable<string> ExpandSelectionTypes(string selType)
+    {
+        if (SelectionTypeAliases.TryGetValue(selType, out var aliases))
+        {
+            return aliases;
+        }
+
+        return [selType];
     }
 
     private IEnumerable<(IBody2 Body, string? ComponentName)> EnumerateBodyContexts()

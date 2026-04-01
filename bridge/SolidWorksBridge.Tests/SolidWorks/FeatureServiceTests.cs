@@ -93,7 +93,8 @@ public class FeatureServiceTests
     public void Extrude_ReturnsFeatureInfo_WithCorrectType()
     {
         var (manager, _, _, doc) = ConnectedWithFm();
-        var feat = FakeFeature("Boss-Extrude1");
+        var before = FakeFeature("Sketch2", "ProfileFeature");
+        var feat = FakeFeature("Boss-Extrude1", "BossExtrude");
         doc.Setup(d => d.FeatureBoss2(
                 It.IsAny<bool>(), It.IsAny<bool>(), It.IsAny<bool>(),
                 It.IsAny<int>(), It.IsAny<int>(),
@@ -101,7 +102,9 @@ public class FeatureServiceTests
                 It.IsAny<bool>(), It.IsAny<bool>(), It.IsAny<bool>(), It.IsAny<bool>(),
                 It.IsAny<double>(), It.IsAny<double>(),
                 It.IsAny<bool>(), It.IsAny<bool>(), It.IsAny<bool>(), It.IsAny<bool>()));
-        doc.Setup(d => d.IFeatureByPositionReverse(0)).Returns(feat);
+        doc.SetupSequence(d => d.IFeatureByPositionReverse(0))
+            .Returns(before)
+            .Returns(feat);
 
         var info = new FeatureService(manager.Object).Extrude(0.01);
 
@@ -113,17 +116,48 @@ public class FeatureServiceTests
     public void Extrude_NullReturnFromCom_Throws()
     {
         var (manager, _, _, doc) = ConnectedWithFm();
-        doc.Setup(d => d.IFeatureByPositionReverse(0)).Returns((Feature?)null);
+        doc.SetupSequence(d => d.IFeatureByPositionReverse(0))
+            .Returns((Feature?)null)
+            .Returns((Feature?)null);
 
-        Assert.Throws<InvalidOperationException>(() =>
+        Assert.Throws<SolidWorksApiException>(() =>
             new FeatureService(manager.Object).Extrude(0.01));
+    }
+
+    [Fact]
+    public void Extrude_OpenActiveSketch_ThrowsBeforeCallingCom()
+    {
+        var (manager, _, _, doc) = ConnectedWithFm();
+        var sketch = new Mock<ISketch>();
+        var openContour = new Mock<ISketchContour>();
+        openContour.Setup(c => c.IsClosed()).Returns(false);
+        sketch.Setup(s => s.GetSketchSegments()).Returns(new object[] { new Mock<SketchSegment>().Object });
+        sketch.Setup(s => s.GetSketchContourCount()).Returns(1);
+        sketch.Setup(s => s.GetSketchRegionCount()).Returns(0);
+        sketch.Setup(s => s.GetSketchContours()).Returns(new object[] { openContour.Object });
+        doc.Setup(d => d.GetActiveSketch2()).Returns(sketch.Object);
+
+        var error = Assert.Throws<SolidWorksApiException>(() =>
+            new FeatureService(manager.Object).Extrude(0.01));
+
+        Assert.Contains("contains open contours", error.Message);
+        doc.Verify(d => d.FeatureBoss2(
+            It.IsAny<bool>(), It.IsAny<bool>(), It.IsAny<bool>(),
+            It.IsAny<int>(), It.IsAny<int>(),
+            It.IsAny<double>(), It.IsAny<double>(),
+            It.IsAny<bool>(), It.IsAny<bool>(), It.IsAny<bool>(), It.IsAny<bool>(),
+            It.IsAny<double>(), It.IsAny<double>(),
+            It.IsAny<bool>(), It.IsAny<bool>(), It.IsAny<bool>(), It.IsAny<bool>()),
+            Times.Never);
     }
 
     [Fact]
     public void Extrude_CallsEnsureConnected()
     {
         var (manager, _, _, doc) = ConnectedWithFm();
-        doc.Setup(d => d.IFeatureByPositionReverse(0)).Returns(FakeFeature());
+        doc.SetupSequence(d => d.IFeatureByPositionReverse(0))
+            .Returns(FakeFeature("Sketch2", "ProfileFeature"))
+            .Returns(FakeFeature());
 
         new FeatureService(manager.Object).Extrude(0.01);
 
@@ -142,7 +176,9 @@ public class FeatureServiceTests
     public void Extrude_FlipDirection_PassesFalseForDirToApi()
     {
         var (manager, _, _, doc) = ConnectedWithFm();
-        doc.Setup(d => d.IFeatureByPositionReverse(0)).Returns(FakeFeature());
+        doc.SetupSequence(d => d.IFeatureByPositionReverse(0))
+            .Returns(FakeFeature("Sketch2", "ProfileFeature"))
+            .Returns(FakeFeature());
 
         new FeatureService(manager.Object).Extrude(0.01, flipDirection: true);
 
@@ -205,8 +241,65 @@ public class FeatureServiceTests
                 It.IsAny<int>(), It.IsAny<double>(), It.IsAny<bool>(), It.IsAny<bool>()))
             .Returns((Feature?)null);
 
-        Assert.Throws<InvalidOperationException>(() =>
+        Assert.Throws<SolidWorksApiException>(() =>
             new FeatureService(manager.Object).ExtrudeCut(0.01));
+    }
+
+    [Fact]
+    public void ExtrudeCut_OpenActiveSketch_ThrowsBeforeCallingCom()
+    {
+        var (manager, _, fm, doc) = ConnectedWithFm();
+        var sketch = new Mock<ISketch>();
+        var openContour = new Mock<ISketchContour>();
+        openContour.Setup(c => c.IsClosed()).Returns(false);
+        sketch.Setup(s => s.GetSketchSegments()).Returns(new object[] { new Mock<SketchSegment>().Object });
+        sketch.Setup(s => s.GetSketchContourCount()).Returns(1);
+        sketch.Setup(s => s.GetSketchRegionCount()).Returns(0);
+        sketch.Setup(s => s.GetSketchContours()).Returns(new object[] { openContour.Object });
+        doc.Setup(d => d.GetActiveSketch2()).Returns(sketch.Object);
+
+        var error = Assert.Throws<SolidWorksApiException>(() =>
+            new FeatureService(manager.Object).ExtrudeCut(0.01));
+
+        Assert.Contains("contains open contours", error.Message);
+        fm.Verify(f => f.FeatureCut4(
+            It.IsAny<bool>(), It.IsAny<bool>(), It.IsAny<bool>(),
+            It.IsAny<int>(), It.IsAny<int>(),
+            It.IsAny<double>(), It.IsAny<double>(),
+            It.IsAny<bool>(), It.IsAny<bool>(), It.IsAny<bool>(), It.IsAny<bool>(),
+            It.IsAny<double>(), It.IsAny<double>(),
+            It.IsAny<bool>(), It.IsAny<bool>(),
+            It.IsAny<bool>(), It.IsAny<bool>(),
+            It.IsAny<bool>(), It.IsAny<bool>(), It.IsAny<bool>(), It.IsAny<bool>(), It.IsAny<bool>(), It.IsAny<bool>(),
+            It.IsAny<int>(), It.IsAny<double>(), It.IsAny<bool>(), It.IsAny<bool>()),
+            Times.Never);
+    }
+
+    [Fact]
+    public void Extrude_ClosedContoursWithoutRegions_ThrowsBeforeCallingCom()
+    {
+        var (manager, _, _, doc) = ConnectedWithFm();
+        var sketch = new Mock<ISketch>();
+        var closedContour = new Mock<ISketchContour>();
+        closedContour.Setup(c => c.IsClosed()).Returns(true);
+        sketch.Setup(s => s.GetSketchSegments()).Returns(new object[] { new Mock<SketchSegment>().Object });
+        sketch.Setup(s => s.GetSketchContourCount()).Returns(1);
+        sketch.Setup(s => s.GetSketchRegionCount()).Returns(0);
+        sketch.Setup(s => s.GetSketchContours()).Returns(new object[] { closedContour.Object });
+        doc.Setup(d => d.GetActiveSketch2()).Returns(sketch.Object);
+
+        var error = Assert.Throws<SolidWorksApiException>(() =>
+            new FeatureService(manager.Object).Extrude(0.01));
+
+        Assert.Contains("does not contain any valid sketch regions", error.Message);
+        doc.Verify(d => d.FeatureBoss2(
+            It.IsAny<bool>(), It.IsAny<bool>(), It.IsAny<bool>(),
+            It.IsAny<int>(), It.IsAny<int>(),
+            It.IsAny<double>(), It.IsAny<double>(),
+            It.IsAny<bool>(), It.IsAny<bool>(), It.IsAny<bool>(), It.IsAny<bool>(),
+            It.IsAny<double>(), It.IsAny<double>(),
+            It.IsAny<bool>(), It.IsAny<bool>(), It.IsAny<bool>(), It.IsAny<bool>()),
+            Times.Never);
     }
 
     [Fact]
@@ -266,7 +359,7 @@ public class FeatureServiceTests
             It.IsAny<int>(), It.IsAny<double>(), It.IsAny<bool>(), It.IsAny<bool>()))
           .Returns(sketchFeature);
 
-        var error = Assert.Throws<InvalidOperationException>(() =>
+        var error = Assert.Throws<SolidWorksApiException>(() =>
             new FeatureService(manager.Object).ExtrudeCut(0.01));
 
         Assert.Contains("did not create a new cut feature", error.Message);

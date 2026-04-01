@@ -25,13 +25,13 @@ public interface ISldWorksApp
     SwDocumentInfo? NewDoc(string templatePath);
 
     /// <summary>Open an existing document by file path.</summary>
-    SwDocumentInfo? OpenDoc(string path);
+    SwOpenResult OpenDoc(string path);
 
     /// <summary>Close a document by file path.</summary>
     void CloseDoc(string path);
 
     /// <summary>Save an open document by file path (silent, no dialogs).</summary>
-    void SaveDoc(string path);
+    SwSaveResult SaveDoc(string path);
 
     /// <summary>
     /// Save or export a document to a new path. When <paramref name="sourcePath"/> is null,
@@ -200,25 +200,51 @@ public class SldWorksAppWrapper : ISldWorksApp
         return doc == null ? null : ToInfo(doc);
     }
 
-    public SwDocumentInfo? OpenDoc(string path)
+    public SwOpenResult OpenDoc(string path)
     {
         // Infer document type from file extension
         int docType = InferDocType(path);
         // swOpenDocOptions_Silent = 1
         int errors = 0, warnings = 0;
         var doc = _swApp.OpenDoc6(path, docType, 1, "", ref errors, ref warnings);
-        return doc == null ? null : ToInfo(doc);
+        var diagnostics = SolidWorksApiErrorFactory.CreateLoadDiagnostics(errors, warnings);
+
+        if (doc == null)
+        {
+            throw SolidWorksApiExceptionFromLoad(path, docType, diagnostics);
+        }
+
+        return new SwOpenResult(ToInfo(doc), diagnostics);
     }
 
     public void CloseDoc(string path) => _swApp.CloseDoc(path);
 
-    public void SaveDoc(string path)
+    public SwSaveResult SaveDoc(string path)
     {
         var doc = _swApp.GetOpenDocument(path) as IModelDoc2
             ?? throw new InvalidOperationException($"Document not open: {path}");
         int errors = 0, warnings = 0;
         // swSaveAsOptions_Silent = 1
-        doc.Save3(1, ref errors, ref warnings);
+        bool saved = doc.Save3(1, ref errors, ref warnings);
+        var diagnostics = SolidWorksApiErrorFactory.CreateSaveDiagnostics(errors, warnings);
+        if (!saved)
+        {
+            throw SolidWorksApiErrorFactory.FromSaveFailure(
+                "IModelDoc2.Save3",
+                $"Failed to save document '{path}'.",
+                errors,
+                warnings,
+                new Dictionary<string, object?> { ["path"] = path });
+        }
+
+        return new SwSaveResult(
+            doc.GetPathName(),
+            doc.GetPathName(),
+            Path.GetExtension(doc.GetPathName()).TrimStart('.').ToLowerInvariant(),
+            false,
+            errors,
+            warnings,
+            diagnostics);
     }
 
     public SwSaveResult SaveDocAs(string outputPath, string? sourcePath, bool saveAsCopy)
@@ -244,10 +270,21 @@ public class SldWorksAppWrapper : ISldWorksApp
             ref errors,
             ref warnings);
 
+        var diagnostics = SolidWorksApiErrorFactory.CreateSaveDiagnostics(errors, warnings);
+
         if (!saved || !File.Exists(normalizedOutputPath))
         {
-            throw new InvalidOperationException(
-                $"SolidWorks failed to save document as '{normalizedOutputPath}'. Errors={errors}, Warnings={warnings}.");
+            throw SolidWorksApiErrorFactory.FromSaveFailure(
+                "IModelDocExtension.SaveAs",
+                $"Failed to save document as '{normalizedOutputPath}'.",
+                errors,
+                warnings,
+                new Dictionary<string, object?>
+                {
+                    ["outputPath"] = normalizedOutputPath,
+                    ["sourcePath"] = sourceDocPath,
+                    ["saveAsCopy"] = saveAsCopy,
+                });
         }
 
         return new SwSaveResult(
@@ -256,7 +293,8 @@ public class SldWorksAppWrapper : ISldWorksApp
             Path.GetExtension(normalizedOutputPath).TrimStart('.').ToLowerInvariant(),
             saveAsCopy,
             errors,
-            warnings);
+            warnings,
+            diagnostics);
     }
 
     public void Undo(int steps)
@@ -389,6 +427,20 @@ public class SldWorksAppWrapper : ISldWorksApp
     private static SwDocumentInfo ToInfo(IModelDoc2 doc) =>
         new(doc.GetPathName(), doc.GetTitle(), doc.GetType());
 
+    private static SolidWorksApiException SolidWorksApiExceptionFromLoad(string path, int docType, SwApiDiagnostics diagnostics)
+    {
+        return SolidWorksApiErrorFactory.FromLoadFailure(
+            "ISldWorks.OpenDoc6",
+            $"Failed to open document '{path}'.",
+            diagnostics.RawErrorCode,
+            diagnostics.RawWarningCode,
+            new Dictionary<string, object?>
+            {
+                ["path"] = path,
+                ["docType"] = docType,
+            });
+    }
+
     private IModelDoc2 ResolveDocument(string? sourcePath)
     {
         if (string.IsNullOrWhiteSpace(sourcePath))
@@ -493,6 +545,6 @@ public class SwConnectionManager : ISwConnectionManager
     public void EnsureConnected()
     {
         if (!IsConnected)
-            throw new InvalidOperationException("Not connected to SolidWorks. Call Connect() first.");
+            throw SolidWorksApiErrorFactory.NotConnected();
     }
 }

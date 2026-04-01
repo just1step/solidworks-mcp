@@ -17,6 +17,8 @@ public enum SwDocType
 /// </summary>
 public record SwDocumentInfo(string Path, string Title, int Type);
 
+public record SwOpenResult(SwDocumentInfo Document, SwApiDiagnostics Diagnostics);
+
 /// <summary>
 /// Standard model orientations supported by SolidWorks.
 /// </summary>
@@ -36,7 +38,7 @@ public enum SwStandardView
 /// <summary>
 /// Save/export result metadata.
 /// </summary>
-public record SwSaveResult(string SourcePath, string OutputPath, string Format, bool SaveAsCopy, int Errors, int Warnings);
+public record SwSaveResult(string SourcePath, string OutputPath, string Format, bool SaveAsCopy, int Errors, int Warnings, SwApiDiagnostics? Diagnostics = null);
 
 /// <summary>
 /// Exported view image metadata.
@@ -55,13 +57,13 @@ public interface IDocumentService
     SwDocumentInfo NewDocument(SwDocType docType, string? templatePath = null);
 
     /// <summary>Open an existing document by file path.</summary>
-    SwDocumentInfo OpenDocument(string path);
+    SwOpenResult OpenDocument(string path);
 
     /// <summary>Close an open document by file path.</summary>
     void CloseDocument(string path);
 
     /// <summary>Save an open document by file path.</summary>
-    void SaveDocument(string path);
+    SwSaveResult SaveDocument(string path);
 
     /// <summary>
     /// Save or export a document to a new path. The output format is inferred from
@@ -116,16 +118,10 @@ public class DocumentService : IDocumentService
         return doc;
     }
 
-    public SwDocumentInfo OpenDocument(string path)
+    public SwOpenResult OpenDocument(string path)
     {
         _connectionManager.EnsureConnected();
-        var sw = _connectionManager.SwApp!;
-
-        var doc = sw.OpenDoc(path)
-            ?? throw new InvalidOperationException(
-                $"SolidWorks failed to open document: {path}");
-
-        return doc;
+        return _connectionManager.SwApp!.OpenDoc(path);
     }
 
     public void CloseDocument(string path)
@@ -134,10 +130,10 @@ public class DocumentService : IDocumentService
         _connectionManager.SwApp!.CloseDoc(path);
     }
 
-    public void SaveDocument(string path)
+    public SwSaveResult SaveDocument(string path)
     {
         _connectionManager.EnsureConnected();
-        _connectionManager.SwApp!.SaveDoc(path);
+        return _connectionManager.SwApp!.SaveDoc(path);
     }
 
     public SwSaveResult SaveDocumentAs(string outputPath, string? sourcePath = null, bool saveAsCopy = true)
