@@ -470,4 +470,74 @@ public class AssemblyServiceTests
         Assert.Empty(result.InterferingComponents);
     }
 
+    [Fact]
+    public void ReplaceComponent_ReplacesTopLevelComponent()
+    {
+        var (manager, assy) = ConnectedWithAssy();
+        var doc = assy.As<IModelDoc2>();
+        var selectionManager = new Mock<SelectionMgr>();
+        var selectData = new Mock<SelectData>();
+
+        var part = new Mock<Component2>();
+        part.Setup(c => c.Name2).Returns("Pulley-1");
+        part.Setup(c => c.GetPathName()).Returns(@"C:\OldPulley.sldprt");
+        part.Setup(c => c.GetChildren()).Returns(Array.Empty<object>());
+        part.Setup(c => c.Select4(false, selectData.Object, false)).Returns(true);
+
+        doc.Setup(d => d.ISelectionManager).Returns(selectionManager.Object);
+        selectionManager.Setup(m => m.CreateSelectData()).Returns(selectData.Object);
+        assy.Setup(a => a.GetComponents(true)).Returns(new object[] { part.Object });
+        assy.Setup(a => a.ReplaceComponents2(@"C:\NewPulley.sldprt", "", false, 0, true)).Returns(true);
+
+        var result = new AssemblyService(manager.Object).ReplaceComponent("Pulley-1", @"C:\NewPulley.sldprt");
+
+        Assert.True(result.Success);
+        Assert.Equal("Pulley-1", result.ReplacedHierarchyPath);
+        Assert.Equal(@"C:\NewPulley.sldprt", result.ReplacementFilePath);
+        doc.Verify(d => d.ClearSelection2(true), Times.Exactly(2));
+    }
+
+    [Fact]
+    public void ReplaceComponent_WhenTargetIsNested_Throws()
+    {
+        var (manager, assy) = ConnectedWithAssy();
+
+        var child = new Mock<Component2>();
+        child.Setup(c => c.Name2).Returns("Pulley-1");
+        child.Setup(c => c.GetPathName()).Returns(@"C:\OldPulley.sldprt");
+        child.Setup(c => c.GetChildren()).Returns(Array.Empty<object>());
+
+        var subAssembly = new Mock<Component2>();
+        subAssembly.Setup(c => c.Name2).Returns("SubAsm-1");
+        subAssembly.Setup(c => c.GetPathName()).Returns(@"C:\SubAsm.sldasm");
+        subAssembly.Setup(c => c.GetChildren()).Returns(new object[] { child.Object });
+
+        assy.Setup(a => a.GetComponents(true)).Returns(new object[] { subAssembly.Object });
+
+        Assert.Throws<SolidWorksApiException>(() =>
+            new AssemblyService(manager.Object).ReplaceComponent("SubAsm-1/Pulley-1", @"C:\NewPulley.sldprt"));
+    }
+
+    [Fact]
+    public void ReplaceComponent_WhenSelectionFails_Throws()
+    {
+        var (manager, assy) = ConnectedWithAssy();
+        var doc = assy.As<IModelDoc2>();
+        var selectionManager = new Mock<SelectionMgr>();
+        var selectData = new Mock<SelectData>();
+
+        var part = new Mock<Component2>();
+        part.Setup(c => c.Name2).Returns("Pulley-1");
+        part.Setup(c => c.GetPathName()).Returns(@"C:\OldPulley.sldprt");
+        part.Setup(c => c.GetChildren()).Returns(Array.Empty<object>());
+        part.Setup(c => c.Select4(false, selectData.Object, false)).Returns(false);
+
+        doc.Setup(d => d.ISelectionManager).Returns(selectionManager.Object);
+        selectionManager.Setup(m => m.CreateSelectData()).Returns(selectData.Object);
+        assy.Setup(a => a.GetComponents(true)).Returns(new object[] { part.Object });
+
+        Assert.Throws<SolidWorksApiException>(() =>
+            new AssemblyService(manager.Object).ReplaceComponent("Pulley-1", @"C:\NewPulley.sldprt"));
+    }
+
 }

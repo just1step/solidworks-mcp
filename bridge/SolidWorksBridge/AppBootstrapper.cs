@@ -385,6 +385,20 @@ public class AppBootstrapper
             return Task.FromResult<object?>(result);
         });
 
+        _messageHandler.Register("sw.assembly.replace_component", req =>
+        {
+            var p = req.GetParams<AssemblyReplaceComponentParams>()
+                ?? throw new ArgumentException("params required: {hierarchyPath, replacementFilePath, configName?, replaceAllInstances?, useConfigChoice?, reattachMates?}");
+            var result = _assemblyService.ReplaceComponent(
+                p.HierarchyPath,
+                p.ReplacementFilePath,
+                p.ConfigName,
+                p.ReplaceAllInstances,
+                p.UseConfigChoice,
+                p.ReattachMates);
+            return Task.FromResult<object?>(result);
+        });
+
     }
 
     // ── Param DTOs ────────────────────────────────────────────────
@@ -618,6 +632,27 @@ public class AppBootstrapper
 
         [System.Text.Json.Serialization.JsonPropertyName("treatCoincidenceAsInterference")]
         public bool TreatCoincidenceAsInterference { get; set; }
+    }
+
+    public class AssemblyReplaceComponentParams
+    {
+        [System.Text.Json.Serialization.JsonPropertyName("hierarchyPath")]
+        public string HierarchyPath { get; set; } = string.Empty;
+
+        [System.Text.Json.Serialization.JsonPropertyName("replacementFilePath")]
+        public string ReplacementFilePath { get; set; } = string.Empty;
+
+        [System.Text.Json.Serialization.JsonPropertyName("configName")]
+        public string ConfigName { get; set; } = string.Empty;
+
+        [System.Text.Json.Serialization.JsonPropertyName("replaceAllInstances")]
+        public bool ReplaceAllInstances { get; set; }
+
+        [System.Text.Json.Serialization.JsonPropertyName("useConfigChoice")]
+        public int UseConfigChoice { get; set; }
+
+        [System.Text.Json.Serialization.JsonPropertyName("reattachMates")]
+        public bool ReattachMates { get; set; } = true;
     }
 
     // ── Helpers ───────────────────────────────────────────────────

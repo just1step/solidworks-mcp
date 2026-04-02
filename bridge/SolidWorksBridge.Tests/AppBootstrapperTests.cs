@@ -95,7 +95,7 @@ public class AppBootstrapperTests
             "sw.assembly.add_mate_parallel",
             "sw.assembly.add_mate_distance", "sw.assembly.add_mate_angle",
             "sw.assembly.list_components", "sw.assembly.list_components_recursive",
-            "sw.assembly.check_interference"
+            "sw.assembly.check_interference", "sw.assembly.replace_component"
         };
 
         foreach (var method in expected)

@@ -59,6 +59,8 @@ internal static class Program
             "prepare-mate-distance" => session.PrepareMate(MatePreparationKind.Distance),
             "prepare-mate-angle" => session.PrepareMate(MatePreparationKind.Angle),
             "prepare-mate-concentric" => session.PrepareMate(MatePreparationKind.Concentric),
+            "list-assembly-components" => session.ListAssemblyComponents(args[1]),
+            "replace-component" => session.ReplaceComponentInAssembly(args[1], args[2], args[3], args.Length > 4 ? args[4] : string.Empty),
             _ => throw new ArgumentException($"Unknown command: {args[0]}")
         };
     }
@@ -173,6 +175,54 @@ internal sealed class AcceptanceSession : IDisposable
         return kind == MatePreparationKind.Concentric
             ? PrepareConcentricMate()
             : PreparePlanarMate(kind);
+    }
+
+    public object ReplaceComponentInAssembly(string assemblyPath, string hierarchyPath, string replacementFilePath, string configName = "")
+    {
+        if (string.IsNullOrWhiteSpace(assemblyPath))
+        {
+            throw new ArgumentException("assemblyPath is required.", nameof(assemblyPath));
+        }
+
+        if (string.IsNullOrWhiteSpace(hierarchyPath))
+        {
+            throw new ArgumentException("hierarchyPath is required.", nameof(hierarchyPath));
+        }
+
+        if (string.IsNullOrWhiteSpace(replacementFilePath))
+        {
+            throw new ArgumentException("replacementFilePath is required.", nameof(replacementFilePath));
+        }
+
+        ActivateDocument(assemblyPath);
+        var result = _assembly.ReplaceComponent(hierarchyPath, replacementFilePath, configName);
+        var saveResult = _documents.SaveDocument(assemblyPath);
+
+        return new
+        {
+            assemblyPath,
+            hierarchyPath,
+            replacementFilePath,
+            configName,
+            replaceResult = result,
+            saveResult,
+        };
+    }
+
+    public object ListAssemblyComponents(string assemblyPath)
+    {
+        if (string.IsNullOrWhiteSpace(assemblyPath))
+        {
+            throw new ArgumentException("assemblyPath is required.", nameof(assemblyPath));
+        }
+
+        ActivateDocument(assemblyPath);
+        return new
+        {
+            assemblyPath,
+            active = _documents.GetActiveDocument(),
+            components = _assembly.ListComponentsRecursive(),
+        };
     }
 
     public void Dispose()
@@ -549,6 +599,12 @@ internal sealed class AcceptanceSession : IDisposable
     private IModelDoc2 RequireActiveDoc()
         => _manager.SwApp!.IActiveDoc2
             ?? throw new InvalidOperationException("No active document.");
+
+    private void ActivateDocument(string path)
+    {
+        _documents.OpenDocument(path);
+        _ = _manager.SwApp!.ActivateDoc(path);
+    }
 
     private IPartDoc RequireActivePart()
         => RequireActiveDoc() as IPartDoc

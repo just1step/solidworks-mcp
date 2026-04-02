@@ -85,4 +85,18 @@ public class AssemblyTools(StaDispatcher sta, IAssemblyService assembly)
         return JsonSerializer.Serialize(result);
     }
 
+    [McpServerTool, Description("Replace a top-level component instance in the active SolidWorks assembly with another model file. For subassembly content, open the owning subassembly first.")]
+    public async Task<string> ReplaceComponent(
+        [Description("Hierarchy path of the component instance to replace. The target must be top-level in the active assembly.")] string hierarchyPath,
+        [Description("Full file path to the replacement part or assembly.")] string replacementFilePath,
+        [Description("Optional configuration name in the replacement model. Empty string uses the default or matched configuration.")] string configName = "",
+        [Description("When true, replace all instances of the selected component in the active assembly.")] bool replaceAllInstances = false,
+        [Description("Configuration choice: MatchName=0, ManuallySelect=1.")] int useConfigChoice = 0,
+        [Description("When true, SolidWorks attempts to reattach existing mates to the replacement component.")] bool reattachMates = true)
+    {
+        var payload = new { hierarchyPath, replacementFilePath, configName, replaceAllInstances, useConfigChoice, reattachMates };
+        var result = await sta.InvokeLoggedAsync(nameof(ReplaceComponent), payload, () => assembly.ReplaceComponent(hierarchyPath, replacementFilePath, configName, replaceAllInstances, useConfigChoice, reattachMates));
+        return JsonSerializer.Serialize(result);
+    }
+
 }

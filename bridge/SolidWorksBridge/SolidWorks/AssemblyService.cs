@@ -23,6 +23,15 @@ public record AssemblyInterferenceCheckResult(
     int InterferingFaceCount,
     IReadOnlyList<ComponentInstanceInfo> InterferingComponents);
 
+public record AssemblyComponentReplacementResult(
+    string ReplacedHierarchyPath,
+    string ReplacementFilePath,
+    string ConfigName,
+    bool ReplaceAllInstances,
+    int UseConfigChoice,
+    bool ReattachMates,
+    bool Success);
+
 public record MateOperationResult(string MateType, int ErrorStatus, string ErrorName, string ErrorDescription);
 
 /// <summary>
@@ -102,6 +111,17 @@ public interface IAssemblyService
     AssemblyInterferenceCheckResult CheckInterference(
         IReadOnlyList<string>? hierarchyPaths = null,
         bool treatCoincidenceAsInterference = false);
+
+    /// <summary>
+    /// Replace a top-level component instance in the active assembly with another model file.
+    /// </summary>
+    AssemblyComponentReplacementResult ReplaceComponent(
+        string hierarchyPath,
+        string replacementFilePath,
+        string configName = "",
+        bool replaceAllInstances = false,
+        int useConfigChoice = (int)swReplaceComponentsConfiguration_e.swReplaceComponentsConfiguration_MatchName,
+        bool reattachMates = true);
 
 }
 
@@ -263,6 +283,120 @@ public class AssemblyService : IAssemblyService
         finally
         {
             detectionManager?.Done();
+        }
+    }
+
+    public AssemblyComponentReplacementResult ReplaceComponent(
+        string hierarchyPath,
+        string replacementFilePath,
+        string configName = "",
+        bool replaceAllInstances = false,
+        int useConfigChoice = (int)swReplaceComponentsConfiguration_e.swReplaceComponentsConfiguration_MatchName,
+        bool reattachMates = true)
+    {
+        if (string.IsNullOrWhiteSpace(hierarchyPath))
+            throw new ArgumentException("hierarchyPath must not be empty", nameof(hierarchyPath));
+        if (string.IsNullOrWhiteSpace(replacementFilePath))
+            throw new ArgumentException("replacementFilePath must not be empty", nameof(replacementFilePath));
+
+        _cm.EnsureConnected();
+        var assy = GetAssemblyDoc();
+        var doc = (IModelDoc2)assy;
+
+        var target = EnumerateComponentInstances(assy)
+            .FirstOrDefault(instance => string.Equals(instance.Info.HierarchyPath, hierarchyPath, StringComparison.OrdinalIgnoreCase));
+        if (target == null)
+        {
+            throw SolidWorksApiErrorFactory.FromValidationFailure(
+                "IAssemblyDoc.ReplaceComponents2",
+                "The requested component instance was not found in the active assembly.",
+                new Dictionary<string, object?>
+                {
+                    ["hierarchyPath"] = hierarchyPath,
+                    ["replacementFilePath"] = replacementFilePath,
+                });
+        }
+
+        if (target.Info.Depth != 0)
+        {
+            throw SolidWorksApiErrorFactory.FromValidationFailure(
+                "IAssemblyDoc.ReplaceComponents2",
+                "Only top-level components in the active assembly can be replaced. Open the owning subassembly and retry.",
+                new Dictionary<string, object?>
+                {
+                    ["hierarchyPath"] = hierarchyPath,
+                    ["depth"] = target.Info.Depth,
+                });
+        }
+
+        var selectionManager = doc.ISelectionManager
+            ?? throw new InvalidOperationException("Selection manager is not available for the active assembly.");
+
+        doc.ClearSelection2(true);
+        try
+        {
+            var selectData = (SelectData)selectionManager.CreateSelectData();
+            if (!target.Component.Select4(false, selectData, false))
+            {
+                throw SolidWorksApiErrorFactory.FromValidationFailure(
+                    "IComponent2.Select4",
+                    $"Failed to select component '{hierarchyPath}' for replacement.",
+                    new Dictionary<string, object?>
+                    {
+                        ["hierarchyPath"] = hierarchyPath,
+                        ["replacementFilePath"] = replacementFilePath,
+                    });
+            }
+
+            bool success;
+            try
+            {
+                success = assy.ReplaceComponents2(replacementFilePath, configName, replaceAllInstances, useConfigChoice, reattachMates);
+            }
+            catch (System.Runtime.InteropServices.COMException ex)
+            {
+                throw SolidWorksApiErrorFactory.FromComException(
+                    "IAssemblyDoc.ReplaceComponents2",
+                    ex,
+                    new Dictionary<string, object?>
+                    {
+                        ["hierarchyPath"] = hierarchyPath,
+                        ["replacementFilePath"] = replacementFilePath,
+                        ["configName"] = configName,
+                        ["replaceAllInstances"] = replaceAllInstances,
+                        ["useConfigChoice"] = useConfigChoice,
+                        ["reattachMates"] = reattachMates,
+                    });
+            }
+
+            if (!success)
+            {
+                throw SolidWorksApiErrorFactory.FromValidationFailure(
+                    "IAssemblyDoc.ReplaceComponents2",
+                    "SolidWorks did not replace the selected component.",
+                    new Dictionary<string, object?>
+                    {
+                        ["hierarchyPath"] = hierarchyPath,
+                        ["replacementFilePath"] = replacementFilePath,
+                        ["configName"] = configName,
+                        ["replaceAllInstances"] = replaceAllInstances,
+                        ["useConfigChoice"] = useConfigChoice,
+                        ["reattachMates"] = reattachMates,
+                    });
+            }
+
+            return new AssemblyComponentReplacementResult(
+                hierarchyPath,
+                replacementFilePath,
+                configName,
+                replaceAllInstances,
+                useConfigChoice,
+                reattachMates,
+                success);
+        }
+        finally
+        {
+            doc.ClearSelection2(true);
         }
     }
 

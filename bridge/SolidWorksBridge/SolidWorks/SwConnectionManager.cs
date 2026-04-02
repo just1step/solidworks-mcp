@@ -27,6 +27,9 @@ public interface ISldWorksApp
     /// <summary>Open an existing document by file path.</summary>
     SwOpenResult OpenDoc(string path);
 
+    /// <summary>Activate an open document by file path.</summary>
+    SwDocumentInfo ActivateDoc(string path);
+
     /// <summary>Close a document by file path.</summary>
     void CloseDoc(string path);
 
@@ -215,6 +218,27 @@ public class SldWorksAppWrapper : ISldWorksApp
         }
 
         return new SwOpenResult(ToInfo(doc), diagnostics);
+    }
+
+    public SwDocumentInfo ActivateDoc(string path)
+    {
+        var normalizedPath = NormalizePath(path, nameof(path));
+        _ = _swApp.GetOpenDocument(normalizedPath) as IModelDoc2
+            ?? throw new InvalidOperationException($"Document not open: {normalizedPath}");
+
+        int errors = 0;
+        var doc = _swApp.ActivateDoc3(
+            Path.GetFileName(normalizedPath),
+            true,
+            (int)swRebuildOnActivation_e.swDontRebuildActiveDoc,
+            ref errors);
+
+        if (doc == null)
+        {
+            throw new InvalidOperationException($"Failed to activate document '{normalizedPath}'. SolidWorks error code: {errors}.");
+        }
+
+        return ToInfo((IModelDoc2)doc);
     }
 
     public void CloseDoc(string path) => _swApp.CloseDoc(path);
