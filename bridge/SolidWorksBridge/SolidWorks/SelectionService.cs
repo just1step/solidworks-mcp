@@ -74,6 +74,38 @@ public record SelectableEntityInfo(
     double[]? Box);
 
 /// <summary>
+/// Stable reference to a measured topology entity.
+/// </summary>
+public record MeasuredEntityInfo(
+    SelectableEntityType EntityType,
+    int Index,
+    string? ComponentName,
+    double[]? Box);
+
+/// <summary>
+/// Result of measuring two topology entities using SolidWorks' official IMeasure API.
+/// Distances are reported in meters when available; unavailable values are null.
+/// </summary>
+public record EntityMeasurementResult(
+    MeasuredEntityInfo FirstEntity,
+    MeasuredEntityInfo SecondEntity,
+    int ArcOption,
+    double? Distance,
+    double? NormalDistance,
+    double? CenterDistance,
+    double? Angle,
+    double? DeltaX,
+    double? DeltaY,
+    double? DeltaZ,
+    double? Projection,
+    double? X,
+    double? Y,
+    double? Z,
+    bool IsParallel,
+    bool IsPerpendicular,
+    bool IsIntersect);
+
+/// <summary>
 /// Interface for selecting entities in the active document.
 /// All sketch / feature / assembly operations depend on prior selection.
 /// </summary>
@@ -124,6 +156,18 @@ public interface ISelectionService
         bool append = false,
         int mark = 0,
         string? componentName = null);
+
+    /// <summary>
+    /// Measure two topology entities by their ListEntities indexes using SolidWorks' official IMeasure API.
+    /// </summary>
+    EntityMeasurementResult MeasureEntities(
+        SelectableEntityType firstEntityType,
+        int firstIndex,
+        SelectableEntityType secondEntityType,
+        int secondIndex,
+        string? firstComponentName = null,
+        string? secondComponentName = null,
+        int arcOption = 1);
 
     /// <summary>
     /// Delete a top-level feature or sketch by its feature-tree name.
@@ -318,6 +362,77 @@ public class SelectionService : ISelectionService
             : new SelectionResult(false, $"Failed to select {entityType} at index {index}");
     }
 
+    public EntityMeasurementResult MeasureEntities(
+        SelectableEntityType firstEntityType,
+        int firstIndex,
+        SelectableEntityType secondEntityType,
+        int secondIndex,
+        string? firstComponentName = null,
+        string? secondComponentName = null,
+        int arcOption = 1)
+    {
+        if (arcOption is < 0 or > 2)
+        {
+            throw new ArgumentOutOfRangeException(nameof(arcOption), "arcOption must be 0 (center), 1 (minimum), or 2 (maximum).");
+        }
+
+        _cm.EnsureConnected();
+
+        var doc = GetActiveModelDoc();
+        var first = ResolveEntityCandidate(firstEntityType, firstIndex, firstComponentName);
+        var second = ResolveEntityCandidate(secondEntityType, secondIndex, secondComponentName);
+        var selectionManager = doc.ISelectionManager
+            ?? throw new InvalidOperationException("No selection manager available.");
+        var extension = doc.Extension
+            ?? throw new InvalidOperationException("No model extension available on the active document.");
+
+        doc.ClearSelection2(true);
+        try
+        {
+            if (!first.Entity.Select4(false, CreateSelectData(selectionManager, 0)))
+            {
+                throw new InvalidOperationException($"Failed to select the first entity ({firstEntityType} index {firstIndex}).");
+            }
+
+            if (!second.Entity.Select4(true, CreateSelectData(selectionManager, 0)))
+            {
+                throw new InvalidOperationException($"Failed to select the second entity ({secondEntityType} index {secondIndex}).");
+            }
+
+            var measure = extension.CreateMeasure()
+                ?? throw new InvalidOperationException("SolidWorks did not create a measure tool.");
+            measure.ArcOption = arcOption;
+
+            if (!measure.Calculate(null))
+            {
+                throw new InvalidOperationException("SolidWorks could not measure the selected entities.");
+            }
+
+            return new EntityMeasurementResult(
+                ToMeasuredEntityInfo(first),
+                ToMeasuredEntityInfo(second),
+                arcOption,
+                NormalizeMeasureValue(measure.Distance),
+                NormalizeMeasureValue(measure.NormalDistance),
+                NormalizeMeasureValue(measure.CenterDistance),
+                NormalizeMeasureValue(measure.Angle),
+                NormalizeMeasureValue(measure.DeltaX),
+                NormalizeMeasureValue(measure.DeltaY),
+                NormalizeMeasureValue(measure.DeltaZ),
+                NormalizeMeasureValue(measure.Projection),
+                NormalizeMeasureValue(measure.X),
+                NormalizeMeasureValue(measure.Y),
+                NormalizeMeasureValue(measure.Z),
+                measure.IsParallel,
+                measure.IsPerpendicular,
+                measure.IsIntersect);
+        }
+        finally
+        {
+            doc.ClearSelection2(true);
+        }
+    }
+
     public SelectionResult DeleteFeatureByName(string featureName)
     {
         if (string.IsNullOrWhiteSpace(featureName))
@@ -400,6 +515,28 @@ public class SelectionService : ISelectionService
             yield return candidate with { Index = index };
         }
     }
+
+    private EntityCandidate ResolveEntityCandidate(
+        SelectableEntityType entityType,
+        int index,
+        string? componentName)
+    {
+        var candidate = EnumerateEntities(entityType, componentName)
+            .FirstOrDefault(item => item.Index == index);
+
+        if (candidate == null)
+        {
+            string scope = string.IsNullOrWhiteSpace(componentName)
+                ? string.Empty
+                : $" for component '{componentName}'";
+            throw new InvalidOperationException($"Could not find {entityType} at index {index}{scope}.");
+        }
+
+        return candidate;
+    }
+
+    private static MeasuredEntityInfo ToMeasuredEntityInfo(EntityCandidate candidate)
+        => new(candidate.EntityType, candidate.Index, candidate.ComponentName, candidate.Box);
 
     private static IEnumerable<ReferencePlaneInfo> EnumerateReferencePlanes(IModelDoc2 doc)
     {
@@ -550,7 +687,7 @@ public class SelectionService : ISelectionService
         if (doc is IAssemblyDoc assembly)
         {
             var components = (object[]?)assembly.GetComponents(true) ?? Array.Empty<object>();
-            foreach (var component in components.OfType<IComponent2>())
+            foreach (var component in EnumerateAssemblyComponentsRecursive(components.OfType<IComponent2>()))
             {
                 foreach (var body in GetBodies(component))
                 {
@@ -579,6 +716,20 @@ public class SelectionService : ISelectionService
         foreach (var vertex in ((object[]?)body.GetVertices() ?? Array.Empty<object>()).OfType<IVertex>())
         {
             yield return new EntityCandidate(-1, (IEntity)vertex, SelectableEntityType.Vertex, componentName, GetBox(vertex));
+        }
+    }
+
+    private static IEnumerable<IComponent2> EnumerateAssemblyComponentsRecursive(IEnumerable<IComponent2> components)
+    {
+        foreach (var component in components)
+        {
+            yield return component;
+
+            var children = (object[]?)component.GetChildren() ?? Array.Empty<object>();
+            foreach (var child in EnumerateAssemblyComponentsRecursive(children.OfType<IComponent2>()))
+            {
+                yield return child;
+            }
         }
     }
 
@@ -647,6 +798,9 @@ public class SelectionService : ISelectionService
             _ => null,
         };
     }
+
+    private static double? NormalizeMeasureValue(double value)
+        => value == -1 ? null : value;
 
     private static bool IsSketchLike(string? typeName)
     {

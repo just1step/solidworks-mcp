@@ -56,6 +56,35 @@ public class SelectionTools(StaDispatcher sta, ISelectionService selection)
         return JsonSerializer.Serialize(result);
     }
 
+    [McpServerTool, Description("Measure two topology entities using SolidWorks' official IMeasure API. Provide indexes from ListEntities; the tool will select both entities internally, call IModelDocExtension.CreateMeasure().Calculate(null), and return distance-related values.")]
+    public async Task<string> MeasureEntities(
+        [Description("First entity type: Face, Edge, or Vertex")] string firstEntityType,
+        [Description("Zero-based index of the first entity from ListEntities")] int firstIndex,
+        [Description("Second entity type: Face, Edge, or Vertex")] string secondEntityType,
+        [Description("Zero-based index of the second entity from ListEntities")] int secondIndex,
+        [Description("Optional component name for the first entity in assembly context. Leave null for part context or top-level.")] string? firstComponentName = null,
+        [Description("Optional component name for the second entity in assembly context. Leave null for part context or top-level.")] string? secondComponentName = null,
+        [Description("Arc/circle measurement mode: 0=center, 1=minimum distance, 2=maximum distance.")] int arcOption = 1)
+    {
+        var firstType = Enum.Parse<SelectableEntityType>(firstEntityType, ignoreCase: true);
+        var secondType = Enum.Parse<SelectableEntityType>(secondEntityType, ignoreCase: true);
+        var payload = new
+        {
+            firstEntityType = firstType.ToString(),
+            firstIndex,
+            secondEntityType = secondType.ToString(),
+            secondIndex,
+            firstComponentName,
+            secondComponentName,
+            arcOption,
+        };
+        var result = await sta.InvokeLoggedAsync(
+            nameof(MeasureEntities),
+            payload,
+            () => selection.MeasureEntities(firstType, firstIndex, secondType, secondIndex, firstComponentName, secondComponentName, arcOption));
+        return JsonSerializer.Serialize(result);
+    }
+
     [McpServerTool, Description("Delete a top-level FeatureManager item by its exact feature-tree name. This is only valid in non-edit state; call GetEditState first and finish any active sketch before deleting.")]
     public async Task<string> DeleteFeatureByName(
         [Description("Exact feature-tree name, e.g. Sketch3 or Cut-Extrude2")] string featureName)

@@ -83,7 +83,7 @@ public class AppBootstrapperTests
             "sw.list_documents", "sw.get_active_document",
             "sw.view.show_standard", "sw.view.rotate", "sw.view.export_png",
             "sw.select.by_name", "sw.select.list_entities",
-            "sw.select.entity", "sw.select.clear",
+            "sw.select.entity", "sw.select.measure_entities", "sw.select.clear",
             "sw.sketch.insert", "sw.sketch.finish",
             "sw.sketch.add_line", "sw.sketch.add_circle",
             "sw.sketch.add_rectangle", "sw.sketch.add_arc",
@@ -392,5 +392,60 @@ public class AppBootstrapperTests
 
         Assert.Null(response.Error);
         selSvc.Verify(s => s.SelectEntity(SelectableEntityType.Face, 2, true, 1, "Part1-2"), Times.Once);
+    }
+
+    [Fact]
+    public async Task Handler_SwSelectMeasureEntities_PassesMeasurementParams()
+    {
+        var (bootstrapper, selSvc, handler) = BuildWithSelection();
+        bootstrapper.RegisterHandlers();
+        var expected = new EntityMeasurementResult(
+            new MeasuredEntityInfo(SelectableEntityType.Face, 3, "2020铝板-1", [0d, 0d, 0.01d, 0.02d, 0.03d, 0.01d]),
+            new MeasuredEntityInfo(SelectableEntityType.Face, 7, "y轴皮带固定滑轮-1", [0d, 0d, 0.0095d, 0.02d, 0.03d, 0.0095d]),
+            1,
+            0.0005d,
+            0.0005d,
+            null,
+            null,
+            0d,
+            0d,
+            0.0005d,
+            null,
+            null,
+            null,
+            null,
+            true,
+            false,
+            false);
+        selSvc.Setup(s => s.MeasureEntities(
+                SelectableEntityType.Face,
+                3,
+                SelectableEntityType.Face,
+                7,
+                "2020铝板-1",
+                "y轴皮带固定滑轮-1",
+                1))
+            .Returns(expected);
+
+        var response = await handler.HandleAsync(Req("sw.select.measure_entities", new
+        {
+            firstEntityType = "Face",
+            firstIndex = 3,
+            secondEntityType = "Face",
+            secondIndex = 7,
+            firstComponentName = "2020铝板-1",
+            secondComponentName = "y轴皮带固定滑轮-1",
+            arcOption = 1,
+        }));
+
+        Assert.Null(response.Error);
+        selSvc.Verify(s => s.MeasureEntities(
+            SelectableEntityType.Face,
+            3,
+            SelectableEntityType.Face,
+            7,
+            "2020铝板-1",
+            "y轴皮带固定滑轮-1",
+            1), Times.Once);
     }
 }

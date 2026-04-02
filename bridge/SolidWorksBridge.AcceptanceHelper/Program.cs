@@ -59,11 +59,29 @@ internal static class Program
             "prepare-mate-distance" => session.PrepareMate(MatePreparationKind.Distance),
             "prepare-mate-angle" => session.PrepareMate(MatePreparationKind.Angle),
             "prepare-mate-concentric" => session.PrepareMate(MatePreparationKind.Concentric),
+            "activate-document" => session.ActivateExistingDocument(args[1]),
+            "list-entities" => session.ListEntities(
+                NormalizeEntityTypeArg(args[1]),
+                NormalizeOptionalArg(args[2])),
+            "measure-entities" => session.MeasureEntities(
+                Enum.Parse<SelectableEntityType>(args[1], true),
+                int.Parse(args[2]),
+                NormalizeOptionalArg(args[3]),
+                Enum.Parse<SelectableEntityType>(args[4], true),
+                int.Parse(args[5]),
+                NormalizeOptionalArg(args[6]),
+                args.Length > 7 ? int.Parse(args[7]) : 1),
             "list-assembly-components" => session.ListAssemblyComponents(args[1]),
             "replace-component" => session.ReplaceComponentInAssembly(args[1], args[2], args[3], args.Length > 4 ? args[4] : string.Empty),
             _ => throw new ArgumentException($"Unknown command: {args[0]}")
         };
     }
+
+    private static string? NormalizeOptionalArg(string value)
+        => value == "-" ? null : value;
+
+    private static SelectableEntityType? NormalizeEntityTypeArg(string value)
+        => value == "-" ? null : Enum.Parse<SelectableEntityType>(value, true);
 }
 
 internal enum MatePreparationKind
@@ -222,6 +240,57 @@ internal sealed class AcceptanceSession : IDisposable
             assemblyPath,
             active = _documents.GetActiveDocument(),
             components = _assembly.ListComponentsRecursive(),
+        };
+    }
+
+    public object ActivateExistingDocument(string path)
+    {
+        if (string.IsNullOrWhiteSpace(path))
+        {
+            throw new ArgumentException("path is required.", nameof(path));
+        }
+
+        ActivateDocument(path);
+        return new
+        {
+            path,
+            active = _documents.GetActiveDocument(),
+        };
+    }
+
+    public object MeasureEntities(
+        SelectableEntityType firstEntityType,
+        int firstIndex,
+        string? firstComponentName,
+        SelectableEntityType secondEntityType,
+        int secondIndex,
+        string? secondComponentName,
+        int arcOption = 1)
+    {
+        var result = _selection.MeasureEntities(
+            firstEntityType,
+            firstIndex,
+            secondEntityType,
+            secondIndex,
+            firstComponentName,
+            secondComponentName,
+            arcOption);
+
+        return new
+        {
+            active = _documents.GetActiveDocument(),
+            result,
+        };
+    }
+
+    public object ListEntities(SelectableEntityType? entityType = null, string? componentName = null)
+    {
+        return new
+        {
+            active = _documents.GetActiveDocument(),
+            entityType = entityType?.ToString(),
+            componentName,
+            entities = _selection.ListEntities(entityType, componentName),
         };
     }
 

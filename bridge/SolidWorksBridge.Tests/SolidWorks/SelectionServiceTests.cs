@@ -288,6 +288,44 @@ public class SelectionServiceTests
     }
 
     [Fact]
+    public void ListEntities_AssemblyRecursesIntoNestedSubassemblyParts()
+    {
+        var face = Face([0d, 0.01d, 0d, 0.05d, 0.01d, 0.03d]);
+        object partBodiesInfo = null!;
+        var partComponent = new Mock<Component2>();
+        partComponent.Setup(c => c.Name2).Returns("2020铝板-1");
+        partComponent.Setup(c => c.GetBodies3((int)swBodyType_e.swSolidBody, out partBodiesInfo))
+            .Returns(new object[] { BodyWith(face.Object).Object });
+        partComponent.Setup(c => c.GetChildren()).Returns(Array.Empty<object>());
+
+        object subAssemblyBodiesInfo = null!;
+        var subAssembly = new Mock<Component2>();
+        subAssembly.Setup(c => c.Name2).Returns("底部移动平台-1");
+        subAssembly.Setup(c => c.GetBodies3((int)swBodyType_e.swSolidBody, out subAssemblyBodiesInfo))
+            .Returns(Array.Empty<object>());
+        subAssembly.Setup(c => c.GetChildren()).Returns(new object[] { partComponent.Object });
+
+        var assembly = new Mock<IAssemblyDoc>();
+        var model = assembly.As<IModelDoc2>();
+        assembly.Setup(a => a.GetComponents(true)).Returns(new object[] { subAssembly.Object });
+
+        var swApp = new Mock<ISldWorksApp>();
+        swApp.Setup(s => s.IActiveDoc2).Returns(model.Object);
+
+        var manager = new Mock<ISwConnectionManager>();
+        manager.Setup(m => m.IsConnected).Returns(true);
+        manager.Setup(m => m.SwApp).Returns(swApp.Object);
+        manager.Setup(m => m.EnsureConnected());
+
+        var result = new SelectionService(manager.Object).ListEntities(SelectableEntityType.Face, "2020铝板-1");
+
+        var entity = Assert.Single(result);
+        Assert.Equal(0, entity.Index);
+        Assert.Equal("2020铝板-1", entity.ComponentName);
+        Assert.Equal([0d, 0.01d, 0d, 0.05d, 0.01d, 0.03d], entity.Box);
+    }
+
+    [Fact]
     public void ListEntities_NoActiveDocument_ThrowsInvalidOperation()
     {
         var manager = ConnectedNoDoc();
@@ -439,6 +477,116 @@ public class SelectionServiceTests
         var manager = ConnectedNoDoc();
 
         Assert.Throws<InvalidOperationException>(() => new SelectionService(manager.Object).SelectEntity(SelectableEntityType.Face, 0));
+    }
+
+    [Fact]
+    public void MeasureEntities_ReturnsOfficialMeasureValuesAndClearsSelection()
+    {
+        var faceA = Face([0d, 0d, 0d, 1d, 1d, 0d]);
+        var faceB = Face([0d, 0d, 0.0005d, 1d, 1d, 0.0005d]);
+        var entityA = faceA.As<IEntity>();
+        var entityB = faceB.As<IEntity>();
+        var selectionManager = new Mock<SelectionMgr>();
+        var selectData = new Mock<SelectData>();
+        var extension = new Mock<ModelDocExtension>();
+        var measure = new Mock<Measure>();
+
+        selectionManager.Setup(m => m.CreateSelectData()).Returns(selectData.Object);
+        measure.SetupProperty(m => m.ArcOption);
+        measure.Setup(m => m.Calculate(null)).Returns(true);
+        measure.SetupGet(m => m.Distance).Returns(0.0005d);
+        measure.SetupGet(m => m.NormalDistance).Returns(0.0005d);
+        measure.SetupGet(m => m.CenterDistance).Returns(-1d);
+        measure.SetupGet(m => m.Angle).Returns(-1d);
+        measure.SetupGet(m => m.DeltaX).Returns(0d);
+        measure.SetupGet(m => m.DeltaY).Returns(0d);
+        measure.SetupGet(m => m.DeltaZ).Returns(0.0005d);
+        measure.SetupGet(m => m.Projection).Returns(-1d);
+        measure.SetupGet(m => m.X).Returns(-1d);
+        measure.SetupGet(m => m.Y).Returns(-1d);
+        measure.SetupGet(m => m.Z).Returns(-1d);
+        measure.SetupGet(m => m.IsParallel).Returns(true);
+        measure.SetupGet(m => m.IsPerpendicular).Returns(false);
+        measure.SetupGet(m => m.IsIntersect).Returns(false);
+        extension.Setup(e => e.CreateMeasure()).Returns(measure.Object);
+
+        var (manager, _, _, model) = ConnectedWithPartDoc(BodyWith(faceA.Object, faceB.Object));
+        model.Setup(d => d.ISelectionManager).Returns(selectionManager.Object);
+        model.SetupGet(d => d.Extension).Returns(extension.Object);
+        entityA.Setup(e => e.Select4(false, It.IsAny<SelectData>())).Returns(true);
+        entityB.Setup(e => e.Select4(true, It.IsAny<SelectData>())).Returns(true);
+
+        var result = new SelectionService(manager.Object).MeasureEntities(
+            SelectableEntityType.Face,
+            0,
+            SelectableEntityType.Face,
+            1,
+            arcOption: 1);
+
+        Assert.Equal(1, result.ArcOption);
+        Assert.Equal(0.0005d, result.Distance);
+        Assert.Equal(0.0005d, result.NormalDistance);
+        Assert.Null(result.CenterDistance);
+        Assert.Equal(0.0005d, result.DeltaZ);
+        Assert.True(result.IsParallel);
+        Assert.False(result.IsIntersect);
+        Assert.Equal(SelectableEntityType.Face, result.FirstEntity.EntityType);
+        Assert.Equal(0, result.FirstEntity.Index);
+        Assert.Equal(1, result.SecondEntity.Index);
+        Assert.Equal([0d, 0d, 0d, 1d, 1d, 0d], result.FirstEntity.Box);
+        Assert.Equal([0d, 0d, 0.0005d, 1d, 1d, 0.0005d], result.SecondEntity.Box);
+        Assert.Equal(1, measure.Object.ArcOption);
+        model.Verify(d => d.ClearSelection2(true), Times.Exactly(2));
+        entityA.Verify(e => e.Select4(false, It.IsAny<SelectData>()), Times.Once);
+        entityB.Verify(e => e.Select4(true, It.IsAny<SelectData>()), Times.Once);
+        measure.Verify(m => m.Calculate(null), Times.Once);
+    }
+
+    [Fact]
+    public void MeasureEntities_WhenEntityMissing_Throws()
+    {
+        var (manager, _, _, _) = ConnectedWithPartDoc(BodyWith());
+
+        var error = Assert.Throws<InvalidOperationException>(() => new SelectionService(manager.Object).MeasureEntities(
+            SelectableEntityType.Face,
+            0,
+            SelectableEntityType.Face,
+            1));
+
+        Assert.Contains("Could not find Face", error.Message);
+    }
+
+    [Fact]
+    public void MeasureEntities_WhenCalculateFails_Throws()
+    {
+        var faceA = Face([0d, 0d, 0d, 1d, 1d, 0d]);
+        var faceB = Face([0d, 0d, 1d, 1d, 1d, 1d]);
+        var entityA = faceA.As<IEntity>();
+        var entityB = faceB.As<IEntity>();
+        var selectionManager = new Mock<SelectionMgr>();
+        var selectData = new Mock<SelectData>();
+        var extension = new Mock<ModelDocExtension>();
+        var measure = new Mock<Measure>();
+
+        selectionManager.Setup(m => m.CreateSelectData()).Returns(selectData.Object);
+        extension.Setup(e => e.CreateMeasure()).Returns(measure.Object);
+        measure.SetupProperty(m => m.ArcOption);
+        measure.Setup(m => m.Calculate(null)).Returns(false);
+
+        var (manager, _, _, model) = ConnectedWithPartDoc(BodyWith(faceA.Object, faceB.Object));
+        model.Setup(d => d.ISelectionManager).Returns(selectionManager.Object);
+        model.SetupGet(d => d.Extension).Returns(extension.Object);
+        entityA.Setup(e => e.Select4(false, It.IsAny<SelectData>())).Returns(true);
+        entityB.Setup(e => e.Select4(true, It.IsAny<SelectData>())).Returns(true);
+
+        var error = Assert.Throws<InvalidOperationException>(() => new SelectionService(manager.Object).MeasureEntities(
+            SelectableEntityType.Face,
+            0,
+            SelectableEntityType.Face,
+            1));
+
+        Assert.Contains("could not measure", error.Message, StringComparison.OrdinalIgnoreCase);
+        model.Verify(d => d.ClearSelection2(true), Times.Exactly(2));
     }
 
     [Fact]

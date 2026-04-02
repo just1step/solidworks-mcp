@@ -188,6 +188,21 @@ public class AppBootstrapper
             return Task.FromResult<object?>(result);
         });
 
+        _messageHandler.Register("sw.select.measure_entities", req =>
+        {
+            var p = req.GetParams<MeasureEntitiesParams>()
+                ?? throw new ArgumentException("params required: {firstEntityType, firstIndex, secondEntityType, secondIndex, firstComponentName?, secondComponentName?, arcOption?}");
+            var result = _selectionService.MeasureEntities(
+                p.FirstEntityType,
+                p.FirstIndex,
+                p.SecondEntityType,
+                p.SecondIndex,
+                p.FirstComponentName,
+                p.SecondComponentName,
+                p.ArcOption);
+            return Task.FromResult<object?>(result);
+        });
+
         _messageHandler.Register("sw.select.clear", _ =>
         {
             _selectionService.ClearSelection();
@@ -503,6 +518,30 @@ public class AppBootstrapper
 
         [System.Text.Json.Serialization.JsonPropertyName("componentName")]
         public string? ComponentName { get; set; }
+    }
+
+    public class MeasureEntitiesParams
+    {
+        [System.Text.Json.Serialization.JsonPropertyName("firstEntityType")]
+        public SelectableEntityType FirstEntityType { get; set; }
+
+        [System.Text.Json.Serialization.JsonPropertyName("firstIndex")]
+        public int FirstIndex { get; set; }
+
+        [System.Text.Json.Serialization.JsonPropertyName("secondEntityType")]
+        public SelectableEntityType SecondEntityType { get; set; }
+
+        [System.Text.Json.Serialization.JsonPropertyName("secondIndex")]
+        public int SecondIndex { get; set; }
+
+        [System.Text.Json.Serialization.JsonPropertyName("firstComponentName")]
+        public string? FirstComponentName { get; set; }
+
+        [System.Text.Json.Serialization.JsonPropertyName("secondComponentName")]
+        public string? SecondComponentName { get; set; }
+
+        [System.Text.Json.Serialization.JsonPropertyName("arcOption")]
+        public int ArcOption { get; set; } = 1;
     }
 
     public class AddLineParams
