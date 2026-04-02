@@ -67,4 +67,11 @@ public class AssemblyTools(StaDispatcher sta, IAssemblyService assembly)
         var list = await sta.InvokeLoggedAsync(nameof(ListComponents), null, assembly.ListComponents);
         return JsonSerializer.Serialize(list);
     }
+
+    [McpServerTool, Description("List all component instances in the active SolidWorks assembly by recursively traversing subassemblies. Returns each instance with its hierarchy path and depth so shared parts can be counted before editing.")]
+    public async Task<string> ListComponentsRecursive()
+    {
+        var list = await sta.InvokeLoggedAsync(nameof(ListComponentsRecursive), null, assembly.ListComponentsRecursive);
+        return JsonSerializer.Serialize(list);
+    }
 }

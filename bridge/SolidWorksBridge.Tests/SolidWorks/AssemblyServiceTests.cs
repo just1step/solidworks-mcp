@@ -63,6 +63,7 @@ public class AssemblyServiceTests
         var comp = new Mock<Component2>();
         comp.Setup(c => c.Name2).Returns(name);
         comp.Setup(c => c.GetPathName()).Returns(path);
+        comp.Setup(c => c.GetChildren()).Returns(Array.Empty<object>());
         return comp.Object;
     }
 
@@ -322,6 +323,47 @@ public class AssemblyServiceTests
         assy.Setup(a => a.GetComponents(true)).Returns((object)null!);
 
         var list = new AssemblyService(manager.Object).ListComponents();
+
+        Assert.Empty(list);
+    }
+
+    [Fact]
+    public void ListComponentsRecursive_ReturnsNestedInstancesWithHierarchy()
+    {
+        var (manager, assy) = ConnectedWithAssy();
+
+        var child1 = new Mock<Component2>();
+        child1.Setup(c => c.Name2).Returns("NestedPart-1");
+        child1.Setup(c => c.GetPathName()).Returns(@"C:\NestedPart.sldprt");
+        child1.Setup(c => c.GetChildren()).Returns(Array.Empty<object>());
+
+        var child2 = new Mock<Component2>();
+        child2.Setup(c => c.Name2).Returns("NestedPart-2");
+        child2.Setup(c => c.GetPathName()).Returns(@"C:\NestedPart.sldprt");
+        child2.Setup(c => c.GetChildren()).Returns(Array.Empty<object>());
+
+        var subAssembly = new Mock<Component2>();
+        subAssembly.Setup(c => c.Name2).Returns("SubAsm-1");
+        subAssembly.Setup(c => c.GetPathName()).Returns(@"C:\SubAsm.sldasm");
+        subAssembly.Setup(c => c.GetChildren()).Returns(new object[] { child1.Object, child2.Object });
+
+        assy.Setup(a => a.GetComponents(true)).Returns(new object[] { subAssembly.Object });
+
+        var list = new AssemblyService(manager.Object).ListComponentsRecursive();
+
+        Assert.Equal(3, list.Count);
+        Assert.Contains(list, c => c.Name == "SubAsm-1" && c.HierarchyPath == "SubAsm-1" && c.Depth == 0);
+        Assert.Contains(list, c => c.Name == "NestedPart-1" && c.HierarchyPath == "SubAsm-1/NestedPart-1" && c.Depth == 1);
+        Assert.Contains(list, c => c.Name == "NestedPart-2" && c.HierarchyPath == "SubAsm-1/NestedPart-2" && c.Depth == 1);
+    }
+
+    [Fact]
+    public void ListComponentsRecursive_EmptyAssembly_ReturnsEmptyList()
+    {
+        var (manager, assy) = ConnectedWithAssy();
+        assy.Setup(a => a.GetComponents(true)).Returns(new object[] { });
+
+        var list = new AssemblyService(manager.Object).ListComponentsRecursive();
 
         Assert.Empty(list);
     }

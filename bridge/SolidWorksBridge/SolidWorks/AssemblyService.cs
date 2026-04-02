@@ -8,6 +8,11 @@ namespace SolidWorksBridge.SolidWorks;
 /// </summary>
 public record ComponentInfo(string Name, string Path);
 
+/// <summary>
+/// Info about a component instance discovered by recursively traversing an assembly tree.
+/// </summary>
+public record ComponentInstanceInfo(string Name, string Path, string HierarchyPath, int Depth);
+
 public record MateOperationResult(string MateType, int ErrorStatus, string ErrorName, string ErrorDescription);
 
 /// <summary>
@@ -74,6 +79,11 @@ public interface IAssemblyService
     /// List all top-level components in the active assembly.
     /// </summary>
     IReadOnlyList<ComponentInfo> ListComponents();
+
+    /// <summary>
+    /// List all component instances in the active assembly by recursively traversing subassemblies.
+    /// </summary>
+    IReadOnlyList<ComponentInstanceInfo> ListComponentsRecursive();
 }
 
 /// <summary>
@@ -134,7 +144,45 @@ public class AssemblyService : IAssemblyService
             .AsReadOnly();
     }
 
+    public IReadOnlyList<ComponentInstanceInfo> ListComponentsRecursive()
+    {
+        _cm.EnsureConnected();
+        var assy = GetAssemblyDoc();
+
+        var raw = assy.GetComponents(true) as object[]
+            ?? [];
+
+        var results = new List<ComponentInstanceInfo>();
+        foreach (var component in raw.OfType<IComponent2>())
+        {
+            TraverseComponent(component, component.Name2, depth: 0, results);
+        }
+
+        return results.AsReadOnly();
+    }
+
     // ── Helpers ───────────────────────────────────────────────────
+
+    private static void TraverseComponent(
+        IComponent2 component,
+        string hierarchyPath,
+        int depth,
+        ICollection<ComponentInstanceInfo> results)
+    {
+        var name = component.Name2 ?? $"Component{depth}";
+        string path = component.GetPathName() ?? string.Empty;
+
+        results.Add(new ComponentInstanceInfo(name, path, hierarchyPath, depth));
+
+        var children = component.GetChildren() as object[]
+            ?? [];
+
+        foreach (var child in children.OfType<IComponent2>())
+        {
+            var childName = child.Name2 ?? "Component";
+            TraverseComponent(child, $"{hierarchyPath}/{childName}", depth + 1, results);
+        }
+    }
 
     private IAssemblyDoc GetAssemblyDoc()
     {

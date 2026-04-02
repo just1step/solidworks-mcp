@@ -371,6 +371,12 @@ public class AppBootstrapper
             var list = _assemblyService.ListComponents();
             return Task.FromResult<object?>(list);
         });
+
+        _messageHandler.Register("sw.assembly.list_components_recursive", _ =>
+        {
+            var list = _assemblyService.ListComponentsRecursive();
+            return Task.FromResult<object?>(list);
+        });
     }
 
     // ── Param DTOs ────────────────────────────────────────────────
