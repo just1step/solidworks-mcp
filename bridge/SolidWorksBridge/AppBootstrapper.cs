@@ -377,6 +377,14 @@ public class AppBootstrapper
             var list = _assemblyService.ListComponentsRecursive();
             return Task.FromResult<object?>(list);
         });
+
+        _messageHandler.Register("sw.assembly.check_interference", req =>
+        {
+            var p = req.GetParams<AssemblyInterferenceParams>() ?? new AssemblyInterferenceParams();
+            var result = _assemblyService.CheckInterference(p.HierarchyPaths, p.TreatCoincidenceAsInterference);
+            return Task.FromResult<object?>(result);
+        });
+
     }
 
     // ── Param DTOs ────────────────────────────────────────────────
@@ -601,6 +609,15 @@ public class AppBootstrapper
     {
         [System.Text.Json.Serialization.JsonPropertyName("angleDegrees")] public double AngleDegrees { get; set; }
         [System.Text.Json.Serialization.JsonPropertyName("align")] public MateAlign Align { get; set; } = MateAlign.Closest;
+    }
+
+    public class AssemblyInterferenceParams
+    {
+        [System.Text.Json.Serialization.JsonPropertyName("hierarchyPaths")]
+        public string[]? HierarchyPaths { get; set; }
+
+        [System.Text.Json.Serialization.JsonPropertyName("treatCoincidenceAsInterference")]
+        public bool TreatCoincidenceAsInterference { get; set; }
     }
 
     // ── Helpers ───────────────────────────────────────────────────

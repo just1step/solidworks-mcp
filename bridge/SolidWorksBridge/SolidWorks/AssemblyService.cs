@@ -13,6 +13,16 @@ public record ComponentInfo(string Name, string Path);
 /// </summary>
 public record ComponentInstanceInfo(string Name, string Path, string HierarchyPath, int Depth);
 
+/// <summary>
+/// Summary of a static interference check in an assembly.
+/// </summary>
+public record AssemblyInterferenceCheckResult(
+    bool HasInterference,
+    bool TreatCoincidenceAsInterference,
+    int CheckedComponentCount,
+    int InterferingFaceCount,
+    IReadOnlyList<ComponentInstanceInfo> InterferingComponents);
+
 public record MateOperationResult(string MateType, int ErrorStatus, string ErrorName, string ErrorDescription);
 
 /// <summary>
@@ -84,6 +94,15 @@ public interface IAssemblyService
     /// List all component instances in the active assembly by recursively traversing subassemblies.
     /// </summary>
     IReadOnlyList<ComponentInstanceInfo> ListComponentsRecursive();
+
+    /// <summary>
+    /// Run a static interference check for the active assembly or a subset of component instances.
+    /// This follows the official ToolsCheckInterference2 workflow and temporarily changes the SolidWorks selection set.
+    /// </summary>
+    AssemblyInterferenceCheckResult CheckInterference(
+        IReadOnlyList<string>? hierarchyPaths = null,
+        bool treatCoincidenceAsInterference = false);
+
 }
 
 /// <summary>
@@ -149,30 +168,148 @@ public class AssemblyService : IAssemblyService
         _cm.EnsureConnected();
         var assy = GetAssemblyDoc();
 
+        var instances = EnumerateComponentInstances(assy)
+            .Select(instance => instance.Info)
+            .ToList();
+
+        return instances.AsReadOnly();
+    }
+
+    public AssemblyInterferenceCheckResult CheckInterference(
+        IReadOnlyList<string>? hierarchyPaths = null,
+        bool treatCoincidenceAsInterference = false)
+    {
+        _cm.EnsureConnected();
+        var assy = GetAssemblyDoc();
+
+        var instances = EnumerateComponentInstances(assy);
+        var requestedPaths = hierarchyPaths == null || hierarchyPaths.Count == 0
+            ? null
+            : new HashSet<string>(hierarchyPaths, StringComparer.OrdinalIgnoreCase);
+
+        InterferenceDetectionMgr? detectionManager = null;
+        try
+        {
+            assy.ToolsCheckInterference();
+            detectionManager = assy.InterferenceDetectionManager
+                ?? throw new InvalidOperationException("SolidWorks did not provide an interference detection manager.");
+
+            detectionManager.TreatCoincidenceAsInterference = treatCoincidenceAsInterference;
+            detectionManager.TreatSubAssembliesAsComponents = false;
+            detectionManager.IncludeMultibodyPartInterferences = true;
+            detectionManager.MakeInterferingPartsTransparent = true;
+            detectionManager.CreateFastenersFolder = false;
+            detectionManager.IgnoreHiddenBodies = false;
+            detectionManager.ShowIgnoredInterferences = false;
+            detectionManager.UseTransform = false;
+            detectionManager.NonInterferingComponentDisplay = (int)swNonInterferingComponentDisplay_e.swNonInterferingComponentDisplay_Wireframe;
+
+            var interferences = (detectionManager.GetInterferences() as object[] ?? Array.Empty<object>())
+                .OfType<IInterference>()
+                .ToList();
+
+            var matchedInfos = new List<ComponentInstanceInfo>();
+            int interferingFaceCount = 0;
+            foreach (var interference in interferences)
+            {
+                var components = (interference.Components as object[] ?? Array.Empty<object>())
+                    .OfType<IComponent2>()
+                    .ToList();
+                var componentInfos = instances
+                    .Where(instance => components.Any(component => IsSameComponentInstance(instance.Component, component)))
+                    .Select(instance => instance.Info)
+                    .DistinctBy(info => info.HierarchyPath, StringComparer.OrdinalIgnoreCase)
+                    .ToList();
+
+                if (requestedPaths != null && !componentInfos.Any(info => requestedPaths.Contains(info.HierarchyPath)))
+                {
+                    continue;
+                }
+
+                matchedInfos.AddRange(componentInfos);
+                if (!interference.IsPossibleInterference)
+                {
+                    interferingFaceCount += Math.Max(interference.GetComponentCount(), 0);
+                }
+            }
+
+            var interferingInfos = matchedInfos
+                .DistinctBy(info => info.HierarchyPath, StringComparer.OrdinalIgnoreCase)
+                .ToList()
+                .AsReadOnly();
+
+            int checkedComponentCount = requestedPaths == null
+                ? instances.Count
+                : instances.Count(instance => requestedPaths.Contains(instance.Info.HierarchyPath));
+
+            return new AssemblyInterferenceCheckResult(
+                HasInterference: interferingInfos.Count > 0,
+                TreatCoincidenceAsInterference: treatCoincidenceAsInterference,
+                CheckedComponentCount: checkedComponentCount,
+                InterferingFaceCount: interferingFaceCount,
+                InterferingComponents: interferingInfos);
+        }
+        catch (System.Runtime.InteropServices.COMException ex)
+        {
+            throw SolidWorksApiErrorFactory.FromComException(
+                "IInterferenceDetectionMgr.GetInterferences",
+                ex,
+                new Dictionary<string, object?>
+                {
+                    ["requestedHierarchyPaths"] = hierarchyPaths == null ? null : string.Join(" | ", hierarchyPaths),
+                    ["treatCoincidenceAsInterference"] = treatCoincidenceAsInterference,
+                });
+        }
+        finally
+        {
+            detectionManager?.Done();
+        }
+    }
+
+    // ── Helpers ───────────────────────────────────────────────────
+
+    private sealed record ComponentInstance(IComponent2 Component, ComponentInstanceInfo Info);
+
+    private static IReadOnlyList<ComponentInstance> EnumerateComponentInstances(IAssemblyDoc assy)
+    {
         var raw = assy.GetComponents(true) as object[]
             ?? [];
 
-        var results = new List<ComponentInstanceInfo>();
+        var results = new List<ComponentInstance>();
         foreach (var component in raw.OfType<IComponent2>())
         {
-            TraverseComponent(component, component.Name2, depth: 0, results);
+            TraverseComponent(component, component.Name2 ?? "Component", depth: 0, results);
         }
 
         return results.AsReadOnly();
     }
 
-    // ── Helpers ───────────────────────────────────────────────────
+    private static IReadOnlyList<ComponentInstance> SelectInstances(
+        IReadOnlyList<ComponentInstance> instances,
+        IReadOnlyList<string>? hierarchyPaths)
+    {
+        if (hierarchyPaths == null || hierarchyPaths.Count == 0)
+        {
+            return instances;
+        }
+
+        var requested = new HashSet<string>(hierarchyPaths, StringComparer.OrdinalIgnoreCase);
+        return instances
+            .Where(instance => requested.Contains(instance.Info.HierarchyPath))
+            .ToList()
+            .AsReadOnly();
+    }
 
     private static void TraverseComponent(
         IComponent2 component,
         string hierarchyPath,
         int depth,
-        ICollection<ComponentInstanceInfo> results)
+        ICollection<ComponentInstance> results)
     {
         var name = component.Name2 ?? $"Component{depth}";
         string path = component.GetPathName() ?? string.Empty;
 
-        results.Add(new ComponentInstanceInfo(name, path, hierarchyPath, depth));
+        results.Add(new ComponentInstance(component, new ComponentInstanceInfo(name, path, hierarchyPath, depth)));
 
         var children = component.GetChildren() as object[]
             ?? [];
@@ -182,6 +319,12 @@ public class AssemblyService : IAssemblyService
             var childName = child.Name2 ?? "Component";
             TraverseComponent(child, $"{hierarchyPath}/{childName}", depth + 1, results);
         }
+    }
+
+    private static bool IsSameComponentInstance(IComponent2 left, IComponent2 right)
+    {
+        return string.Equals(left.Name2, right.Name2, StringComparison.OrdinalIgnoreCase)
+            && string.Equals(left.GetPathName(), right.GetPathName(), StringComparison.OrdinalIgnoreCase);
     }
 
     private IAssemblyDoc GetAssemblyDoc()

@@ -367,4 +367,107 @@ public class AssemblyServiceTests
 
         Assert.Empty(list);
     }
+
+    [Fact]
+    public void CheckInterference_ReturnsInterferingInstances()
+    {
+        var (manager, assy) = ConnectedWithAssy();
+        var detectionManager = new Mock<InterferenceDetectionMgr>();
+        var interference = new Mock<Interference>();
+
+        var part1 = new Mock<Component2>();
+        part1.Setup(c => c.Name2).Returns("Part1-1");
+        part1.Setup(c => c.GetPathName()).Returns(@"C:\Part1.sldprt");
+        part1.Setup(c => c.GetChildren()).Returns(Array.Empty<object>());
+
+        var part2 = new Mock<Component2>();
+        part2.Setup(c => c.Name2).Returns("Part2-1");
+        part2.Setup(c => c.GetPathName()).Returns(@"C:\Part2.sldprt");
+        part2.Setup(c => c.GetChildren()).Returns(Array.Empty<object>());
+        assy.Setup(a => a.GetComponents(true)).Returns(new object[] { part1.Object, part2.Object });
+        assy.SetupGet(a => a.InterferenceDetectionManager).Returns(detectionManager.Object);
+        interference.Setup(i => i.Components).Returns(new object[] { part2.Object, part1.Object });
+        interference.Setup(i => i.IsPossibleInterference).Returns(false);
+        interference.Setup(i => i.GetComponentCount()).Returns(2);
+        detectionManager.Setup(m => m.GetInterferences()).Returns(new object[] { interference.Object });
+
+        var result = new AssemblyService(manager.Object).CheckInterference();
+
+        Assert.True(result.HasInterference);
+        Assert.False(result.TreatCoincidenceAsInterference);
+        Assert.Equal(2, result.CheckedComponentCount);
+        Assert.Equal(2, result.InterferingFaceCount);
+        Assert.Equal(2, result.InterferingComponents.Count);
+        detectionManager.Verify(m => m.Done(), Times.Once);
+    }
+
+    [Fact]
+    public void CheckInterference_WithHierarchyFilter_ChecksSubset()
+    {
+        var (manager, assy) = ConnectedWithAssy();
+        var detectionManager = new Mock<InterferenceDetectionMgr>();
+        var interference = new Mock<Interference>();
+
+        var child = new Mock<Component2>();
+        child.Setup(c => c.Name2).Returns("NestedPart-1");
+        child.Setup(c => c.GetPathName()).Returns(@"C:\NestedPart.sldprt");
+        child.Setup(c => c.GetChildren()).Returns(Array.Empty<object>());
+
+        var sibling = new Mock<Component2>();
+        sibling.Setup(c => c.Name2).Returns("NestedPart-2");
+        sibling.Setup(c => c.GetPathName()).Returns(@"C:\NestedPart2.sldprt");
+        sibling.Setup(c => c.GetChildren()).Returns(Array.Empty<object>());
+
+        var subAssembly = new Mock<Component2>();
+        subAssembly.Setup(c => c.Name2).Returns("SubAsm-1");
+        subAssembly.Setup(c => c.GetPathName()).Returns(@"C:\SubAsm.sldasm");
+        subAssembly.Setup(c => c.GetChildren()).Returns(new object[] { child.Object, sibling.Object });
+
+        assy.Setup(a => a.GetComponents(true)).Returns(new object[] { subAssembly.Object });
+        assy.SetupGet(a => a.InterferenceDetectionManager).Returns(detectionManager.Object);
+        interference.Setup(i => i.Components).Returns(new object[] { child.Object, sibling.Object });
+        interference.Setup(i => i.IsPossibleInterference).Returns(false);
+        interference.Setup(i => i.GetComponentCount()).Returns(2);
+        detectionManager.Setup(m => m.GetInterferences()).Returns(new object[] { interference.Object });
+
+        var result = new AssemblyService(manager.Object).CheckInterference(
+            ["SubAsm-1/NestedPart-1", "SubAsm-1/NestedPart-2"],
+            treatCoincidenceAsInterference: true);
+
+        Assert.True(result.HasInterference);
+        Assert.True(result.TreatCoincidenceAsInterference);
+        Assert.Equal(2, result.CheckedComponentCount);
+        Assert.Equal(2, result.InterferingFaceCount);
+        Assert.Equal(2, result.InterferingComponents.Count);
+        detectionManager.VerifySet(m => m.TreatCoincidenceAsInterference = true, Times.Once);
+    }
+
+    [Fact]
+    public void CheckInterference_WhenFilterDoesNotMatch_ExcludesInterference()
+    {
+        var (manager, assy) = ConnectedWithAssy();
+        var detectionManager = new Mock<InterferenceDetectionMgr>();
+        var interference = new Mock<Interference>();
+        var part1 = new Mock<Component2>();
+        part1.Setup(c => c.Name2).Returns("Part1-1");
+        part1.Setup(c => c.GetPathName()).Returns(@"C:\Part1.sldprt");
+        part1.Setup(c => c.GetChildren()).Returns(Array.Empty<object>());
+        var part2 = new Mock<Component2>();
+        part2.Setup(c => c.Name2).Returns("Part2-1");
+        part2.Setup(c => c.GetPathName()).Returns(@"C:\Part2.sldprt");
+        part2.Setup(c => c.GetChildren()).Returns(Array.Empty<object>());
+
+        assy.Setup(a => a.GetComponents(true)).Returns(new object[] { part1.Object, part2.Object });
+        assy.SetupGet(a => a.InterferenceDetectionManager).Returns(detectionManager.Object);
+        interference.Setup(i => i.Components).Returns(new object[] { part1.Object, part2.Object });
+        interference.Setup(i => i.IsPossibleInterference).Returns(false);
+        interference.Setup(i => i.GetComponentCount()).Returns(2);
+        detectionManager.Setup(m => m.GetInterferences()).Returns(new object[] { interference.Object });
+
+        var result = new AssemblyService(manager.Object).CheckInterference(["Missing/Part-1"]);
+
+        Assert.False(result.HasInterference);
+        Assert.Empty(result.InterferingComponents);
+    }
+
 }

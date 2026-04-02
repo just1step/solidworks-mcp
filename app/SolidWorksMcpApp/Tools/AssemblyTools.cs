@@ -74,4 +74,15 @@ public class AssemblyTools(StaDispatcher sta, IAssemblyService assembly)
         var list = await sta.InvokeLoggedAsync(nameof(ListComponentsRecursive), null, assembly.ListComponentsRecursive);
         return JsonSerializer.Serialize(list);
     }
+
+    [McpServerTool, Description("Run a static interference check in the active SolidWorks assembly using the official ToolsCheckInterference2 workflow. The assembly must be fully resolved, and this tool temporarily changes the selection set while it runs.")]
+    public async Task<string> CheckInterference(
+        [Description("Optional component instance hierarchy paths to check. Leave null to check the whole active assembly.")] string[]? hierarchyPaths = null,
+        [Description("When true, coincident or touching faces are treated as interference.")] bool treatCoincidenceAsInterference = false)
+    {
+        var payload = new { hierarchyPaths, treatCoincidenceAsInterference };
+        var result = await sta.InvokeLoggedAsync(nameof(CheckInterference), payload, () => assembly.CheckInterference(hierarchyPaths, treatCoincidenceAsInterference));
+        return JsonSerializer.Serialize(result);
+    }
+
 }
