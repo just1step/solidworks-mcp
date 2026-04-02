@@ -10,6 +10,7 @@ Use this skill when the task involves editing a SolidWorks part or assembly thro
 ## Core Rules
 
 - Confirm the active document first. Do not assume the visible window is the part you intend to edit.
+- Opening a document is not the same as activating it. If a document is already open, explicitly confirm that it became the active document before reading components, replacing parts, or editing geometry.
 - Treat SolidWorks as a selection-first UI. Use the FeatureManager tree to identify the real target object, then use commands or MCP tools against that confirmed target.
 - For assembly interference issues, identify the actual component file paths before changing geometry.
 - In large or nested assemblies, do not stop at the top-level component list. Prefer `ListComponentsRecursive` to locate the concrete part file that owns the interfering geometry.
@@ -19,10 +20,13 @@ Use this skill when the task involves editing a SolidWorks part or assembly thro
 - If a face-based cut or boss fails, verify the feature direction. A top-face relief cut often needs the direction flipped so the feature goes into the body.
 - In localized SolidWorks environments, do not rely on English plane labels. Prefer semantic plane resolution or topology-driven selection.
 - If the target part is reused in the assembly, first determine how many instances reference that same part file and explicitly tell the user which other placements will also change before editing the geometry.
+- If only one reused placement needs to change, prefer replacing that single instance with a separate part file instead of editing the shared source part.
+- `ReplaceComponents2` only replaces top-level components in the active assembly. For nested content, open the owning subassembly, activate it, replace the child there, save, then return to the parent assembly for verification.
 - Preserve functional geometry unless the user explicitly requests otherwise. For pulley brackets, keep pulley hole size and pulley center position unchanged while adjusting only clearance material.
 - Prefer the smallest edit that removes the issue, such as a shallow relief cut or reducing a non-functional top surface.
 - Save the edited part before reopening or checking the parent assembly.
 - After saving, verify the result in the assembly and confirm there is visible clearance rather than coplanar overlap.
+- After any replacement-based fix, rerun a directed interference check against the intended target pair. An alternate part name or file does not prove that clearance now exists.
 - When named selection is unreliable, inspect topology first and select faces or edges by index.
 - If document or assembly queries suddenly start failing with `0x800706BA`, assume the cached COM session may be stale and verify Hub health before editing geometry.
 
@@ -33,14 +37,16 @@ Use this skill when the task involves editing a SolidWorks part or assembly thro
 3. Find the interfering components and use `ListComponentsRecursive` to resolve the concrete part file that should be edited.
 4. Use the returned hierarchy paths to confirm the exact component name, nesting, and path instead of assuming the target is top-level.
 5. If that part file is reused in multiple placements, count the affected instances from the recursive list first and tell the user the downstream impact of changing the shared part.
-6. Open the target part as the active document.
-7. If you need tree inspection or cleanup, call `GetEditState` and ensure the document is not in sketch edit mode first.
-8. Inspect available faces and choose the host face for the edit.
-9. Create the sketch on that selected face.
-10. Apply the minimal boss or cut needed to resolve the issue.
-11. Finish the sketch before any later tree read or cleanup step.
-12. Save the part.
-13. Reopen or refresh the parent assembly and verify the interference is gone.
+6. Decide whether the fix should modify shared geometry or replace only one instance with a separate file.
+7. If replacing only one nested instance, open the owning subassembly, confirm it is active, and perform the replacement there.
+8. If editing geometry, open the target part as the active document.
+9. If you need tree inspection or cleanup, call `GetEditState` and ensure the document is not in sketch edit mode first.
+10. Inspect available faces and choose the host face for the edit.
+11. Create the sketch on that selected face.
+12. Apply the minimal boss or cut needed to resolve the issue.
+13. Finish the sketch before any later tree read or cleanup step.
+14. Save the edited part or subassembly.
+15. Reopen or reactivate the parent assembly and run a directed interference check on the original target pair before concluding the issue is fixed.
 
 ## Sketch Stability And Design Intent
 
@@ -83,6 +89,7 @@ Use this skill when the task involves editing a SolidWorks part or assembly thro
 - If named plane selection is unreliable, prefer topology-driven selection or use `PLANE` as the safer fallback selection type.
 - Ensure the sketch profile is closed before extrude, cut, or revolve operations. Open contours should be treated as a hard blocker.
 - After `FinishSketch`, still expect profile validation before extrusion or cut creation. Do not assume sketch exit implies a valid feature profile.
+- Use `sw.assembly.replace_component` only when the target instance is top-level in the active assembly. Resolve the hierarchy with `ListComponentsRecursive` first so the replacement is applied in the correct assembly context.
 
 ## UI Guidance
 
