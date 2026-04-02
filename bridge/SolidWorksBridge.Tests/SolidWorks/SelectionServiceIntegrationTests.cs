@@ -8,43 +8,18 @@ namespace SolidWorksBridge.Tests.SolidWorks;
 /// Run: dotnet test --filter "Category=Integration"
 /// </summary>
 [Collection("SolidWorks Integration")]
-public class SelectionServiceIntegrationTests
+public class SelectionServiceIntegrationTests : IDisposable
 {
-    // ── Setup helpers ─────────────────────────────────────────────
+    private readonly SolidWorksIntegrationTestContext _ctx = new();
 
-    /// <summary>
-    /// Create a real SelectionService connected to the running SolidWorks;
-    /// also create a fresh Part document so the standard planes exist.
-    /// Returns both services so callers can open/close docs as needed.
-    /// </summary>
-    private static (SelectionService sel, DocumentService docs) RealServices()
+    public void Dispose() => _ctx.Dispose();
+
+    private void CreateExtrudedTestBody()
     {
-        var connector = new SwComConnector();
-        var manager = new SwConnectionManager(connector);
-        manager.Connect();
-
-        var docs = new DocumentService(manager);
-        var sel = new SelectionService(manager);
-
-        // Ensure we have a Part open (standard planes are always present)
-        docs.NewDocument(SwDocType.Part);
-
-        return (sel, docs);
-    }
-
-    private static void CreateExtrudedTestBody(SelectionService sel)
-    {
-        var connector = new SwComConnector();
-        var manager = new SwConnectionManager(connector);
-        manager.Connect();
-
-        var sketch = new SketchService(manager);
-        var feature = new FeatureService(manager);
-
-        sel.SelectByName("前视基准面", "PLANE");
-        sketch.InsertSketch();
-        sketch.AddRectangle(-0.02, -0.015, 0.02, 0.015);
-        feature.Extrude(0.01);
+        _ctx.Selection.SelectByName("前视基准面", "PLANE");
+        _ctx.Sketch.InsertSketch();
+        _ctx.Sketch.AddRectangle(-0.02, -0.015, 0.02, 0.015);
+        _ctx.Feature.Extrude(0.01);
     }
 
     // ─────────────────────────────────────────────────────────────
@@ -56,9 +31,9 @@ public class SelectionServiceIntegrationTests
     public void Integration_SelectByName_FrontPlane_Succeeds()
     {
         // Expected: "前视基准面" is always present in a new Part doc (Chinese SW)
-        var (sel, _) = RealServices();
+        _ctx.Documents.NewDocument(SwDocType.Part);
 
-        var result = sel.SelectByName("前视基准面", "PLANE");
+        var result = _ctx.Selection.SelectByName("前视基准面", "PLANE");
 
         Assert.True(result.Success,
             $"Expected to select front plane but got: {result.Message}");
@@ -70,9 +45,9 @@ public class SelectionServiceIntegrationTests
     public void Integration_SelectByName_TopPlane_Succeeds()
     {
         // Expected: "上视基准面" is always present in a new Part doc (Chinese SW)
-        var (sel, _) = RealServices();
+        _ctx.Documents.NewDocument(SwDocType.Part);
 
-        var result = sel.SelectByName("上视基准面", "PLANE");
+        var result = _ctx.Selection.SelectByName("上视基准面", "PLANE");
 
         Assert.True(result.Success,
             $"Expected to select top plane but got: {result.Message}");
@@ -83,9 +58,9 @@ public class SelectionServiceIntegrationTests
     public void Integration_SelectByName_NonExistent_ReturnsFalse()
     {
         // Expected: an entity that does not exist returns Success=false, no exception
-        var (sel, _) = RealServices();
+        _ctx.Documents.NewDocument(SwDocType.Part);
 
-        var result = sel.SelectByName("__does_not_exist__", "PLANE");
+        var result = _ctx.Selection.SelectByName("__does_not_exist__", "PLANE");
 
         Assert.False(result.Success);
     }
@@ -95,12 +70,12 @@ public class SelectionServiceIntegrationTests
     public void Integration_ClearSelection_DoesNotThrow()
     {
         // Expected: ClearSelection after a successful select produces no error
-        var (sel, _) = RealServices();
+        _ctx.Documents.NewDocument(SwDocType.Part);
 
-        sel.SelectByName("前视基准面", "PLANE");
+        _ctx.Selection.SelectByName("前视基准面", "PLANE");
 
         // Should complete without exception
-        var exception = Record.Exception(() => sel.ClearSelection());
+        var exception = Record.Exception(() => _ctx.Selection.ClearSelection());
         Assert.Null(exception);
     }
 
@@ -108,12 +83,12 @@ public class SelectionServiceIntegrationTests
     [Trait("Category", "Integration")]
     public void Integration_ListEntities_OnSolidBody_ReturnsTopology()
     {
-        var (sel, _) = RealServices();
-        CreateExtrudedTestBody(sel);
+        _ctx.Documents.NewDocument(SwDocType.Part);
+        CreateExtrudedTestBody();
 
-        var faces = sel.ListEntities(SelectableEntityType.Face);
-        var edges = sel.ListEntities(SelectableEntityType.Edge);
-        var vertices = sel.ListEntities(SelectableEntityType.Vertex);
+        var faces = _ctx.Selection.ListEntities(SelectableEntityType.Face);
+        var edges = _ctx.Selection.ListEntities(SelectableEntityType.Edge);
+        var vertices = _ctx.Selection.ListEntities(SelectableEntityType.Vertex);
 
         Assert.NotEmpty(faces);
         Assert.NotEmpty(edges);
@@ -127,11 +102,11 @@ public class SelectionServiceIntegrationTests
     [Trait("Category", "Integration")]
     public void Integration_SelectEntity_FromListedFace_Succeeds()
     {
-        var (sel, _) = RealServices();
-        CreateExtrudedTestBody(sel);
+        _ctx.Documents.NewDocument(SwDocType.Part);
+        CreateExtrudedTestBody();
 
-        var target = sel.ListEntities(SelectableEntityType.Face).First();
-        var result = sel.SelectEntity(SelectableEntityType.Face, target.Index);
+        var target = _ctx.Selection.ListEntities(SelectableEntityType.Face).First();
+        var result = _ctx.Selection.SelectEntity(SelectableEntityType.Face, target.Index);
 
         Assert.True(result.Success, result.Message);
     }

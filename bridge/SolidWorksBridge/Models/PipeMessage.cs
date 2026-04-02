@@ -4,7 +4,7 @@ using System.Text.Json.Serialization;
 namespace SolidWorksBridge.Models;
 
 /// <summary>
-/// Request message sent from Node.js MCP server to C# bridge via Named Pipe.
+/// Request message sent from the MCP host layer to the C# bridge via Named Pipe.
 /// </summary>
 public class PipeRequest
 {
@@ -27,7 +27,7 @@ public class PipeRequest
 }
 
 /// <summary>
-/// Response message sent from C# bridge back to Node.js MCP server.
+/// Response message sent from the C# bridge back to the MCP host layer.
 /// </summary>
 public class PipeResponse
 {

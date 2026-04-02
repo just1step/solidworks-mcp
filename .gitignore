@@ -1,14 +1,8 @@
-# Node.js
-node_modules/
+# Build outputs
 dist/
-*.tsbuildinfo
-*.tgz
 
 # .NET
 bin/
-!mcp-server/bin/
-!mcp-server/bin/solidworks-mcp-server.cmd
-!mcp-server/bin/solidworks-mcp-server.js
 obj/
 *.user
 *.suo
@@ -28,4 +22,4 @@ Thumbs.db
 *.log
 
 # Package artifacts
-mcp-server/vendor/
+artifacts/

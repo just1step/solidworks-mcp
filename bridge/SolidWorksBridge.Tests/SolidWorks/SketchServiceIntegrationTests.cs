@@ -10,21 +10,11 @@ namespace SolidWorksBridge.Tests.SolidWorks;
 /// Run: dotnet test --filter "Category=Integration"
 /// </summary>
 [Collection("SolidWorks Integration")]
-public class SketchServiceIntegrationTests
+public class SketchServiceIntegrationTests : IDisposable
 {
-    // ── Setup ─────────────────────────────────────────────────────
+    private readonly SolidWorksIntegrationTestContext _ctx = new();
 
-    private static (SelectionService sel, SketchService sketch) RealServices()
-    {
-        var connector = new SwComConnector();
-        var manager = new SwConnectionManager(connector);
-        manager.Connect();
-
-        var docs = new DocumentService(manager);
-        docs.NewDocument(SwDocType.Part);
-
-        return (new SelectionService(manager), new SketchService(manager));
-    }
+    public void Dispose() => _ctx.Dispose();
 
     // ─────────────────────────────────────────────────────────────
     // Integration Tests
@@ -35,23 +25,23 @@ public class SketchServiceIntegrationTests
     public void Integration_InsertAndFinishSketch_DoesNotThrow()
     {
         // Expected: open + close a sketch on 前视基准面 without exception
-        var (sel, sketch) = RealServices();
-        sel.SelectByName("前视基准面", "PLANE");
+        _ctx.Documents.NewDocument(SwDocType.Part);
+        _ctx.Selection.SelectByName("前视基准面", "PLANE");
 
-        sketch.InsertSketch();
-        sketch.FinishSketch();
+        _ctx.Sketch.InsertSketch();
+        _ctx.Sketch.FinishSketch();
     }
 
     [Fact]
     [Trait("Category", "Integration")]
     public void Integration_AddPoint_CreatesPointEntity()
     {
-        var (sel, sketch) = RealServices();
-        sel.SelectByName("前视基准面", "PLANE");
-        sketch.InsertSketch();
+        _ctx.Documents.NewDocument(SwDocType.Part);
+        _ctx.Selection.SelectByName("前视基准面", "PLANE");
+        _ctx.Sketch.InsertSketch();
 
-        var info = sketch.AddPoint(0.01, 0.02);
-        sketch.FinishSketch();
+        var info = _ctx.Sketch.AddPoint(0.01, 0.02);
+        _ctx.Sketch.FinishSketch();
 
         Assert.Equal("Point", info.Type);
         Assert.Equal(0.01, info.X1, precision: 6);
@@ -64,12 +54,12 @@ public class SketchServiceIntegrationTests
     [Trait("Category", "Integration")]
     public void Integration_AddEllipse_CreatesEllipseEntity()
     {
-        var (sel, sketch) = RealServices();
-        sel.SelectByName("前视基准面", "PLANE");
-        sketch.InsertSketch();
+        _ctx.Documents.NewDocument(SwDocType.Part);
+        _ctx.Selection.SelectByName("前视基准面", "PLANE");
+        _ctx.Sketch.InsertSketch();
 
-        var info = sketch.AddEllipse(0, 0, 0.03, 0, 0, 0.01);
-        sketch.FinishSketch();
+        var info = _ctx.Sketch.AddEllipse(0, 0, 0.03, 0, 0, 0.01);
+        _ctx.Sketch.FinishSketch();
 
         Assert.Equal("Ellipse", info.Type);
         Assert.Equal(0, info.X1, precision: 6);
@@ -82,12 +72,12 @@ public class SketchServiceIntegrationTests
     [Trait("Category", "Integration")]
     public void Integration_AddPolygon_CreatesPolygonEntity()
     {
-        var (sel, sketch) = RealServices();
-        sel.SelectByName("前视基准面", "PLANE");
-        sketch.InsertSketch();
+        _ctx.Documents.NewDocument(SwDocType.Part);
+        _ctx.Selection.SelectByName("前视基准面", "PLANE");
+        _ctx.Sketch.InsertSketch();
 
-        var info = sketch.AddPolygon(0, 0, 0.02, 0, 6, true);
-        sketch.FinishSketch();
+        var info = _ctx.Sketch.AddPolygon(0, 0, 0.02, 0, 6, true);
+        _ctx.Sketch.FinishSketch();
 
         Assert.Equal("Polygon", info.Type);
         Assert.Equal(0, info.X1, precision: 6);
@@ -100,12 +90,12 @@ public class SketchServiceIntegrationTests
     [Trait("Category", "Integration")]
     public void Integration_AddText_CreatesTextEntity()
     {
-        var (sel, sketch) = RealServices();
-        sel.SelectByName("前视基准面", "PLANE");
-        sketch.InsertSketch();
+        _ctx.Documents.NewDocument(SwDocType.Part);
+        _ctx.Selection.SelectByName("前视基准面", "PLANE");
+        _ctx.Sketch.InsertSketch();
 
-        var info = sketch.AddText(0.01, 0.02, "HELLO");
-        sketch.FinishSketch();
+        var info = _ctx.Sketch.AddText(0.01, 0.02, "HELLO");
+        _ctx.Sketch.FinishSketch();
 
         Assert.Equal("Text", info.Type);
         Assert.Equal(0.01, info.X1, precision: 6);
@@ -117,12 +107,12 @@ public class SketchServiceIntegrationTests
     public void Integration_AddLine_CreatesLineEntity()
     {
         // Expected: a line from (0,0) to (0.05, 0) returns SketchEntityInfo with correct coords
-        var (sel, sketch) = RealServices();
-        sel.SelectByName("前视基准面", "PLANE");
-        sketch.InsertSketch();
+        _ctx.Documents.NewDocument(SwDocType.Part);
+        _ctx.Selection.SelectByName("前视基准面", "PLANE");
+        _ctx.Sketch.InsertSketch();
 
-        var info = sketch.AddLine(0, 0, 0.05, 0);
-        sketch.FinishSketch();
+        var info = _ctx.Sketch.AddLine(0, 0, 0.05, 0);
+        _ctx.Sketch.FinishSketch();
 
         Assert.Equal("Line", info.Type);
         Assert.Equal(0, info.X1);
@@ -136,12 +126,12 @@ public class SketchServiceIntegrationTests
     public void Integration_AddCircle_CreatesCircleEntity()
     {
         // Expected: a circle at origin with 0.025m radius
-        var (sel, sketch) = RealServices();
-        sel.SelectByName("前视基准面", "PLANE");
-        sketch.InsertSketch();
+        _ctx.Documents.NewDocument(SwDocType.Part);
+        _ctx.Selection.SelectByName("前视基准面", "PLANE");
+        _ctx.Sketch.InsertSketch();
 
-        var info = sketch.AddCircle(0, 0, 0.025);
-        sketch.FinishSketch();
+        var info = _ctx.Sketch.AddCircle(0, 0, 0.025);
+        _ctx.Sketch.FinishSketch();
 
         Assert.Equal("Circle", info.Type);
         Assert.Equal(0, info.X1, precision: 6); // center x
@@ -153,12 +143,12 @@ public class SketchServiceIntegrationTests
     public void Integration_AddRectangle_CreatesRectangleEntity()
     {
         // Expected: a 100mm x 60mm rectangle centred at origin
-        var (sel, sketch) = RealServices();
-        sel.SelectByName("前视基准面", "PLANE");
-        sketch.InsertSketch();
+        _ctx.Documents.NewDocument(SwDocType.Part);
+        _ctx.Selection.SelectByName("前视基准面", "PLANE");
+        _ctx.Sketch.InsertSketch();
 
-        var info = sketch.AddRectangle(-0.05, -0.03, 0.05, 0.03);
-        sketch.FinishSketch();
+        var info = _ctx.Sketch.AddRectangle(-0.05, -0.03, 0.05, 0.03);
+        _ctx.Sketch.FinishSketch();
 
         Assert.Equal("Rectangle", info.Type);
         Assert.Equal(-0.05, info.X1, precision: 6);
@@ -172,12 +162,12 @@ public class SketchServiceIntegrationTests
     public void Integration_AddArc_CreatesArcEntity()
     {
         // Quarter-circle: center (0,0), start (0.025,0), end (0,0.025), CCW
-        var (sel, sketch) = RealServices();
-        sel.SelectByName("前视基准面", "PLANE");
-        sketch.InsertSketch();
+        _ctx.Documents.NewDocument(SwDocType.Part);
+        _ctx.Selection.SelectByName("前视基准面", "PLANE");
+        _ctx.Sketch.InsertSketch();
 
-        var info = sketch.AddArc(0, 0, 0.025, 0, 0, 0.025, direction: 1);
-        sketch.FinishSketch();
+        var info = _ctx.Sketch.AddArc(0, 0, 0.025, 0, 0, 0.025, direction: 1);
+        _ctx.Sketch.FinishSketch();
 
         Assert.Equal("Arc", info.Type);
     }

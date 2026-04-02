@@ -22,6 +22,15 @@ public class SketchTools(StaDispatcher sta, ISketchService sketch)
         return "Sketch finished.";
     }
 
+    [McpServerTool, Description("Project the currently selected edges or loops into the active sketch using SolidWorks' ISketchManager.SketchUseEdge3 API. This requires an active sketch and a selected set of edges before calling it; selecting only a face is not sufficient. For the common face-outline cut workflow, prefer CutFaceByProjectedEdges so the face-to-edges conversion and cut sequencing are handled automatically.")]
+    public async Task<string> SketchUseEdge3(
+        [Description("True to project the full contiguous chain; false to project only the currently selected items.")] bool chain = false,
+        [Description("True to convert inner loops too, such as holes or pockets inside a selected face.")] bool innerLoops = true)
+    {
+        await sta.InvokeLoggedAsync(nameof(SketchUseEdge3), new { chain, innerLoops }, () => sketch.SketchUseEdge3(chain, innerLoops));
+        return "Projected the selected edges into sketch geometry.";
+    }
+
     [McpServerTool, Description("Draw a point in the active sketch. Coordinates in meters.")]
     public async Task<string> AddPoint(
         [Description("X coordinate (meters)")] double x,

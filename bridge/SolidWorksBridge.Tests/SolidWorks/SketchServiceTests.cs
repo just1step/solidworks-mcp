@@ -111,6 +111,65 @@ public class SketchServiceTests
     }
 
     [Fact]
+    public void SketchUseEdge3_CallsSketchUseEdge3WithRequestedFlags()
+    {
+        var (manager, _, skm) = ConnectedWithSketchMgr();
+        skm.Setup(s => s.SketchUseEdge3(false, true)).Returns(true);
+        var svc = new SketchService(manager.Object);
+
+        svc.SketchUseEdge3(chain: false, innerLoops: true);
+
+        skm.Verify(s => s.SketchUseEdge3(false, true), Times.Once);
+    }
+
+    [Fact]
+    public void SketchUseEdge3_WithoutActiveSketch_ThrowsDetailedError()
+    {
+        var skm = new Mock<ISketchManager>();
+        var doc = new Mock<IModelDoc2>();
+        doc.Setup(d => d.GetActiveSketch2()).Returns((object?)null);
+        var swApp = new Mock<ISldWorksApp>();
+        swApp.Setup(s => s.SketchManager).Returns(skm.Object);
+        swApp.Setup(s => s.IActiveDoc2).Returns(doc.Object);
+        var manager = new Mock<ISwConnectionManager>();
+        manager.Setup(m => m.IsConnected).Returns(true);
+        manager.Setup(m => m.SwApp).Returns(swApp.Object);
+        manager.Setup(m => m.EnsureConnected());
+
+        var error = Assert.Throws<SolidWorksApiException>(() =>
+            new SketchService(manager.Object).SketchUseEdge3());
+
+        Assert.Contains("active sketch", error.Message);
+        skm.Verify(s => s.SketchUseEdge3(It.IsAny<bool>(), It.IsAny<bool>()), Times.Never);
+    }
+
+    [Fact]
+    public void SketchUseEdge3_WithoutSelectedEdges_ThrowsDetailedError()
+    {
+        var skm = new Mock<ISketchManager>();
+        var doc = new Mock<IModelDoc2>();
+        var selectionManager = new Mock<SelectionMgr>();
+        selectionManager.Setup(m => m.GetSelectedObjectCount2(-1)).Returns(0);
+        doc.Setup(d => d.GetActiveSketch2()).Returns(new object());
+        doc.Setup(d => d.ISelectionManager).Returns(selectionManager.Object);
+
+        var swApp = new Mock<ISldWorksApp>();
+        swApp.Setup(s => s.SketchManager).Returns(skm.Object);
+        swApp.Setup(s => s.IActiveDoc2).Returns(doc.Object);
+
+        var manager = new Mock<ISwConnectionManager>();
+        manager.Setup(m => m.IsConnected).Returns(true);
+        manager.Setup(m => m.SwApp).Returns(swApp.Object);
+        manager.Setup(m => m.EnsureConnected());
+
+        var error = Assert.Throws<SolidWorksApiException>(() =>
+            new SketchService(manager.Object).SketchUseEdge3());
+
+        Assert.Contains("selected edges or loops", error.Message);
+        skm.Verify(s => s.SketchUseEdge3(It.IsAny<bool>(), It.IsAny<bool>()), Times.Never);
+    }
+
+    [Fact]
     public void InsertSketch_NoActiveDocument_Throws()
     {
         var manager = ConnectedNoDoc();

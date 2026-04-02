@@ -25,6 +25,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\SolidWorksBridge\SolidWorksBridge.csproj" />
+    <ProjectReference Include="..\..\app\SolidWorksMcpApp\SolidWorksMcpApp.csproj" />
   </ItemGroup>
 
 </Project>

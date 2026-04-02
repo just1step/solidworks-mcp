@@ -20,6 +20,12 @@ public interface ISketchService
     /// <summary>Exit sketch edit mode.</summary>
     void FinishSketch();
 
+    /// <summary>
+    /// Project the currently selected edges or loops into the active sketch using
+    /// SolidWorks' ISketchManager.SketchUseEdge3 API.
+    /// </summary>
+    void SketchUseEdge3(bool chain = false, bool innerLoops = true);
+
     /// <summary>Draw a point at (x,y) in sketch space (meters).</summary>
     SketchEntityInfo AddPoint(double x, double y);
 
@@ -89,6 +95,39 @@ public class SketchService : ISketchService
             throw SolidWorksApiErrorFactory.FromValidationFailure(
                 "ISketchManager.InsertSketch",
                 "SolidWorks remained in sketch edit mode after FinishSketch.");
+        }
+    }
+
+    public void SketchUseEdge3(bool chain = false, bool innerLoops = true)
+    {
+        _cm.EnsureConnected();
+        var doc = GetModelDoc();
+        if (doc.GetActiveSketch2() == null)
+        {
+            throw SolidWorksApiErrorFactory.FromValidationFailure(
+                "ISketchManager.SketchUseEdge3",
+                "SketchUseEdge3 requires an active sketch.");
+        }
+
+        var selectionManager = doc.ISelectionManager;
+        if (selectionManager == null || selectionManager.GetSelectedObjectCount2(-1) == 0)
+        {
+            throw SolidWorksApiErrorFactory.FromValidationFailure(
+                "ISketchManager.SketchUseEdge3",
+                "SketchUseEdge3 requires selected edges or loops before it can be used.");
+        }
+
+        bool success = GetSketchManager().SketchUseEdge3(chain, innerLoops);
+        if (!success)
+        {
+            throw SolidWorksApiErrorFactory.FromValidationFailure(
+                "ISketchManager.SketchUseEdge3",
+                "SolidWorks did not convert the selected entities into sketch geometry.",
+                new Dictionary<string, object?>
+                {
+                    ["chain"] = chain,
+                    ["innerLoops"] = innerLoops,
+                });
         }
     }
 

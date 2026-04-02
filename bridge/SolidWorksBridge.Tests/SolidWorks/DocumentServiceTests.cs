@@ -420,7 +420,8 @@ public class DocumentServiceTests
     public void Integration_NewDocument_Part_CreatesDocument()
     {
         // Expected: returns SwDocumentInfo with Type=1, non-empty Path/Title
-        var svc = RealService();
+        using var ctx = new SolidWorksIntegrationTestContext();
+        var svc = ctx.Documents;
         var doc = svc.NewDocument(SwDocType.Part);
 
         Assert.Equal(1, doc.Type);
@@ -433,7 +434,8 @@ public class DocumentServiceTests
     public void Integration_NewDocument_Assembly_CreatesDocument()
     {
         // Expected: returns SwDocumentInfo with Type=2
-        var svc = RealService();
+        using var ctx = new SolidWorksIntegrationTestContext();
+        var svc = ctx.Documents;
         var doc = svc.NewDocument(SwDocType.Assembly);
 
         Assert.Equal(2, doc.Type);
@@ -445,7 +447,8 @@ public class DocumentServiceTests
     public void Integration_ListDocuments_AfterNewDoc_CountIncreases()
     {
         // Expected: creating a new Part increases document count by 1
-        var svc = RealService();
+        using var ctx = new SolidWorksIntegrationTestContext();
+        var svc = ctx.Documents;
         var before = svc.ListDocuments().Length;
 
         svc.NewDocument(SwDocType.Part);
@@ -460,7 +463,8 @@ public class DocumentServiceTests
     public void Integration_GetActiveDocument_AfterNewDoc_IsNotNull()
     {
         // Expected: after creating a new document it becomes the active doc
-        var svc = RealService();
+        using var ctx = new SolidWorksIntegrationTestContext();
+        var svc = ctx.Documents;
         svc.NewDocument(SwDocType.Part);
 
         var active = svc.GetActiveDocument();

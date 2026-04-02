@@ -1,6 +1,6 @@
 ---
 name: solidworksmodeling
-description: Use for SolidWorks MCP part and assembly work such as interference fixes, topology selection, face-hosted sketches, extrudes, cuts, mates, saves, and verification in parent assemblies.
+description: Use for SolidWorks MCP part and assembly work such as interference fixes, topology selection, face-hosted sketches, projected-edge face cuts, extrudes, cuts, mates, saves, and verification in parent assemblies.
 ---
 
 # SolidWorks Modeling Skill
@@ -16,6 +16,7 @@ Use this skill when the task involves editing a SolidWorks part or assembly thro
 - In large or nested assemblies, do not stop at the top-level component list. Prefer `ListComponentsRecursive` to locate the concrete part file that owns the interfering geometry.
 - Before any sketch-based operation, clear the current selection, select a real planar face on the target solid, and only then start the sketch.
 - Do not create sketches in free space when the intent is to modify model geometry. Face-hosted sketches are materially more stable.
+- When reasoning about SolidWorks APIs, prefer official API names and official preconditions. Do not invent wrapper-style method names and then reason from those invented semantics.
 - Before reading the FeatureManager tree or deleting features or loose sketches, call `GetEditState` first. If `IsEditing` is true, finish the active sketch before `ListFeatureTree`, `DeleteFeatureByName`, or `DeleteUnusedSketches`.
 - If a face-based cut or boss fails, verify the feature direction. A top-face relief cut often needs the direction flipped so the feature goes into the body.
 - In localized SolidWorks environments, do not rely on English plane labels. Prefer semantic plane resolution or topology-driven selection.
@@ -24,6 +25,9 @@ Use this skill when the task involves editing a SolidWorks part or assembly thro
 - `ReplaceComponents2` only replaces top-level components in the active assembly. For nested content, open the owning subassembly, activate it, replace the child there, save, then return to the parent assembly for verification.
 - Preserve functional geometry unless the user explicitly requests otherwise. For pulley brackets, keep pulley hole size and pulley center position unchanged while adjusting only clearance material.
 - Prefer the smallest edit that removes the issue, such as a shallow relief cut or reducing a non-functional top surface.
+- Treat extrude, cut, revolve, shell, and other shape-changing feature edits as high-risk operations. After each such edit, export and inspect at least front, top, and right views before trusting the result.
+- Never rely on a single view after a high-risk geometry edit. If the shape still looks ambiguous, also inspect an isometric view.
+- If the three-view check shows an unexpected silhouette, floating geometry, or any unclear result, stop and show the views to the user before continuing with more edits.
 - Save the edited part before reopening or checking the parent assembly.
 - After saving, verify the result in the assembly and confirm there is visible clearance rather than coplanar overlap.
 - After any replacement-based fix, rerun a directed interference check against the intended target pair. An alternate part name or file does not prove that clearance now exists.
@@ -44,9 +48,18 @@ Use this skill when the task involves editing a SolidWorks part or assembly thro
 10. Inspect available faces and choose the host face for the edit.
 11. Create the sketch on that selected face.
 12. Apply the minimal boss or cut needed to resolve the issue.
-13. Finish the sketch before any later tree read or cleanup step.
-14. Save the edited part or subassembly.
-15. Reopen or reactivate the parent assembly and run a directed interference check on the original target pair before concluding the issue is fixed.
+13. Immediately export and inspect front, top, and right views of the changed part. Add an isometric export whenever the result is not obvious from three views alone.
+14. If the geometry still looks questionable, show those views to the user and get confirmation before making another high-risk edit.
+15. Finish the sketch before any later tree read or cleanup step.
+16. Save the edited part or subassembly.
+17. Reopen or reactivate the parent assembly and run a directed interference check on the original target pair before concluding the issue is fixed.
+
+## Face-Outline Projection Cuts
+
+- `ISketchManager.SketchUseEdge3` requires an active sketch and a selected set of edges or loops. Selecting only a face is not enough.
+- For the common "cut from an existing planar face outline" workflow, prefer the high-level MCP tool `CutFaceByProjectedEdges` instead of manually chaining low-level tools.
+- If you must execute the workflow manually, use the proven sequence exactly: select planar face -> open sketch on that face -> call `IFace2.GetEdges` -> select the returned edges -> call `SketchUseEdge3` -> exit sketch edit mode -> reselect the sketch feature -> call `FeatureCut4`.
+- If the projected sketch looks correct but `FeatureCut4` still fails, inspect sketch edit state and whether the sketch feature is actually reselected before assuming the profile itself is invalid.
 
 ## Sketch Stability And Design Intent
 
@@ -89,6 +102,7 @@ Use this skill when the task involves editing a SolidWorks part or assembly thro
 - If named plane selection is unreliable, prefer topology-driven selection or use `PLANE` as the safer fallback selection type.
 - Ensure the sketch profile is closed before extrude, cut, or revolve operations. Open contours should be treated as a hard blocker.
 - After `FinishSketch`, still expect profile validation before extrusion or cut creation. Do not assume sketch exit implies a valid feature profile.
+- For face-outline cuts, do not expose or prefer ad-hoc low-level tool chains when a proven one-shot workflow tool exists. Prefer the stable MCP workflow surface so other models reuse the same sequencing.
 - Use `sw.assembly.replace_component` only when the target instance is top-level in the active assembly. Resolve the hierarchy with `ListComponentsRecursive` first so the replacement is applied in the correct assembly context.
 
 ## UI Guidance
@@ -102,6 +116,13 @@ Use this skill when the task involves editing a SolidWorks part or assembly thro
 - Rename important features, sketches, planes, and components when structure clarity matters, because tree readability directly affects repair speed.
 - Check parent-child relationships and rebuild order before reordering features. Do not drag features casually without confirming design intent.
 - Standard tree folders such as planes, origin, bodies, equations, sensors, and annotations often reveal root causes faster than viewport inspection.
+
+## Verification Gates
+
+- High-risk geometry edits require a post-edit view gate: export front, top, and right views every time.
+- If those three views are insufficient to explain the result, export an isometric view as a fourth check.
+- Do not continue stacking more cuts, bosses, or other major edits on top of an unverified shape.
+- If the post-edit views do not clearly match design intent, pause and ask the user to confirm before proceeding.
 
 ## Interference Fix Guidance
 

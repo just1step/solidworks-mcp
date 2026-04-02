@@ -58,6 +58,28 @@ public class FeatureServiceTests
         return manager;
     }
 
+    private static (Mock<ISwConnectionManager> manager,
+                    Mock<ISldWorksApp> swApp,
+                    Mock<IFeatureManager> fm,
+                    Mock<IPartDoc> part,
+                    Mock<IModelDoc2> doc)
+        ConnectedPartWithFm()
+    {
+        var fm = new Mock<IFeatureManager>();
+        var part = new Mock<IPartDoc>();
+        var doc = part.As<IModelDoc2>();
+        var swApp = new Mock<ISldWorksApp>();
+        swApp.Setup(s => s.FeatureManager).Returns(fm.Object);
+        swApp.Setup(s => s.IActiveDoc2).Returns(doc.Object);
+
+        var manager = new Mock<ISwConnectionManager>();
+        manager.Setup(m => m.IsConnected).Returns(true);
+        manager.Setup(m => m.SwApp).Returns(swApp.Object);
+        manager.Setup(m => m.EnsureConnected());
+
+        return (manager, swApp, fm, part, doc);
+    }
+
     /// Returns a mock Feature (which is an interface in the interop DLL) with the given name.
     private static Feature FakeFeature(string name = "Boss-Extrude1")
     {
@@ -72,6 +94,15 @@ public class FeatureServiceTests
         var feat = new Mock<Feature>();
         feat.Setup(f => f.Name).Returns(name);
         feat.Setup(f => f.GetTypeName2()).Returns(typeName);
+        return feat.Object;
+    }
+
+    private static Feature FakeFeature(string name, string typeName, Feature? next)
+    {
+        var feat = new Mock<Feature>();
+        feat.Setup(f => f.Name).Returns(name);
+        feat.Setup(f => f.GetTypeName2()).Returns(typeName);
+        feat.Setup(f => f.GetNextFeature()).Returns(next);
         return feat.Object;
     }
 
@@ -263,11 +294,16 @@ public class FeatureServiceTests
     [Fact]
     public void ExtrudeCut_NullReturnFromCom_Throws()
     {
-            var (manager, _, fm, doc) = ConnectedWithFm();
-            doc.SetupSequence(d => d.IFeatureByPositionReverse(0))
-              .Returns(FakeFeature("Sketch2", "ProfileFeature"))
-              .Returns(FakeFeature("Sketch2", "ProfileFeature"));
-          fm.Setup(f => f.FeatureCut4(
+        var (manager, _, fm, doc) = ConnectedWithFm();
+        var sketchBefore = FakeFeature("Sketch2", "ProfileFeature");
+        var sketchAfter = FakeFeature("Sketch2", "ProfileFeature");
+        doc.SetupSequence(d => d.IFeatureByPositionReverse(0))
+            .Returns(sketchBefore)
+            .Returns(sketchAfter);
+        doc.SetupSequence(d => d.FirstFeature())
+            .Returns(sketchBefore)
+            .Returns(sketchAfter);
+        fm.Setup(f => f.FeatureCut4(
                 It.IsAny<bool>(), It.IsAny<bool>(), It.IsAny<bool>(),
                 It.IsAny<int>(), It.IsAny<int>(),
                 It.IsAny<double>(), It.IsAny<double>(),
@@ -281,6 +317,75 @@ public class FeatureServiceTests
 
         Assert.Throws<SolidWorksApiException>(() =>
             new FeatureService(manager.Object).ExtrudeCut(0.01));
+    }
+
+    [Fact]
+    public void ExtrudeCut_NullReturnFromCom_ButNewTreeFeatureAppears_ReturnsFeatureInfo()
+    {
+        var (manager, _, fm, doc) = ConnectedWithFm();
+        var sketchBefore = FakeFeature("Sketch2", "ProfileFeature");
+        var cutAfter = FakeFeature("Cut-Extrude24", "ICE");
+        var sketchAfter = FakeFeature("Sketch2", "ProfileFeature", cutAfter);
+
+        doc.SetupSequence(d => d.IFeatureByPositionReverse(0))
+            .Returns(sketchBefore)
+            .Returns(sketchAfter);
+        doc.SetupSequence(d => d.FirstFeature())
+            .Returns(sketchBefore)
+            .Returns(sketchAfter);
+        fm.Setup(f => f.FeatureCut4(
+            It.IsAny<bool>(), It.IsAny<bool>(), It.IsAny<bool>(),
+            It.IsAny<int>(), It.IsAny<int>(),
+            It.IsAny<double>(), It.IsAny<double>(),
+            It.IsAny<bool>(), It.IsAny<bool>(), It.IsAny<bool>(), It.IsAny<bool>(),
+            It.IsAny<double>(), It.IsAny<double>(),
+            It.IsAny<bool>(), It.IsAny<bool>(),
+            It.IsAny<bool>(), It.IsAny<bool>(),
+            It.IsAny<bool>(), It.IsAny<bool>(), It.IsAny<bool>(), It.IsAny<bool>(), It.IsAny<bool>(), It.IsAny<bool>(),
+            It.IsAny<int>(), It.IsAny<double>(), It.IsAny<bool>(), It.IsAny<bool>()))
+          .Returns((Feature?)null);
+
+        var info = new FeatureService(manager.Object).ExtrudeCut(0.01);
+
+        Assert.Equal("Cut-Extrude24", info.Name);
+        Assert.Equal("ExtrudeCut", info.Type);
+    }
+
+    [Fact]
+    public void ExtrudeCut_NewFeatureWithStableBodySignature_ReturnsFeatureInfo()
+    {
+        var (manager, _, fm, part, doc) = ConnectedPartWithFm();
+        var sketchBefore = FakeFeature("Sketch2", "ProfileFeature");
+        var cutAfter = FakeFeature("Cut-Extrude41", "ICE");
+        var body = new Mock<IBody2>();
+
+        body.Setup(b => b.GetFaces()).Returns(Enumerable.Repeat(new object(), 22).ToArray());
+        body.Setup(b => b.GetEdges()).Returns(Enumerable.Repeat(new object(), 50).ToArray());
+        body.Setup(b => b.GetVertices()).Returns(Enumerable.Repeat(new object(), 28).ToArray());
+        part.Setup(p => p.GetBodies2((int)swBodyType_e.swSolidBody, true)).Returns(new object[] { body.Object });
+
+        doc.SetupSequence(d => d.IFeatureByPositionReverse(0))
+            .Returns(sketchBefore)
+            .Returns(cutAfter);
+        doc.SetupSequence(d => d.FirstFeature())
+            .Returns(sketchBefore)
+            .Returns(cutAfter);
+        fm.Setup(f => f.FeatureCut4(
+            It.IsAny<bool>(), It.IsAny<bool>(), It.IsAny<bool>(),
+            It.IsAny<int>(), It.IsAny<int>(),
+            It.IsAny<double>(), It.IsAny<double>(),
+            It.IsAny<bool>(), It.IsAny<bool>(), It.IsAny<bool>(), It.IsAny<bool>(),
+            It.IsAny<double>(), It.IsAny<double>(),
+            It.IsAny<bool>(), It.IsAny<bool>(),
+            It.IsAny<bool>(), It.IsAny<bool>(),
+            It.IsAny<bool>(), It.IsAny<bool>(), It.IsAny<bool>(), It.IsAny<bool>(), It.IsAny<bool>(), It.IsAny<bool>(),
+            It.IsAny<int>(), It.IsAny<double>(), It.IsAny<bool>(), It.IsAny<bool>()))
+          .Returns(cutAfter);
+
+        var info = new FeatureService(manager.Object).ExtrudeCut(0.01);
+
+        Assert.Equal("Cut-Extrude41", info.Name);
+        Assert.Equal("ExtrudeCut", info.Type);
     }
 
     [Fact]
@@ -379,11 +484,82 @@ public class FeatureServiceTests
     }
 
     [Fact]
+    public void ExtrudeCut_DefaultDirection_PassesTrueForDirToApi()
+    {
+        var (manager, _, fm, doc) = ConnectedWithFm();
+        doc.SetupSequence(d => d.IFeatureByPositionReverse(0))
+            .Returns(FakeFeature("Sketch2", "ProfileFeature"))
+            .Returns(FakeFeature("Sketch2", "ProfileFeature"))
+            .Returns(FakeFeature("Cut-Extrude1", "Cut"));
+        fm.Setup(f => f.FeatureCut4(
+            It.IsAny<bool>(), It.IsAny<bool>(), It.IsAny<bool>(),
+            It.IsAny<int>(), It.IsAny<int>(),
+            It.IsAny<double>(), It.IsAny<double>(),
+            It.IsAny<bool>(), It.IsAny<bool>(), It.IsAny<bool>(), It.IsAny<bool>(),
+            It.IsAny<double>(), It.IsAny<double>(),
+            It.IsAny<bool>(), It.IsAny<bool>(),
+            It.IsAny<bool>(), It.IsAny<bool>(),
+            It.IsAny<bool>(), It.IsAny<bool>(), It.IsAny<bool>(), It.IsAny<bool>(), It.IsAny<bool>(), It.IsAny<bool>(),
+            It.IsAny<int>(), It.IsAny<double>(), It.IsAny<bool>(), It.IsAny<bool>()))
+          .Returns(FakeFeature("Cut-Extrude1", "Cut"));
+
+        new FeatureService(manager.Object).ExtrudeCut(0.01, flipDirection: false);
+
+        fm.Verify(f => f.FeatureCut4(
+            true /*Sd*/, false /*Flip*/, false /*Dir*/,
+            It.IsAny<int>(), It.IsAny<int>(),
+            0.01, It.IsAny<double>(),
+            It.IsAny<bool>(), It.IsAny<bool>(), It.IsAny<bool>(), It.IsAny<bool>(),
+            It.IsAny<double>(), It.IsAny<double>(),
+            It.IsAny<bool>(), It.IsAny<bool>(),
+            It.IsAny<bool>(), It.IsAny<bool>(),
+            It.IsAny<bool>(), It.IsAny<bool>(), It.IsAny<bool>(), It.IsAny<bool>(), It.IsAny<bool>(), It.IsAny<bool>(),
+            It.IsAny<int>(), It.IsAny<double>(), It.IsAny<bool>(), It.IsAny<bool>()), Times.Once);
+    }
+
+    [Fact]
+    public void ExtrudeCut_FlipDirection_PassesFalseForDirToApi()
+    {
+        var (manager, _, fm, doc) = ConnectedWithFm();
+        doc.SetupSequence(d => d.IFeatureByPositionReverse(0))
+            .Returns(FakeFeature("Sketch2", "ProfileFeature"))
+            .Returns(FakeFeature("Sketch2", "ProfileFeature"))
+            .Returns(FakeFeature("Cut-Extrude1", "Cut"));
+        fm.Setup(f => f.FeatureCut4(
+            It.IsAny<bool>(), It.IsAny<bool>(), It.IsAny<bool>(),
+            It.IsAny<int>(), It.IsAny<int>(),
+            It.IsAny<double>(), It.IsAny<double>(),
+            It.IsAny<bool>(), It.IsAny<bool>(), It.IsAny<bool>(), It.IsAny<bool>(),
+            It.IsAny<double>(), It.IsAny<double>(),
+            It.IsAny<bool>(), It.IsAny<bool>(),
+            It.IsAny<bool>(), It.IsAny<bool>(),
+            It.IsAny<bool>(), It.IsAny<bool>(), It.IsAny<bool>(), It.IsAny<bool>(), It.IsAny<bool>(), It.IsAny<bool>(),
+            It.IsAny<int>(), It.IsAny<double>(), It.IsAny<bool>(), It.IsAny<bool>()))
+          .Returns(FakeFeature("Cut-Extrude1", "Cut"));
+
+        new FeatureService(manager.Object).ExtrudeCut(0.01, flipDirection: true);
+
+        fm.Verify(f => f.FeatureCut4(
+            true /*Sd*/, false /*Flip*/, true /*Dir*/,
+            It.IsAny<int>(), It.IsAny<int>(),
+            0.01, It.IsAny<double>(),
+            It.IsAny<bool>(), It.IsAny<bool>(), It.IsAny<bool>(), It.IsAny<bool>(),
+            It.IsAny<double>(), It.IsAny<double>(),
+            It.IsAny<bool>(), It.IsAny<bool>(),
+            It.IsAny<bool>(), It.IsAny<bool>(),
+            It.IsAny<bool>(), It.IsAny<bool>(), It.IsAny<bool>(), It.IsAny<bool>(), It.IsAny<bool>(), It.IsAny<bool>(),
+            It.IsAny<int>(), It.IsAny<double>(), It.IsAny<bool>(), It.IsAny<bool>()), Times.Once);
+    }
+
+    [Fact]
     public void ExtrudeCut_WhenApiLeavesTopFeatureUnchanged_ThrowsDetailedError()
     {
         var (manager, _, fm, doc) = ConnectedWithFm();
         var sketchFeature = FakeFeature("Sketch2", "ProfileFeature");
         doc.SetupSequence(d => d.IFeatureByPositionReverse(0))
+            .Returns(sketchFeature)
+            .Returns(sketchFeature);
+        doc.SetupSequence(d => d.FirstFeature())
             .Returns(sketchFeature)
             .Returns(sketchFeature);
         fm.Setup(f => f.FeatureCut4(

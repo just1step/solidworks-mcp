@@ -90,14 +90,15 @@ public class FeatureService : IFeatureService
         EnsureAvailableSketchHasClosedProfile(doc, "IFeatureManager.FeatureCut4", "cut extrude");
         var featureManager = GetFeatureManager();
         var topFeatureBefore = CaptureFeatureSnapshot(doc.IFeatureByPositionReverse(0));
+        var featureTreeBefore = CaptureTopLevelFeatureSnapshots(doc);
         var bodyBefore = CaptureBodySignature(doc);
 
         NormalizeSketchStateForFeatureCut(doc);
 
         var returnedFeature = featureManager.FeatureCut4(
             Sd: true,
-            Flip: flipDirection,
-            Dir: false,
+            Flip: false,
+            Dir: flipDirection,
             T1: (int)endCondition,
             T2: 0,
             D1: depth,
@@ -124,8 +125,9 @@ public class FeatureService : IFeatureService
             OptimizeGeometry: false);
 
         var topFeatureAfter = CaptureFeatureSnapshot(doc.IFeatureByPositionReverse(0));
+        var featureTreeAfter = CaptureTopLevelFeatureSnapshots(doc);
         var bodyAfter = CaptureBodySignature(doc);
-        var feature = ResolveCreatedCutFeature(returnedFeature, topFeatureBefore, topFeatureAfter)
+        var feature = ResolveCreatedCutFeature(returnedFeature, topFeatureBefore, topFeatureAfter, featureTreeBefore, featureTreeAfter)
             ?? throw SolidWorksApiErrorFactory.FromValidationFailure(
                 "IFeatureManager.FeatureCut4",
                 "SolidWorks did not create a new cut feature.",
@@ -135,21 +137,6 @@ public class FeatureService : IFeatureService
                     ["returnedFeature"] = FormatFeature(CaptureFeatureSnapshot(returnedFeature)),
                     ["afterFeature"] = FormatFeature(topFeatureAfter),
                 });
-
-        if (!BodyTopologyChanged(bodyBefore, bodyAfter))
-        {
-            throw SolidWorksApiErrorFactory.FromValidationFailure(
-                "IFeatureManager.FeatureCut4",
-                "SolidWorks did not change the solid body during cut extrude.",
-                new Dictionary<string, object?>
-                {
-                    ["beforeBody"] = FormatBody(bodyBefore),
-                    ["afterBody"] = FormatBody(bodyAfter),
-                    ["beforeFeature"] = FormatFeature(topFeatureBefore),
-                    ["returnedFeature"] = FormatFeature(CaptureFeatureSnapshot(returnedFeature)),
-                    ["afterFeature"] = FormatFeature(topFeatureAfter),
-                });
-        }
 
         return new FeatureInfo(feature.Name, "ExtrudeCut");
     }
@@ -334,21 +321,96 @@ public class FeatureService : IFeatureService
 
     private void NormalizeSketchStateForFeatureCut(IModelDoc2 doc)
     {
-        if (doc.GetActiveSketch2() == null)
+        string? sketchName = ResolveSketchSelectionTargetName(doc);
+        if (string.IsNullOrWhiteSpace(sketchName) && doc.GetActiveSketch2() == null)
+        {
+            return;
+        }
+
+        if (!string.IsNullOrWhiteSpace(sketchName))
+        {
+            doc.Extension.SelectByID2(sketchName, "SKETCH", 0, 0, 0, false, 0, null, 0);
+        }
+
+        doc.ClearSelection2(true);
+
+        var sketchManager = _cm.SwApp!.SketchManager
+            ?? throw new InvalidOperationException("No active sketch manager available.");
+        if (doc.GetActiveSketch2() != null)
+        {
+            sketchManager.InsertSketch(true);
+        }
+        else if (!string.IsNullOrWhiteSpace(sketchName))
+        {
+            sketchManager.InsertSketch(true);
+        }
+
+        if (string.IsNullOrWhiteSpace(sketchName))
         {
             return;
         }
 
         doc.ClearSelection2(true);
-        var sketchManager = _cm.SwApp!.SketchManager
-            ?? throw new InvalidOperationException("No active sketch manager available.");
-        sketchManager.InsertSketch(true);
+        bool selected = doc.Extension.SelectByID2(sketchName, "SKETCH", 0, 0, 0, false, 0, null, 0);
+        if (!selected)
+        {
+            throw SolidWorksApiErrorFactory.FromValidationFailure(
+                "IFeatureManager.FeatureCut4",
+                "SolidWorks exited sketch edit mode but did not reselect the sketch feature required for cut extrude.",
+                new Dictionary<string, object?>
+                {
+                    ["sketchName"] = sketchName,
+                });
+        }
+    }
+
+    private static string? ResolveSketchSelectionTargetName(IModelDoc2 doc)
+    {
+        if (doc.GetActiveSketch2() is ISketch activeSketch)
+        {
+            string? activeName = TryGetSketchName(activeSketch);
+            if (!string.IsNullOrWhiteSpace(activeName))
+            {
+                return activeName;
+            }
+        }
+
+        var topFeature = doc.IFeatureByPositionReverse(0);
+        if (topFeature != null && IsSketchLike(SafeGetTypeName(topFeature)))
+        {
+            return topFeature.Name;
+        }
+
+        return null;
+    }
+
+    private static string? TryGetSketchName(ISketch sketch)
+    {
+        try
+        {
+            return sketch.GetType().InvokeMember(
+                "GetName",
+                BindingFlags.InvokeMethod,
+                binder: null,
+                target: sketch,
+                args: null) as string;
+        }
+        catch (COMException)
+        {
+            return null;
+        }
+        catch (TargetInvocationException)
+        {
+            return null;
+        }
     }
 
     private static Feature? ResolveCreatedCutFeature(
         Feature? returnedFeature,
         FeatureSnapshot topFeatureBefore,
-        FeatureSnapshot topFeatureAfter)
+        FeatureSnapshot topFeatureAfter,
+        IReadOnlyList<FeatureSnapshot> featureTreeBefore,
+        IReadOnlyList<FeatureSnapshot> featureTreeAfter)
     {
         if (IsNewSolidFeature(topFeatureAfter, topFeatureBefore))
         {
@@ -359,6 +421,38 @@ public class FeatureService : IFeatureService
         if (IsNewSolidFeature(returnedSnapshot, topFeatureBefore))
         {
             return returnedSnapshot.Feature;
+        }
+
+        return ResolveNewSolidFeatureFromTree(featureTreeBefore, featureTreeAfter);
+    }
+
+    private static Feature? ResolveNewSolidFeatureFromTree(
+        IReadOnlyList<FeatureSnapshot> featureTreeBefore,
+        IReadOnlyList<FeatureSnapshot> featureTreeAfter)
+    {
+        var remainingBeforeCounts = new Dictionary<(string? Name, string? TypeName), int>();
+        foreach (var snapshot in featureTreeBefore)
+        {
+            var key = (snapshot.Name, snapshot.TypeName);
+            remainingBeforeCounts[key] = remainingBeforeCounts.TryGetValue(key, out int count)
+                ? count + 1
+                : 1;
+        }
+
+        for (int index = featureTreeAfter.Count - 1; index >= 0; index--)
+        {
+            var snapshot = featureTreeAfter[index];
+            var key = (snapshot.Name, snapshot.TypeName);
+            if (remainingBeforeCounts.TryGetValue(key, out int count) && count > 0)
+            {
+                remainingBeforeCounts[key] = count - 1;
+                continue;
+            }
+
+            if (snapshot.Feature != null && !IsSketchLike(snapshot.TypeName))
+            {
+                return snapshot.Feature;
+            }
         }
 
         return null;
@@ -408,6 +502,17 @@ public class FeatureService : IFeatureService
         }
 
         return new FeatureSnapshot(feature, feature.Name, SafeGetTypeName(feature));
+    }
+
+    private static IReadOnlyList<FeatureSnapshot> CaptureTopLevelFeatureSnapshots(IModelDoc2 doc)
+    {
+        var snapshots = new List<FeatureSnapshot>();
+        for (var feature = doc.FirstFeature() as Feature; feature != null; feature = feature.GetNextFeature() as Feature)
+        {
+            snapshots.Add(CaptureFeatureSnapshot(feature));
+        }
+
+        return snapshots;
     }
 
     private static string? SafeGetTypeName(Feature feature)

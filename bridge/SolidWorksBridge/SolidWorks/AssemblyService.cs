@@ -141,13 +141,15 @@ public class AssemblyService : IAssemblyService
     {
         if (string.IsNullOrWhiteSpace(filePath))
             throw new ArgumentException("filePath must not be empty", nameof(filePath));
+        if (!File.Exists(filePath))
+            throw new FileNotFoundException($"Component file was not found: {filePath}", filePath);
 
         _cm.EnsureConnected();
         var assy = GetAssemblyDoc();
 
-        // AddComponent5(fileName, configOption, newConfigName, useExistingConfig, existingConfigName, x, y, z)
-        // configOption 0 = swAddComponentConfigOptions_CurrentSelectedConfig
-        var comp = assy.AddComponent5(filePath, 0, "", true, "", x, y, z) as IComponent2
+        // For a saved standalone part, let SolidWorks resolve the model's active/default
+        // configuration instead of forcing an existing selected config in the target assembly.
+        var comp = assy.AddComponent5(filePath, 0, "", false, "", x, y, z) as IComponent2
             ?? throw new InvalidOperationException($"Failed to insert component: {filePath}");
 
         return new ComponentInfo(comp.Name2, comp.GetPathName());

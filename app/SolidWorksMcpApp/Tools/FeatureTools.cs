@@ -18,7 +18,7 @@ public class FeatureTools(StaDispatcher sta, IFeatureService feature)
         return JsonSerializer.Serialize(info);
     }
 
-    [McpServerTool, Description("Extrude-cut the active sketch profile to remove material. Requires at least one closed contour in the current sketch.")]
+    [McpServerTool, Description("Extrude-cut the active sketch profile to remove material. Requires a valid sketch profile that is already prepared for cut creation. When cutting from an existing face outline, prefer CutFaceByProjectedEdges so the face-selection, edge projection, sketch exit, and sketch reselection steps happen in the proven order.")]
     public async Task<string> ExtrudeCut(
         [Description("Cut depth in meters")] double depth,
         [Description("End condition: Blind=0, ThroughAll=1, MidPlane=6")] int endCondition = 0,

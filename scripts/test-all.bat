@@ -1,27 +1,26 @@
 @echo off
 echo ============================================
-echo  SolidWorks MCP Server - Run All Unit Tests
+echo  SolidWorks MCP Server - Run All Tests
 echo ============================================
 
 echo.
-echo [1/2] Running Node.js MCP Server tests...
+echo [1/2] Running full .NET test suite...
 echo --------------------------------------------
-cd /d "%~dp0..\mcp-server"
-call npx vitest run
+cd /d "%~dp0..\bridge"
+dotnet test SolidWorksBridge.sln --no-restore
 if %ERRORLEVEL% neq 0 (
     echo.
-    echo FAILED: Node.js tests failed!
+    echo FAILED: full .NET test suite failed!
     exit /b 1
 )
 
 echo.
-echo [2/2] Running C# Bridge unit tests...
+echo [2/2] Running non-integration .NET tests...
 echo --------------------------------------------
-cd /d "%~dp0..\bridge"
 dotnet test SolidWorksBridge.sln --filter "Category!=Integration" --no-restore
 if %ERRORLEVEL% neq 0 (
     echo.
-    echo FAILED: C# tests failed!
+    echo FAILED: non-integration .NET tests failed!
     exit /b 1
 )
 
