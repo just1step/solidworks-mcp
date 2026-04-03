@@ -129,14 +129,18 @@ public class DocumentServiceTests
     {
         var (manager, swApp) = ConnectedMocks();
         const string path = @"C:\part.sldprt";
-        var expected = FakeOpenResult(path);
-        swApp.Setup(s => s.OpenDoc(path)).Returns(expected);
+        var opened = FakeOpenResult(path);
+        var activated = FakeDoc(path);
+        swApp.Setup(s => s.OpenDoc(path)).Returns(opened);
+        swApp.Setup(s => s.ActivateDoc(path)).Returns(activated);
 
         var svc = new DocumentService(manager.Object);
         var result = svc.OpenDocument(path);
 
-        Assert.Equal(expected, result);
+        Assert.Equal(activated, result.Document);
+        Assert.Equal(opened.Diagnostics, result.Diagnostics);
         swApp.Verify(s => s.OpenDoc(path), Times.Once);
+        swApp.Verify(s => s.ActivateDoc(path), Times.Once);
     }
 
     [Fact]
@@ -471,6 +475,26 @@ public class DocumentServiceTests
 
         Assert.NotNull(active);
         Assert.Equal(1, active!.Type);
+    }
+
+    [Fact]
+    [Trait("Category", "Integration")]
+    public void Integration_OpenDocument_OnAlreadyOpenPart_ActivatesThatDocument()
+    {
+        using var ctx = new SolidWorksIntegrationTestContext();
+        string firstPath = ctx.CreateAndSaveBoxPart(width: 0.01, height: 0.01, depth: 0.005);
+        string secondPath = ctx.CreateAndSaveBoxPart(width: 0.012, height: 0.008, depth: 0.004);
+
+        var activeBefore = ctx.Documents.GetActiveDocument();
+        Assert.NotNull(activeBefore);
+        Assert.Equal(Path.GetFullPath(secondPath), Path.GetFullPath(activeBefore!.Path), StringComparer.OrdinalIgnoreCase);
+
+        var opened = ctx.Documents.OpenDocument(firstPath);
+        var activeAfter = ctx.Documents.GetActiveDocument();
+
+        Assert.Equal(Path.GetFullPath(firstPath), Path.GetFullPath(opened.Document.Path), StringComparer.OrdinalIgnoreCase);
+        Assert.NotNull(activeAfter);
+        Assert.Equal(Path.GetFullPath(firstPath), Path.GetFullPath(activeAfter!.Path), StringComparer.OrdinalIgnoreCase);
     }
 
     [Fact]

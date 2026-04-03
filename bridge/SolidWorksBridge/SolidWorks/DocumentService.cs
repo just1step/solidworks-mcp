@@ -121,7 +121,9 @@ public class DocumentService : IDocumentService
     public SwOpenResult OpenDocument(string path)
     {
         _connectionManager.EnsureConnected();
-        return _connectionManager.SwApp!.OpenDoc(path);
+        var result = _connectionManager.SwApp!.OpenDoc(path);
+        var activeDocument = _connectionManager.SwApp!.ActivateDoc(path);
+        return result with { Document = activeDocument };
     }
 
     public void CloseDocument(string path)
