@@ -472,4 +472,31 @@ public class DocumentServiceTests
         Assert.NotNull(active);
         Assert.Equal(1, active!.Type);
     }
+
+    [Fact]
+    [Trait("Category", "Integration")]
+    public void Integration_SaveDocumentAs_CreatesCopyOnDisk()
+    {
+        using var ctx = new SolidWorksIntegrationTestContext();
+        string sourcePath = ctx.CreateAndSaveBoxPart();
+        string outputPath = Path.Combine(Path.GetTempPath(), $"SwSaveAsCopy_{Guid.NewGuid():N}.sldprt");
+
+        try
+        {
+            var result = ctx.Documents.SaveDocumentAs(outputPath, sourcePath, saveAsCopy: true);
+
+            Assert.True(File.Exists(outputPath), $"Expected SaveDocumentAs to create '{outputPath}'.");
+            Assert.Equal(Path.GetFullPath(sourcePath), result.SourcePath, StringComparer.OrdinalIgnoreCase);
+            Assert.Equal(Path.GetFullPath(outputPath), result.OutputPath, StringComparer.OrdinalIgnoreCase);
+            Assert.Equal("sldprt", result.Format);
+            Assert.True(result.SaveAsCopy);
+        }
+        finally
+        {
+            if (File.Exists(outputPath))
+            {
+                File.Delete(outputPath);
+            }
+        }
+    }
 }

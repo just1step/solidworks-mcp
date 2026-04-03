@@ -286,10 +286,11 @@ public class SldWorksAppWrapper : ISldWorksApp
             options |= (int)swSaveAsOptions_e.swSaveAsOptions_Copy;
         }
 
-        bool saved = doc.Extension.SaveAs(
+        bool saved = doc.Extension.SaveAs3(
             normalizedOutputPath,
             (int)swSaveAsVersion_e.swSaveAsCurrentVersion,
             options,
+            null,
             null,
             ref errors,
             ref warnings);
@@ -299,7 +300,7 @@ public class SldWorksAppWrapper : ISldWorksApp
         if (!saved || !File.Exists(normalizedOutputPath))
         {
             throw SolidWorksApiErrorFactory.FromSaveFailure(
-                "IModelDocExtension.SaveAs",
+                "IModelDocExtension.SaveAs3",
                 $"Failed to save document as '{normalizedOutputPath}'.",
                 errors,
                 warnings,

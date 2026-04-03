@@ -40,11 +40,12 @@ public class FeatureService : IFeatureService
     {
         _cm.EnsureConnected();
         var doc = GetModelDoc();
-        EnsureAvailableSketchHasClosedProfile(doc, "IModelDoc2.FeatureBoss2", "extrude");
+        var featureManager = GetFeatureManager();
+        EnsureAvailableSketchHasClosedProfile(doc, "IFeatureManager.FeatureExtrusion3", "extrude");
         var topFeatureBefore = CaptureFeatureSnapshot(doc.IFeatureByPositionReverse(0));
         var bodyBefore = CaptureBodySignature(doc);
 
-        doc.FeatureBoss2(
+        featureManager.FeatureExtrusion3(
             Sd: true, Flip: flipDirection, Dir: !flipDirection,
             T1: (int)endCondition, T2: 0,
             D1: depth, D2: 0,
@@ -52,13 +53,19 @@ public class FeatureService : IFeatureService
             Ddir1: false, Ddir2: false,
             Dang1: 0, Dang2: 0,
             OffsetReverse1: false, OffsetReverse2: false,
-            TranslateSurface1: false, TranslateSurface2: false);
+            TranslateSurface1: false, TranslateSurface2: false,
+            Merge: true,
+            UseFeatScope: false,
+            UseAutoSelect: true,
+            T0: 0,
+            StartOffset: 0,
+            FlipStartOffset: false);
 
         var topFeatureAfter = CaptureFeatureSnapshot(doc.IFeatureByPositionReverse(0));
         var bodyAfter = CaptureBodySignature(doc);
         var feature = ResolveCreatedSolidFeature(topFeatureBefore, topFeatureAfter)
             ?? throw SolidWorksApiErrorFactory.FromValidationFailure(
-                "IModelDoc2.FeatureBoss2",
+                "IFeatureManager.FeatureExtrusion3",
                 "SolidWorks did not create a new extrude feature.",
                 new Dictionary<string, object?>
                 {
@@ -70,7 +77,7 @@ public class FeatureService : IFeatureService
         if (!BodyTopologyChanged(bodyBefore, bodyAfter))
         {
             throw SolidWorksApiErrorFactory.FromValidationFailure(
-                "IModelDoc2.FeatureBoss2",
+                "IFeatureManager.FeatureExtrusion3",
                 "SolidWorks did not change the solid body during extrude.",
                 new Dictionary<string, object?>
                 {

@@ -1,5 +1,6 @@
 using SolidWorks.Interop.sldworks;
 using SolidWorks.Interop.swconst;
+using System.Runtime.InteropServices;
 
 namespace SolidWorksBridge.SolidWorks;
 
@@ -130,6 +131,8 @@ public interface IAssemblyService
 /// </summary>
 public class AssemblyService : IAssemblyService
 {
+    private const int RpcServerFault = unchecked((int)0x80010105);
+
     private readonly ISwConnectionManager _cm;
 
     public AssemblyService(ISwConnectionManager cm)
@@ -203,8 +206,141 @@ public class AssemblyService : IAssemblyService
     {
         _cm.EnsureConnected();
         var assy = GetAssemblyDoc();
+        var doc = (IModelDoc2)assy;
 
         var instances = EnumerateComponentInstances(assy);
+        var selectedInstances = SelectInstances(instances, hierarchyPaths);
+        if (selectedInstances.Count == 0)
+        {
+            return new AssemblyInterferenceCheckResult(
+                HasInterference: false,
+                TreatCoincidenceAsInterference: treatCoincidenceAsInterference,
+                CheckedComponentCount: 0,
+                InterferingFaceCount: 0,
+                InterferingComponents: Array.Empty<ComponentInstanceInfo>());
+        }
+
+        try
+        {
+            try
+            {
+                return CheckInterferenceViaToolsCheckInterference2(
+                    assy,
+                    doc,
+                    selectedInstances,
+                    treatCoincidenceAsInterference);
+            }
+            catch (System.Runtime.InteropServices.COMException ex) when (ex.HResult == RpcServerFault)
+            {
+                return CheckInterferenceViaDetectionManager(
+                    assy,
+                    instances,
+                    hierarchyPaths,
+                    treatCoincidenceAsInterference);
+            }
+        }
+        catch (System.Runtime.InteropServices.COMException ex)
+        {
+            throw SolidWorksApiErrorFactory.FromComException(
+                "IAssemblyDoc.ToolsCheckInterference2",
+                ex,
+                new Dictionary<string, object?>
+                {
+                    ["requestedHierarchyPaths"] = hierarchyPaths == null ? null : string.Join(" | ", hierarchyPaths),
+                    ["treatCoincidenceAsInterference"] = treatCoincidenceAsInterference,
+                });
+        }
+        finally
+        {
+            doc.ClearSelection2(true);
+        }
+    }
+
+    private AssemblyInterferenceCheckResult CheckInterferenceViaToolsCheckInterference2(
+        IAssemblyDoc assy,
+        IModelDoc2 doc,
+        IReadOnlyList<ComponentInstance> selectedInstances,
+        bool treatCoincidenceAsInterference)
+    {
+        doc.ClearSelection2(true);
+        for (int index = 0; index < selectedInstances.Count; index++)
+        {
+            bool append = index > 0;
+            if (!selectedInstances[index].Component.Select2(append, 0))
+            {
+                throw SolidWorksApiErrorFactory.FromValidationFailure(
+                    "IComponent2.Select2",
+                    $"Failed to select component '{selectedInstances[index].Info.HierarchyPath}' for interference checking.",
+                    new Dictionary<string, object?>
+                    {
+                        ["hierarchyPath"] = selectedInstances[index].Info.HierarchyPath,
+                        ["componentPath"] = selectedInstances[index].Info.Path,
+                    });
+            }
+        }
+
+        object checkedComponents = selectedInstances
+            .Select(instance => new DispatchWrapper(instance.Component))
+            .Cast<object>()
+            .ToArray();
+        object interferingComponentsRaw;
+        object interferingFacesRaw;
+
+        assy.ToolsCheckInterference2(
+            selectedInstances.Count,
+            checkedComponents,
+            treatCoincidenceAsInterference,
+            out interferingComponentsRaw,
+            out interferingFacesRaw);
+
+        var interferingComponents = (interferingComponentsRaw as object[] ?? Array.Empty<object>())
+            .OfType<IComponent2>()
+            .ToList();
+        var interferingFaces = (interferingFacesRaw as object[] ?? Array.Empty<object>())
+            .OfType<IFace2>()
+            .ToList();
+
+        var matchedInfos = new List<ComponentInstanceInfo>();
+        int pairCount = Math.Min(interferingComponents.Count, interferingFaces.Count);
+        for (int index = 0; index < pairCount; index++)
+        {
+            var componentInfos = selectedInstances
+                .Where(instance => IsSameComponentInstance(instance.Component, interferingComponents[index]))
+                .Select(instance => instance.Info)
+                .DistinctBy(info => info.HierarchyPath, StringComparer.OrdinalIgnoreCase)
+                .ToList();
+
+            matchedInfos.AddRange(componentInfos);
+        }
+
+        if (pairCount < interferingComponents.Count)
+        {
+            matchedInfos.AddRange(selectedInstances
+                .Where(instance => interferingComponents.Skip(pairCount)
+                    .Any(component => IsSameComponentInstance(instance.Component, component)))
+                .Select(instance => instance.Info)
+                .DistinctBy(info => info.HierarchyPath, StringComparer.OrdinalIgnoreCase));
+        }
+
+        var interferingInfos = matchedInfos
+            .DistinctBy(info => info.HierarchyPath, StringComparer.OrdinalIgnoreCase)
+            .ToList()
+            .AsReadOnly();
+
+        return new AssemblyInterferenceCheckResult(
+            HasInterference: interferingInfos.Count > 0,
+            TreatCoincidenceAsInterference: treatCoincidenceAsInterference,
+            CheckedComponentCount: selectedInstances.Count,
+            InterferingFaceCount: pairCount,
+            InterferingComponents: interferingInfos);
+    }
+
+    private AssemblyInterferenceCheckResult CheckInterferenceViaDetectionManager(
+        IAssemblyDoc assy,
+        IReadOnlyList<ComponentInstance> instances,
+        IReadOnlyList<string>? hierarchyPaths,
+        bool treatCoincidenceAsInterference)
+    {
         var requestedPaths = hierarchyPaths == null || hierarchyPaths.Count == 0
             ? null
             : new HashSet<string>(hierarchyPaths, StringComparer.OrdinalIgnoreCase);

@@ -123,16 +123,18 @@ public class FeatureServiceTests
     [Fact]
     public void Extrude_ReturnsFeatureInfo_WithCorrectType()
     {
-        var (manager, _, _, doc) = ConnectedWithFm();
+        var (manager, _, fm, doc) = ConnectedWithFm();
         var before = FakeFeature("Sketch2", "ProfileFeature");
         var feat = FakeFeature("Boss-Extrude1", "BossExtrude");
-        doc.Setup(d => d.FeatureBoss2(
+        fm.Setup(f => f.FeatureExtrusion3(
                 It.IsAny<bool>(), It.IsAny<bool>(), It.IsAny<bool>(),
                 It.IsAny<int>(), It.IsAny<int>(),
                 It.IsAny<double>(), It.IsAny<double>(),
                 It.IsAny<bool>(), It.IsAny<bool>(), It.IsAny<bool>(), It.IsAny<bool>(),
                 It.IsAny<double>(), It.IsAny<double>(),
-                It.IsAny<bool>(), It.IsAny<bool>(), It.IsAny<bool>(), It.IsAny<bool>()));
+            It.IsAny<bool>(), It.IsAny<bool>(), It.IsAny<bool>(), It.IsAny<bool>(),
+            It.IsAny<bool>(), It.IsAny<bool>(), It.IsAny<bool>(),
+            It.IsAny<int>(), It.IsAny<double>(), It.IsAny<bool>()));
         doc.SetupSequence(d => d.IFeatureByPositionReverse(0))
             .Returns(before)
             .Returns(before)
@@ -159,7 +161,7 @@ public class FeatureServiceTests
     [Fact]
     public void Extrude_OpenActiveSketch_ThrowsBeforeCallingCom()
     {
-        var (manager, _, _, doc) = ConnectedWithFm();
+        var (manager, _, fm, doc) = ConnectedWithFm();
         var sketch = new Mock<ISketch>();
         var openContour = new Mock<ISketchContour>();
         openContour.Setup(c => c.IsClosed()).Returns(false);
@@ -173,20 +175,22 @@ public class FeatureServiceTests
             new FeatureService(manager.Object).Extrude(0.01));
 
         Assert.Contains("contains open contours", error.Message);
-        doc.Verify(d => d.FeatureBoss2(
+        fm.Verify(f => f.FeatureExtrusion3(
             It.IsAny<bool>(), It.IsAny<bool>(), It.IsAny<bool>(),
             It.IsAny<int>(), It.IsAny<int>(),
             It.IsAny<double>(), It.IsAny<double>(),
             It.IsAny<bool>(), It.IsAny<bool>(), It.IsAny<bool>(), It.IsAny<bool>(),
             It.IsAny<double>(), It.IsAny<double>(),
-            It.IsAny<bool>(), It.IsAny<bool>(), It.IsAny<bool>(), It.IsAny<bool>()),
+            It.IsAny<bool>(), It.IsAny<bool>(), It.IsAny<bool>(), It.IsAny<bool>(),
+            It.IsAny<bool>(), It.IsAny<bool>(), It.IsAny<bool>(),
+            It.IsAny<int>(), It.IsAny<double>(), It.IsAny<bool>()),
             Times.Never);
     }
 
     [Fact]
     public void Extrude_OpenTopProfileSketch_ThrowsBeforeCallingCom()
     {
-        var (manager, _, _, doc) = ConnectedWithFm();
+        var (manager, _, fm, doc) = ConnectedWithFm();
         var sketch = new Mock<ISketch>();
         var openContour = new Mock<ISketchContour>();
         var topSketchFeature = new Mock<Feature>();
@@ -207,13 +211,15 @@ public class FeatureServiceTests
 
         Assert.Contains("contains open contours", error.Message);
         Assert.Contains("top-profile-feature", error.Message);
-        doc.Verify(d => d.FeatureBoss2(
+        fm.Verify(f => f.FeatureExtrusion3(
             It.IsAny<bool>(), It.IsAny<bool>(), It.IsAny<bool>(),
             It.IsAny<int>(), It.IsAny<int>(),
             It.IsAny<double>(), It.IsAny<double>(),
             It.IsAny<bool>(), It.IsAny<bool>(), It.IsAny<bool>(), It.IsAny<bool>(),
             It.IsAny<double>(), It.IsAny<double>(),
-            It.IsAny<bool>(), It.IsAny<bool>(), It.IsAny<bool>(), It.IsAny<bool>()),
+            It.IsAny<bool>(), It.IsAny<bool>(), It.IsAny<bool>(), It.IsAny<bool>(),
+            It.IsAny<bool>(), It.IsAny<bool>(), It.IsAny<bool>(),
+            It.IsAny<int>(), It.IsAny<double>(), It.IsAny<bool>()),
             Times.Never);
     }
 
@@ -242,7 +248,7 @@ public class FeatureServiceTests
     [Fact]
     public void Extrude_FlipDirection_PassesFalseForDirToApi()
     {
-        var (manager, _, _, doc) = ConnectedWithFm();
+        var (manager, _, fm, doc) = ConnectedWithFm();
         doc.SetupSequence(d => d.IFeatureByPositionReverse(0))
             .Returns(FakeFeature("Sketch2", "ProfileFeature"))
             .Returns(FakeFeature("Sketch2", "ProfileFeature"))
@@ -251,13 +257,15 @@ public class FeatureServiceTests
         new FeatureService(manager.Object).Extrude(0.01, flipDirection: true);
 
         // When flipDirection=true: Flip=true, Dir=false
-        doc.Verify(d => d.FeatureBoss2(
+        fm.Verify(f => f.FeatureExtrusion3(
             true /*Sd*/, true /*Flip*/, false /*Dir*/,
             It.IsAny<int>(), It.IsAny<int>(),
             0.01, It.IsAny<double>(),
             It.IsAny<bool>(), It.IsAny<bool>(), It.IsAny<bool>(), It.IsAny<bool>(),
             It.IsAny<double>(), It.IsAny<double>(),
-            It.IsAny<bool>(), It.IsAny<bool>(), It.IsAny<bool>(), It.IsAny<bool>()),
+            It.IsAny<bool>(), It.IsAny<bool>(), It.IsAny<bool>(), It.IsAny<bool>(),
+            true /*Merge*/, false /*UseFeatScope*/, true /*UseAutoSelect*/,
+            0 /*T0*/, 0 /*StartOffset*/, false /*FlipStartOffset*/),
             Times.Once);
     }
 
@@ -421,7 +429,7 @@ public class FeatureServiceTests
     [Fact]
     public void Extrude_ClosedContoursWithoutRegions_ThrowsBeforeCallingCom()
     {
-        var (manager, _, _, doc) = ConnectedWithFm();
+        var (manager, _, fm, doc) = ConnectedWithFm();
         var sketch = new Mock<ISketch>();
         var closedContour = new Mock<ISketchContour>();
         closedContour.Setup(c => c.IsClosed()).Returns(true);
@@ -435,13 +443,15 @@ public class FeatureServiceTests
             new FeatureService(manager.Object).Extrude(0.01));
 
         Assert.Contains("does not contain any valid sketch regions", error.Message);
-        doc.Verify(d => d.FeatureBoss2(
+        fm.Verify(f => f.FeatureExtrusion3(
             It.IsAny<bool>(), It.IsAny<bool>(), It.IsAny<bool>(),
             It.IsAny<int>(), It.IsAny<int>(),
             It.IsAny<double>(), It.IsAny<double>(),
             It.IsAny<bool>(), It.IsAny<bool>(), It.IsAny<bool>(), It.IsAny<bool>(),
             It.IsAny<double>(), It.IsAny<double>(),
-            It.IsAny<bool>(), It.IsAny<bool>(), It.IsAny<bool>(), It.IsAny<bool>()),
+            It.IsAny<bool>(), It.IsAny<bool>(), It.IsAny<bool>(), It.IsAny<bool>(),
+            It.IsAny<bool>(), It.IsAny<bool>(), It.IsAny<bool>(),
+            It.IsAny<int>(), It.IsAny<double>(), It.IsAny<bool>()),
             Times.Never);
     }
 

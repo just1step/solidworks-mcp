@@ -65,4 +65,35 @@ public class AssemblyServiceIntegrationTests : IDisposable
 
         Assert.Empty(components);
     }
+
+    [Fact]
+    [Trait("Category", "Integration")]
+    public void Integration_CheckInterference_OnOverlappingComponents_ReturnsInterference()
+    {
+        string partPath = _ctx.CreateAndSaveBoxPart();
+
+        _ctx.Documents.NewDocument(SwDocType.Assembly);
+
+        var first = _ctx.Assembly.InsertComponent(partPath, 0, 0, 0);
+        var second = _ctx.Assembly.InsertComponent(partPath, 0, 0, 0);
+        var components = _ctx.Assembly.ListComponents();
+
+        Assert.NotEqual(first.Name, second.Name);
+        Assert.Equal(2, components.Count);
+        Assert.Contains(components, component =>
+            string.Equals(component.Name, first.Name, StringComparison.OrdinalIgnoreCase));
+        Assert.Contains(components, component =>
+            string.Equals(component.Name, second.Name, StringComparison.OrdinalIgnoreCase));
+
+        var result = _ctx.Assembly.CheckInterference([first.Name, second.Name]);
+
+        Assert.True(result.HasInterference, "Expected overlapping components to interfere.");
+        Assert.Equal(2, result.CheckedComponentCount);
+        Assert.True(result.InterferingFaceCount > 0,
+            $"Expected interfering faces to be reported, got {result.InterferingFaceCount}.");
+        Assert.Contains(result.InterferingComponents, component =>
+            string.Equals(component.HierarchyPath, first.Name, StringComparison.OrdinalIgnoreCase));
+        Assert.Contains(result.InterferingComponents, component =>
+            string.Equals(component.HierarchyPath, second.Name, StringComparison.OrdinalIgnoreCase));
+    }
 }

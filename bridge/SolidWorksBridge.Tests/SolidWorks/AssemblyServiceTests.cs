@@ -1,4 +1,5 @@
 using Moq;
+using System.Runtime.InteropServices;
 using SolidWorks.Interop.sldworks;
 using SolidWorks.Interop.swconst;
 using SolidWorksBridge.SolidWorks;
@@ -72,6 +73,30 @@ public class AssemblyServiceTests
         return new Mock<Mate2>().Object;
     }
 
+    private static string CreateTempModelFile(string extension = ".sldprt")
+    {
+        var path = Path.Combine(Path.GetTempPath(), $"{Guid.NewGuid():N}{extension}");
+        File.WriteAllText(path, string.Empty);
+        return path;
+    }
+
+    private static void SetupToolsCheckInterference2(
+        Mock<IAssemblyDoc> assy,
+        int checkedComponentCount,
+        bool treatCoincidenceAsInterference,
+        object[] interferingComponents,
+        object[] interferingFaces)
+    {
+        object outComponents = interferingComponents;
+        object outFaces = interferingFaces;
+        assy.Setup(a => a.ToolsCheckInterference2(
+                checkedComponentCount,
+                It.IsAny<object>(),
+                treatCoincidenceAsInterference,
+                out outComponents,
+                out outFaces));
+    }
+
     // ─────────────────────────────────────────────────────────────
     // Constructor
     // ─────────────────────────────────────────────────────────────
@@ -90,36 +115,52 @@ public class AssemblyServiceTests
     public void InsertComponent_ReturnsComponentInfo()
     {
         var (manager, assy) = ConnectedWithAssy();
-        var comp = FakeComponent("Part1-1", @"C:\Part1.sldprt");
-        assy.Setup(a => a.AddComponent5(
-                @"C:\Part1.sldprt",
-                It.IsAny<int>(), It.IsAny<string>(), It.IsAny<bool>(), It.IsAny<string>(),
-                0.0, 0.0, 0.0))
-            .Returns(comp);
+        var filePath = CreateTempModelFile();
+        try
+        {
+            var comp = FakeComponent("Part1-1", filePath);
+            assy.Setup(a => a.AddComponent5(
+                    filePath,
+                    It.IsAny<int>(), It.IsAny<string>(), It.IsAny<bool>(), It.IsAny<string>(),
+                    0.0, 0.0, 0.0))
+                .Returns(comp);
 
-        var info = new AssemblyService(manager.Object).InsertComponent(@"C:\Part1.sldprt");
+            var info = new AssemblyService(manager.Object).InsertComponent(filePath);
 
-        Assert.Equal("Part1-1", info.Name);
-        Assert.Equal(@"C:\Part1.sldprt", info.Path);
+            Assert.Equal("Part1-1", info.Name);
+            Assert.Equal(filePath, info.Path);
+        }
+        finally
+        {
+            File.Delete(filePath);
+        }
     }
 
     [Fact]
     public void InsertComponent_WithPosition_PassesCoordinatesToApi()
     {
         var (manager, assy) = ConnectedWithAssy();
-        var comp = FakeComponent();
-        assy.Setup(a => a.AddComponent5(
-                It.IsAny<string>(),
+        var filePath = CreateTempModelFile();
+        try
+        {
+            var comp = FakeComponent(path: filePath);
+            assy.Setup(a => a.AddComponent5(
+                    It.IsAny<string>(),
+                    It.IsAny<int>(), It.IsAny<string>(), It.IsAny<bool>(), It.IsAny<string>(),
+                    0.1, 0.2, 0.3))
+                .Returns(comp);
+
+            new AssemblyService(manager.Object).InsertComponent(filePath, 0.1, 0.2, 0.3);
+
+            assy.Verify(a => a.AddComponent5(
+                filePath,
                 It.IsAny<int>(), It.IsAny<string>(), It.IsAny<bool>(), It.IsAny<string>(),
-                0.1, 0.2, 0.3))
-            .Returns(comp);
-
-        new AssemblyService(manager.Object).InsertComponent(@"C:\Part1.sldprt", 0.1, 0.2, 0.3);
-
-        assy.Verify(a => a.AddComponent5(
-            @"C:\Part1.sldprt",
-            It.IsAny<int>(), It.IsAny<string>(), It.IsAny<bool>(), It.IsAny<string>(),
-            0.1, 0.2, 0.3), Times.Once);
+                0.1, 0.2, 0.3), Times.Once);
+        }
+        finally
+        {
+            File.Delete(filePath);
+        }
     }
 
     [Fact]
@@ -134,30 +175,54 @@ public class AssemblyServiceTests
     public void InsertComponent_NullReturnFromApi_Throws()
     {
         var (manager, assy) = ConnectedWithAssy();
-        assy.Setup(a => a.AddComponent5(
-                It.IsAny<string>(),
-                It.IsAny<int>(), It.IsAny<string>(), It.IsAny<bool>(), It.IsAny<string>(),
-                It.IsAny<double>(), It.IsAny<double>(), It.IsAny<double>()))
-            .Returns((Component2)null!);
+        var filePath = CreateTempModelFile();
+        try
+        {
+            assy.Setup(a => a.AddComponent5(
+                    It.IsAny<string>(),
+                    It.IsAny<int>(), It.IsAny<string>(), It.IsAny<bool>(), It.IsAny<string>(),
+                    It.IsAny<double>(), It.IsAny<double>(), It.IsAny<double>()))
+                .Returns((Component2)null!);
 
-        Assert.Throws<InvalidOperationException>(() =>
-            new AssemblyService(manager.Object).InsertComponent(@"C:\Part1.sldprt"));
+            Assert.Throws<InvalidOperationException>(() =>
+                new AssemblyService(manager.Object).InsertComponent(filePath));
+        }
+        finally
+        {
+            File.Delete(filePath);
+        }
     }
 
     [Fact]
     public void InsertComponent_NoActiveDoc_Throws()
     {
         var manager = ConnectedNoDoc();
-        Assert.Throws<InvalidOperationException>(() =>
-            new AssemblyService(manager.Object).InsertComponent(@"C:\Part1.sldprt"));
+        var filePath = CreateTempModelFile();
+        try
+        {
+            Assert.Throws<InvalidOperationException>(() =>
+                new AssemblyService(manager.Object).InsertComponent(filePath));
+        }
+        finally
+        {
+            File.Delete(filePath);
+        }
     }
 
     [Fact]
     public void InsertComponent_NotAssembly_Throws()
     {
         var manager = ConnectedNonAssy();
-        Assert.Throws<InvalidOperationException>(() =>
-            new AssemblyService(manager.Object).InsertComponent(@"C:\Part1.sldprt"));
+        var filePath = CreateTempModelFile();
+        try
+        {
+            Assert.Throws<InvalidOperationException>(() =>
+                new AssemblyService(manager.Object).InsertComponent(filePath));
+        }
+        finally
+        {
+            File.Delete(filePath);
+        }
     }
 
     // ─────────────────────────────────────────────────────────────
@@ -372,8 +437,7 @@ public class AssemblyServiceTests
     public void CheckInterference_ReturnsInterferingInstances()
     {
         var (manager, assy) = ConnectedWithAssy();
-        var detectionManager = new Mock<InterferenceDetectionMgr>();
-        var interference = new Mock<Interference>();
+        var doc = assy.As<IModelDoc2>();
 
         var part1 = new Mock<Component2>();
         part1.Setup(c => c.Name2).Returns("Part1-1");
@@ -384,12 +448,15 @@ public class AssemblyServiceTests
         part2.Setup(c => c.Name2).Returns("Part2-1");
         part2.Setup(c => c.GetPathName()).Returns(@"C:\Part2.sldprt");
         part2.Setup(c => c.GetChildren()).Returns(Array.Empty<object>());
+        part1.Setup(c => c.Select2(false, 0)).Returns(true);
+        part2.Setup(c => c.Select2(true, 0)).Returns(true);
         assy.Setup(a => a.GetComponents(true)).Returns(new object[] { part1.Object, part2.Object });
-        assy.SetupGet(a => a.InterferenceDetectionManager).Returns(detectionManager.Object);
-        interference.Setup(i => i.Components).Returns(new object[] { part2.Object, part1.Object });
-        interference.Setup(i => i.IsPossibleInterference).Returns(false);
-        interference.Setup(i => i.GetComponentCount()).Returns(2);
-        detectionManager.Setup(m => m.GetInterferences()).Returns(new object[] { interference.Object });
+        SetupToolsCheckInterference2(
+            assy,
+            checkedComponentCount: 2,
+            treatCoincidenceAsInterference: false,
+            interferingComponents: new object[] { part2.Object, part1.Object },
+            interferingFaces: new object[] { new Mock<Face2>().Object, new Mock<Face2>().Object });
 
         var result = new AssemblyService(manager.Object).CheckInterference();
 
@@ -398,15 +465,20 @@ public class AssemblyServiceTests
         Assert.Equal(2, result.CheckedComponentCount);
         Assert.Equal(2, result.InterferingFaceCount);
         Assert.Equal(2, result.InterferingComponents.Count);
-        detectionManager.Verify(m => m.Done(), Times.Once);
+        doc.Verify(d => d.ClearSelection2(true), Times.Exactly(2));
+        assy.Verify(a => a.ToolsCheckInterference2(
+            2,
+            It.IsAny<object>(),
+            false,
+            out It.Ref<object>.IsAny,
+            out It.Ref<object>.IsAny), Times.Once);
     }
 
     [Fact]
     public void CheckInterference_WithHierarchyFilter_ChecksSubset()
     {
         var (manager, assy) = ConnectedWithAssy();
-        var detectionManager = new Mock<InterferenceDetectionMgr>();
-        var interference = new Mock<Interference>();
+        var doc = assy.As<IModelDoc2>();
 
         var child = new Mock<Component2>();
         child.Setup(c => c.Name2).Returns("NestedPart-1");
@@ -417,6 +489,8 @@ public class AssemblyServiceTests
         sibling.Setup(c => c.Name2).Returns("NestedPart-2");
         sibling.Setup(c => c.GetPathName()).Returns(@"C:\NestedPart2.sldprt");
         sibling.Setup(c => c.GetChildren()).Returns(Array.Empty<object>());
+        child.Setup(c => c.Select2(false, 0)).Returns(true);
+        sibling.Setup(c => c.Select2(true, 0)).Returns(true);
 
         var subAssembly = new Mock<Component2>();
         subAssembly.Setup(c => c.Name2).Returns("SubAsm-1");
@@ -424,11 +498,12 @@ public class AssemblyServiceTests
         subAssembly.Setup(c => c.GetChildren()).Returns(new object[] { child.Object, sibling.Object });
 
         assy.Setup(a => a.GetComponents(true)).Returns(new object[] { subAssembly.Object });
-        assy.SetupGet(a => a.InterferenceDetectionManager).Returns(detectionManager.Object);
-        interference.Setup(i => i.Components).Returns(new object[] { child.Object, sibling.Object });
-        interference.Setup(i => i.IsPossibleInterference).Returns(false);
-        interference.Setup(i => i.GetComponentCount()).Returns(2);
-        detectionManager.Setup(m => m.GetInterferences()).Returns(new object[] { interference.Object });
+        SetupToolsCheckInterference2(
+            assy,
+            checkedComponentCount: 2,
+            treatCoincidenceAsInterference: true,
+            interferingComponents: new object[] { child.Object, sibling.Object },
+            interferingFaces: new object[] { new Mock<Face2>().Object, new Mock<Face2>().Object });
 
         var result = new AssemblyService(manager.Object).CheckInterference(
             ["SubAsm-1/NestedPart-1", "SubAsm-1/NestedPart-2"],
@@ -439,15 +514,19 @@ public class AssemblyServiceTests
         Assert.Equal(2, result.CheckedComponentCount);
         Assert.Equal(2, result.InterferingFaceCount);
         Assert.Equal(2, result.InterferingComponents.Count);
-        detectionManager.VerifySet(m => m.TreatCoincidenceAsInterference = true, Times.Once);
+        doc.Verify(d => d.ClearSelection2(true), Times.Exactly(2));
+        assy.Verify(a => a.ToolsCheckInterference2(
+            2,
+            It.IsAny<object>(),
+            true,
+            out It.Ref<object>.IsAny,
+            out It.Ref<object>.IsAny), Times.Once);
     }
 
     [Fact]
     public void CheckInterference_WhenFilterDoesNotMatch_ExcludesInterference()
     {
         var (manager, assy) = ConnectedWithAssy();
-        var detectionManager = new Mock<InterferenceDetectionMgr>();
-        var interference = new Mock<Interference>();
         var part1 = new Mock<Component2>();
         part1.Setup(c => c.Name2).Returns("Part1-1");
         part1.Setup(c => c.GetPathName()).Returns(@"C:\Part1.sldprt");
@@ -458,16 +537,65 @@ public class AssemblyServiceTests
         part2.Setup(c => c.GetChildren()).Returns(Array.Empty<object>());
 
         assy.Setup(a => a.GetComponents(true)).Returns(new object[] { part1.Object, part2.Object });
+
+        var result = new AssemblyService(manager.Object).CheckInterference(["Missing/Part-1"]);
+
+        Assert.False(result.HasInterference);
+        Assert.Equal(0, result.CheckedComponentCount);
+        Assert.Empty(result.InterferingComponents);
+        assy.Verify(a => a.ToolsCheckInterference2(
+            It.IsAny<int>(),
+            It.IsAny<object>(),
+            It.IsAny<bool>(),
+            out It.Ref<object>.IsAny,
+            out It.Ref<object>.IsAny), Times.Never);
+    }
+
+    [Fact]
+    public void CheckInterference_WhenToolsCheckInterference2ServerFault_FallsBackToDetectionManager()
+    {
+        var (manager, assy) = ConnectedWithAssy();
+        var part1 = new Mock<Component2>();
+        var part2 = new Mock<Component2>();
+        var detectionManager = new Mock<InterferenceDetectionMgr>();
+        var interference = new Mock<Interference>();
+        var serverFault = new COMException("server fault", unchecked((int)0x80010105));
+        object ignoredComponents = Array.Empty<object>();
+        object ignoredFaces = Array.Empty<object>();
+
+        part1.Setup(c => c.Name2).Returns("Part1-1");
+        part1.Setup(c => c.GetPathName()).Returns(@"C:\Part1.sldprt");
+        part1.Setup(c => c.GetChildren()).Returns(Array.Empty<object>());
+        part1.Setup(c => c.Select2(false, 0)).Returns(true);
+
+        part2.Setup(c => c.Name2).Returns("Part2-1");
+        part2.Setup(c => c.GetPathName()).Returns(@"C:\Part2.sldprt");
+        part2.Setup(c => c.GetChildren()).Returns(Array.Empty<object>());
+        part2.Setup(c => c.Select2(true, 0)).Returns(true);
+
+        assy.Setup(a => a.GetComponents(true)).Returns(new object[] { part1.Object, part2.Object });
+        assy.Setup(a => a.ToolsCheckInterference2(
+                2,
+                It.IsAny<object>(),
+                false,
+                out ignoredComponents,
+                out ignoredFaces))
+            .Throws(serverFault);
+        assy.Setup(a => a.ToolsCheckInterference());
         assy.SetupGet(a => a.InterferenceDetectionManager).Returns(detectionManager.Object);
+
         interference.Setup(i => i.Components).Returns(new object[] { part1.Object, part2.Object });
         interference.Setup(i => i.IsPossibleInterference).Returns(false);
         interference.Setup(i => i.GetComponentCount()).Returns(2);
         detectionManager.Setup(m => m.GetInterferences()).Returns(new object[] { interference.Object });
 
-        var result = new AssemblyService(manager.Object).CheckInterference(["Missing/Part-1"]);
+        var result = new AssemblyService(manager.Object).CheckInterference();
 
-        Assert.False(result.HasInterference);
-        Assert.Empty(result.InterferingComponents);
+        Assert.True(result.HasInterference);
+        Assert.Equal(2, result.CheckedComponentCount);
+        Assert.Equal(2, result.InterferingFaceCount);
+        detectionManager.Verify(m => m.GetInterferences(), Times.Once);
+        detectionManager.Verify(m => m.Done(), Times.Once);
     }
 
     [Fact]
