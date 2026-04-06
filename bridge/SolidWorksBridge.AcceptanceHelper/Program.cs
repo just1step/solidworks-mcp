@@ -1781,10 +1781,10 @@ internal sealed class AcceptanceSession : IDisposable
         };
     }
 
-    private string CreateBoxPartFile()
+    private string CreateBoxPartFile(double width = 0.02, double height = 0.02, double depth = 0.01)
     {
         ResetSession();
-        CreateBoxPart(0.02, 0.02, 0.01);
+        CreateBoxPart(width, height, depth);
         string path = Path.Combine(Path.GetTempPath(), $"SwMcpMateBox_{Guid.NewGuid():N}.sldprt");
         SaveActiveDocumentAs(path);
         return path;

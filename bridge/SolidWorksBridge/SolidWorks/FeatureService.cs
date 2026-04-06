@@ -557,17 +557,18 @@ public class FeatureService : IFeatureService
             return null;
         }
 
-        var bodies = (object[]?)part.GetBodies2((int)swBodyType_e.swSolidBody, true) ?? Array.Empty<object>();
-        var primaryBody = bodies.OfType<IBody2>().FirstOrDefault();
-        if (primaryBody == null)
+        var bodies = ((object[]?)part.GetBodies2((int)swBodyType_e.swSolidBody, true) ?? Array.Empty<object>())
+            .OfType<IBody2>()
+            .Select(CaptureSolidBodySignature)
+            .ToArray();
+
+        if (bodies.Length == 0)
         {
             return null;
         }
 
-        int faceCount = ((object[]?)primaryBody.GetFaces() ?? Array.Empty<object>()).Length;
-        int edgeCount = ((object[]?)primaryBody.GetEdges() ?? Array.Empty<object>()).Length;
-        int vertexCount = ((object[]?)primaryBody.GetVertices() ?? Array.Empty<object>()).Length;
-        return new BodySignature(bodies.Length, faceCount, edgeCount, vertexCount);
+        Array.Sort(bodies, static (left, right) => string.CompareOrdinal(left.SortKey, right.SortKey));
+        return new BodySignature(bodies, string.Join("||", bodies.Select(body => body.SortKey)));
     }
 
     private static bool BodyTopologyChanged(BodySignature? before, BodySignature? after)
@@ -577,7 +578,7 @@ public class FeatureService : IFeatureService
             return true;
         }
 
-        return before.Value != after.Value;
+        return !string.Equals(before.Value.ComparisonKey, after.Value.ComparisonKey, StringComparison.Ordinal);
     }
 
     private static string FormatBody(BodySignature? signature)
@@ -587,9 +588,65 @@ public class FeatureService : IFeatureService
             return "<unavailable>";
         }
 
-        return $"bodies={signature.Value.BodyCount}, faces={signature.Value.FaceCount}, edges={signature.Value.EdgeCount}, vertices={signature.Value.VertexCount}";
+        return $"bodies={signature.Value.Bodies.Length}; {string.Join(" | ", signature.Value.Bodies.Select(FormatSolidBody))}";
     }
 
-    private readonly record struct BodySignature(int BodyCount, int FaceCount, int EdgeCount, int VertexCount);
+    private static SolidBodySignature CaptureSolidBodySignature(IBody2 body)
+    {
+        int faceCount = ((object[]?)body.GetFaces() ?? Array.Empty<object>()).Length;
+        int edgeCount = ((object[]?)body.GetEdges() ?? Array.Empty<object>()).Length;
+        int vertexCount = ((object[]?)body.GetVertices() ?? Array.Empty<object>()).Length;
+        var bodyBox = NormalizeBodyBox(ToDoubleArray(body.GetBodyBox()));
+        string sortKey = $"{faceCount:D6}:{edgeCount:D6}:{vertexCount:D6}:{FormatBox(bodyBox)}";
+        return new SolidBodySignature(faceCount, edgeCount, vertexCount, bodyBox, sortKey);
+    }
+
+    private static double[]? NormalizeBodyBox(double[]? box)
+    {
+        if (box == null || box.Length < 6)
+        {
+            return null;
+        }
+
+        return
+        [
+            NormalizeBodyCoordinate(box[0]),
+            NormalizeBodyCoordinate(box[1]),
+            NormalizeBodyCoordinate(box[2]),
+            NormalizeBodyCoordinate(box[3]),
+            NormalizeBodyCoordinate(box[4]),
+            NormalizeBodyCoordinate(box[5]),
+        ];
+    }
+
+    private static double NormalizeBodyCoordinate(double value)
+        => Math.Round(value, 9, MidpointRounding.AwayFromZero);
+
+    private static double[]? ToDoubleArray(object? raw)
+    {
+        return raw switch
+        {
+            null => null,
+            double[] doubles => doubles,
+            object[] objects => objects.OfType<double>().ToArray(),
+            _ => null,
+        };
+    }
+
+    private static string FormatSolidBody(SolidBodySignature signature)
+        => $"faces={signature.FaceCount}, edges={signature.EdgeCount}, vertices={signature.VertexCount}, box={FormatBox(signature.Box)}";
+
+    private static string FormatBox(double[]? box)
+    {
+        if (box == null || box.Length < 6)
+        {
+            return "<unknown>";
+        }
+
+        return $"[{box[0]}, {box[1]}, {box[2]}] -> [{box[3]}, {box[4]}, {box[5]}]";
+    }
+
+    private readonly record struct BodySignature(SolidBodySignature[] Bodies, string ComparisonKey);
+    private readonly record struct SolidBodySignature(int FaceCount, int EdgeCount, int VertexCount, double[]? Box, string SortKey);
     private readonly record struct FeatureSnapshot(Feature? Feature, string? Name, string? TypeName);
 }

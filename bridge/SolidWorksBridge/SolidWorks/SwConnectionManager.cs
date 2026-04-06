@@ -338,6 +338,7 @@ public class SldWorksAppWrapper : ISldWorksApp
         var doc = RequireActiveDocument();
         var (viewName, viewId) = GetStandardView(view);
         doc.ShowNamedView2(viewName, viewId);
+        doc.ViewZoomtofit2();
         doc.GraphicsRedraw2();
     }
 
@@ -362,6 +363,7 @@ public class SldWorksAppWrapper : ISldWorksApp
             view.RotateAboutAxis(ToRadians(zDegrees), 0, 0, 0, 0, 0, 1);
         }
 
+        doc.ViewZoomtofit2();
         doc.GraphicsRedraw2();
     }
 
@@ -385,6 +387,9 @@ public class SldWorksAppWrapper : ISldWorksApp
 
         try
         {
+            doc.ViewZoomtofit2();
+            doc.GraphicsRedraw2();
+
             if (!doc.SaveBMP(tempBmpPath, width, height) || !File.Exists(tempBmpPath))
             {
                 throw new InvalidOperationException($"SolidWorks failed to export the current view to bitmap: {tempBmpPath}");

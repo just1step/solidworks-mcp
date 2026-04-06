@@ -18,6 +18,7 @@ public class AppBootstrapper
     private readonly ISketchService _sketchService;
     private readonly IFeatureService _featureService;
     private readonly IAssemblyService _assemblyService;
+    private readonly IWorkflowService _workflowService;
     private readonly MessageHandler _messageHandler;
 
     public AppBootstrapper(
@@ -27,6 +28,7 @@ public class AppBootstrapper
         ISketchService sketchService,
         IFeatureService featureService,
         IAssemblyService assemblyService,
+        IWorkflowService workflowService,
         MessageHandler messageHandler)
     {
         _connectionManager = connectionManager
@@ -41,6 +43,8 @@ public class AppBootstrapper
             ?? throw new ArgumentNullException(nameof(featureService));
         _assemblyService = assemblyService
             ?? throw new ArgumentNullException(nameof(assemblyService));
+        _workflowService = workflowService
+            ?? throw new ArgumentNullException(nameof(workflowService));
         _messageHandler = messageHandler
             ?? throw new ArgumentNullException(nameof(messageHandler));
     }
@@ -428,6 +432,21 @@ public class AppBootstrapper
             return Task.FromResult<object?>(result);
         });
 
+        _messageHandler.Register("sw.workflow.replace_nested_component_and_verify_persistence", req =>
+        {
+            var p = req.GetParams<ReplaceNestedComponentAndVerifyPersistenceParams>()
+                ?? throw new ArgumentException("params required: {replacementFilePath, componentName?, hierarchyPath?, componentPath?, configName?, useConfigChoice?, reattachMates?}");
+            var result = _workflowService.ReplaceNestedComponentAndVerifyPersistence(
+                p.ReplacementFilePath,
+                p.ComponentName,
+                p.HierarchyPath,
+                p.ComponentPath,
+                p.ConfigName,
+                p.UseConfigChoice,
+                p.ReattachMates);
+            return Task.FromResult<object?>(result);
+        });
+
     }
 
     // ── Param DTOs ────────────────────────────────────────────────
@@ -720,6 +739,30 @@ public class AppBootstrapper
         public bool ReattachMates { get; set; } = true;
     }
 
+    public class ReplaceNestedComponentAndVerifyPersistenceParams
+    {
+        [System.Text.Json.Serialization.JsonPropertyName("replacementFilePath")]
+        public string ReplacementFilePath { get; set; } = string.Empty;
+
+        [System.Text.Json.Serialization.JsonPropertyName("componentName")]
+        public string? ComponentName { get; set; }
+
+        [System.Text.Json.Serialization.JsonPropertyName("hierarchyPath")]
+        public string? HierarchyPath { get; set; }
+
+        [System.Text.Json.Serialization.JsonPropertyName("componentPath")]
+        public string? ComponentPath { get; set; }
+
+        [System.Text.Json.Serialization.JsonPropertyName("configName")]
+        public string ConfigName { get; set; } = string.Empty;
+
+        [System.Text.Json.Serialization.JsonPropertyName("useConfigChoice")]
+        public int UseConfigChoice { get; set; }
+
+        [System.Text.Json.Serialization.JsonPropertyName("reattachMates")]
+        public bool ReattachMates { get; set; } = true;
+    }
+
     // ── Helpers ───────────────────────────────────────────────────
 
     private static SwDocType ParseDocType(string type) =>
@@ -758,11 +801,12 @@ public class AppBootstrapper
         var sketchService = new SketchService(connectionManager);
         var featureService = new FeatureService(connectionManager);
         var assemblyService = new AssemblyService(connectionManager);
+        var workflowService = new WorkflowService(documentService, assemblyService);
         var messageHandler = new MessageHandler();
 
         return new AppBootstrapper(
             connectionManager, documentService,
-            selectionService, sketchService, featureService, assemblyService,
+            selectionService, sketchService, featureService, assemblyService, workflowService,
             messageHandler);
     }
 

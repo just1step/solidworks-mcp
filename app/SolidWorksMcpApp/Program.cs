@@ -164,6 +164,9 @@ internal static class Program
         sc.AddSingleton<ISketchService>(sp    => new SketchService(sp.GetRequiredService<ISwConnectionManager>()));
         sc.AddSingleton<IFeatureService>(sp   => new FeatureService(sp.GetRequiredService<ISwConnectionManager>()));
         sc.AddSingleton<IAssemblyService>(sp  => new AssemblyService(sp.GetRequiredService<ISwConnectionManager>()));
+        sc.AddSingleton<IWorkflowService>(sp  => new WorkflowService(
+            sp.GetRequiredService<IDocumentService>(),
+            sp.GetRequiredService<IAssemblyService>()));
 
         return sc.BuildServiceProvider();
     }
@@ -184,6 +187,7 @@ internal static class Program
         builder.Services.AddSingleton(sharedSvc.GetRequiredService<ISketchService>());
         builder.Services.AddSingleton(sharedSvc.GetRequiredService<IFeatureService>());
         builder.Services.AddSingleton(sharedSvc.GetRequiredService<IAssemblyService>());
+        builder.Services.AddSingleton(sharedSvc.GetRequiredService<IWorkflowService>());
 
         builder.Services.AddTransient<SolidWorksMcpApp.Tools.ConnectionTools>();
         builder.Services.AddTransient<SolidWorksMcpApp.Tools.DocumentTools>();

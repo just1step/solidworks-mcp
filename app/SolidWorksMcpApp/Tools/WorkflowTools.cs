@@ -13,7 +13,8 @@ public class WorkflowTools(
     ISwConnectionManager connectionManager,
     ISelectionService selection,
     ISketchService sketch,
-    IFeatureService feature)
+    IFeatureService feature,
+    IWorkflowService workflow)
 {
     [McpServerTool, Description("Run the proven one-shot face-cut workflow: select a planar face by ListEntities index, open a sketch on that face, enumerate the face edges via IFace2.GetEdges, select those edges, project them with ISketchManager.SketchUseEdge3, then exit/reselect the sketch as required and create a cut. Use this instead of manually chaining SelectEntity + InsertSketch + SketchUseEdge3 + ExtrudeCut when cutting from an existing face outline.")]
     public async Task<string> CutFaceByProjectedEdges(
@@ -31,6 +32,31 @@ public class WorkflowTools(
             new { faceIndex, depth, flipDirection, innerLoops },
             () => CutFaceByProjectedEdgesCore(faceIndex, depth, flipDirection, innerLoops));
         return JsonSerializer.Serialize(info);
+    }
+
+    [McpServerTool, Description("Resolve a nested component in the active parent assembly, open the owning subassembly, replace the direct child there, save, reopen the parent assembly, and verify the replacement persisted. The result also includes pre- and post-replacement shared-part impact analysis so edit-safety state is explicit.")]
+    public async Task<string> ReplaceNestedComponentAndVerifyPersistence(
+        [Description("Full file path to the replacement part or subassembly.")] string replacementFilePath,
+        [Description("Optional component instance name to match exactly, for example Pulley-1.")] string? componentName = null,
+        [Description("Optional full hierarchy path to match exactly. This is the most precise selector when available.")] string? hierarchyPath = null,
+        [Description("Optional full source model path to match exactly.")] string? componentPath = null,
+        [Description("Optional configuration name in the replacement model. Empty string uses the default or matched configuration.")] string configName = "",
+        [Description("Configuration choice: MatchName=0, ManuallySelect=1.")] int useConfigChoice = 0,
+        [Description("When true, SolidWorks attempts to reattach existing mates to the replacement component.")] bool reattachMates = true)
+    {
+        var payload = new { replacementFilePath, componentName, hierarchyPath, componentPath, configName, useConfigChoice, reattachMates };
+        var result = await sta.InvokeLoggedAsync(
+            nameof(ReplaceNestedComponentAndVerifyPersistence),
+            payload,
+            () => workflow.ReplaceNestedComponentAndVerifyPersistence(
+                replacementFilePath,
+                componentName,
+                hierarchyPath,
+                componentPath,
+                configName,
+                useConfigChoice,
+                reattachMates));
+        return JsonSerializer.Serialize(result);
     }
 
     private object CutFaceByProjectedEdgesCore(int faceIndex, double depth, bool flipDirection, bool innerLoops)

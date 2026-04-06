@@ -87,6 +87,11 @@ internal sealed class SolidWorksIntegrationTestContext : IDisposable
         return path;
     }
 
+    public string CreateAndSavePlaneAlignedBlockPart(double width = 0.01, double height = 0.01, double depth = 0.005)
+    {
+        return CreateAndSaveBoxPart(width, height, depth);
+    }
+
     public string SaveActiveDocumentAs(string extension)
     {
         if (string.IsNullOrWhiteSpace(extension))

@@ -22,10 +22,11 @@ public class AppBootstrapperTests
         var sketchSvc = new Mock<ISketchService>();
         var featureSvc = new Mock<IFeatureService>();
         var assemblySvc = new Mock<IAssemblyService>();
+        var workflowSvc = new Mock<IWorkflowService>();
         var handler = new MessageHandler();
         var bootstrapper = new AppBootstrapper(
             manager.Object, docSvc.Object,
-            selSvc.Object, sketchSvc.Object, featureSvc.Object, assemblySvc.Object,
+            selSvc.Object, sketchSvc.Object, featureSvc.Object, assemblySvc.Object, workflowSvc.Object,
             handler);
         return (bootstrapper, manager, docSvc, handler);
     }
@@ -41,12 +42,33 @@ public class AppBootstrapperTests
         var sketchSvc = new Mock<ISketchService>();
         var featureSvc = new Mock<IFeatureService>();
         var assemblySvc = new Mock<IAssemblyService>();
+        var workflowSvc = new Mock<IWorkflowService>();
         var handler = new MessageHandler();
         var bootstrapper = new AppBootstrapper(
             manager.Object, docSvc.Object,
-            selSvc.Object, sketchSvc.Object, featureSvc.Object, assemblySvc.Object,
+            selSvc.Object, sketchSvc.Object, featureSvc.Object, assemblySvc.Object, workflowSvc.Object,
             handler);
         return (bootstrapper, selSvc, handler);
+    }
+
+    private static (AppBootstrapper bootstrapper,
+                    Mock<IWorkflowService> workflowSvc,
+                    MessageHandler handler)
+        BuildWithWorkflow()
+    {
+        var manager = new Mock<ISwConnectionManager>();
+        var docSvc = new Mock<IDocumentService>();
+        var selSvc = new Mock<ISelectionService>();
+        var sketchSvc = new Mock<ISketchService>();
+        var featureSvc = new Mock<IFeatureService>();
+        var assemblySvc = new Mock<IAssemblyService>();
+        var workflowSvc = new Mock<IWorkflowService>();
+        var handler = new MessageHandler();
+        var bootstrapper = new AppBootstrapper(
+            manager.Object, docSvc.Object,
+            selSvc.Object, sketchSvc.Object, featureSvc.Object, assemblySvc.Object, workflowSvc.Object,
+            handler);
+        return (bootstrapper, workflowSvc, handler);
     }
 
     /// Build a PipeRequest with JSON params.
@@ -95,7 +117,8 @@ public class AppBootstrapperTests
             "sw.assembly.add_mate_parallel",
             "sw.assembly.add_mate_distance", "sw.assembly.add_mate_angle",
             "sw.assembly.list_components", "sw.assembly.list_components_recursive",
-            "sw.assembly.check_interference", "sw.assembly.replace_component"
+            "sw.assembly.check_interference", "sw.assembly.replace_component",
+            "sw.workflow.replace_nested_component_and_verify_persistence"
         };
 
         foreach (var method in expected)
@@ -311,6 +334,69 @@ public class AppBootstrapperTests
 
         // Should succeed (no error), result is null — that's valid
         Assert.Null(response.Error);
+    }
+
+    [Fact]
+    public async Task Handler_ReplaceNestedComponentAndVerifyPersistence_CallsWorkflowService()
+    {
+        var (bootstrapper, workflowSvc, handler) = BuildWithWorkflow();
+        bootstrapper.RegisterHandlers();
+
+        const string hierarchyPath = "SubAsm-1/Pulley-1";
+        const string replacementFilePath = @"C:\NewPulley.sldprt";
+        var resolution = new AssemblyTargetResolutionResult(
+            RequestedName: null,
+            RequestedHierarchyPath: hierarchyPath,
+            RequestedComponentPath: null,
+            IsResolved: true,
+            IsAmbiguous: false,
+            ResolvedInstance: new ComponentInstanceInfo("Pulley-1", @"C:\OldPulley.sldprt", hierarchyPath, 1),
+            OwningAssemblyHierarchyPath: "SubAsm-1",
+            OwningAssemblyFilePath: @"C:\SubAsm.sldasm",
+            SourceFileReuseCount: 2,
+            MatchingInstances: new[] { new ComponentInstanceInfo("Pulley-1", @"C:\OldPulley.sldprt", hierarchyPath, 1) });
+        var impact = new SharedPartEditImpactResult(
+            resolution,
+            @"C:\OldPulley.sldprt",
+            2,
+            new[]
+            {
+                new ComponentInstanceInfo("Pulley-1", @"C:\OldPulley.sldprt", hierarchyPath, 1),
+                new ComponentInstanceInfo("Pulley-2", @"C:\OldPulley.sldprt", "SubAsm-1/Pulley-2", 1),
+            },
+            false,
+            "replace_single_instance_before_edit");
+        var expected = new NestedComponentReplacementWorkflowResult(
+            resolution,
+            impact,
+            @"C:\Top.sldasm",
+            "SubAsm-1",
+            @"C:\SubAsm.sldasm",
+            "Pulley-1",
+            replacementFilePath,
+            true,
+            new AssemblyComponentReplacementResult("Pulley-1", replacementFilePath, string.Empty, false, 0, true, true),
+            new SwSaveResult(@"C:\SubAsm.sldasm", @"C:\SubAsm.sldasm", "sldasm", false, 0, 0),
+            true,
+            resolution with { ResolvedInstance = new ComponentInstanceInfo("Pulley-1", replacementFilePath, hierarchyPath, 1) },
+            impact with
+            {
+                SourceFilePath = replacementFilePath,
+                AffectedInstanceCount = 1,
+                AffectedInstances = new[] { new ComponentInstanceInfo("Pulley-1", replacementFilePath, hierarchyPath, 1) },
+                SafeDirectEdit = true,
+                RecommendedAction = "safe_direct_edit"
+            },
+            true,
+            "completed",
+            null);
+        workflowSvc.Setup(w => w.ReplaceNestedComponentAndVerifyPersistence(replacementFilePath, null, hierarchyPath, null, "", 0, true))
+            .Returns(expected);
+
+        var response = await handler.HandleAsync(Req("sw.workflow.replace_nested_component_and_verify_persistence", new { replacementFilePath, hierarchyPath }));
+
+        Assert.Null(response.Error);
+        workflowSvc.Verify(w => w.ReplaceNestedComponentAndVerifyPersistence(replacementFilePath, null, hierarchyPath, null, "", 0, true), Times.Once);
     }
 
     [Fact]

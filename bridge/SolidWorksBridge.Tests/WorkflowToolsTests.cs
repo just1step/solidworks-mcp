@@ -30,6 +30,7 @@ public class WorkflowToolsTests
         var selection = new Mock<ISelectionService>();
         var sketch = new Mock<ISketchService>();
         var feature = new Mock<IFeatureService>();
+        var workflow = new Mock<IWorkflowService>();
         var doc = new Mock<IPartDoc>();
         var model = doc.As<IModelDoc2>();
         var selectionManager = new Mock<SelectionMgr>();
@@ -56,7 +57,7 @@ public class WorkflowToolsTests
         feature.Setup(f => f.ExtrudeCut(0.002, EndCondition.Blind, false))
             .Returns(new FeatureInfo("Cut-Extrude100", "ExtrudeCut"));
 
-        var tool = new WorkflowTools(sta, connectionManager.Object, selection.Object, sketch.Object, feature.Object);
+        var tool = new WorkflowTools(sta, connectionManager.Object, selection.Object, sketch.Object, feature.Object, workflow.Object);
 
         string json = await tool.CutFaceByProjectedEdges(3, 0.002, false, true);
 
@@ -91,9 +92,10 @@ public class WorkflowToolsTests
         var selection = new Mock<ISelectionService>();
         var sketch = new Mock<ISketchService>();
         var feature = new Mock<IFeatureService>();
+        var workflow = new Mock<IWorkflowService>();
         var swApp = new Mock<ISldWorksApp>();
 
-        var tool = new WorkflowTools(sta, connectionManager.Object, selection.Object, sketch.Object, feature.Object);
+        var tool = new WorkflowTools(sta, connectionManager.Object, selection.Object, sketch.Object, feature.Object, workflow.Object);
 
         await Assert.ThrowsAsync<ArgumentOutOfRangeException>(() =>
             tool.CutFaceByProjectedEdges(3, 0, false, true));
@@ -103,5 +105,77 @@ public class WorkflowToolsTests
         sketch.Verify(s => s.InsertSketch(), Times.Never);
         feature.Verify(f => f.ExtrudeCut(It.IsAny<double>(), It.IsAny<EndCondition>(), It.IsAny<bool>()), Times.Never);
         _ = swApp;
+    }
+
+    [Fact]
+    public async Task ReplaceNestedComponentAndVerifyPersistence_DelegatesToWorkflowService()
+    {
+        using var sta = new StaDispatcher();
+
+        var connectionManager = new Mock<ISwConnectionManager>();
+        var selection = new Mock<ISelectionService>();
+        var sketch = new Mock<ISketchService>();
+        var feature = new Mock<IFeatureService>();
+        var workflow = new Mock<IWorkflowService>();
+
+        const string hierarchyPath = "SubAsm-1/Pulley-1";
+        const string replacementFilePath = @"C:\NewPulley.sldprt";
+
+        var resolution = new AssemblyTargetResolutionResult(
+            null,
+            hierarchyPath,
+            null,
+            true,
+            false,
+            new ComponentInstanceInfo("Pulley-1", @"C:\OldPulley.sldprt", hierarchyPath, 1),
+            "SubAsm-1",
+            @"C:\SubAsm.sldasm",
+            2,
+            new[] { new ComponentInstanceInfo("Pulley-1", @"C:\OldPulley.sldprt", hierarchyPath, 1) });
+        var impact = new SharedPartEditImpactResult(
+            resolution,
+            @"C:\OldPulley.sldprt",
+            2,
+            new[]
+            {
+                new ComponentInstanceInfo("Pulley-1", @"C:\OldPulley.sldprt", hierarchyPath, 1),
+                new ComponentInstanceInfo("Pulley-2", @"C:\OldPulley.sldprt", "SubAsm-1/Pulley-2", 1),
+            },
+            false,
+            "replace_single_instance_before_edit");
+        workflow.Setup(w => w.ReplaceNestedComponentAndVerifyPersistence(replacementFilePath, null, hierarchyPath, null, "", 0, true))
+            .Returns(new NestedComponentReplacementWorkflowResult(
+                resolution,
+                impact,
+                @"C:\Top.sldasm",
+                "SubAsm-1",
+                @"C:\SubAsm.sldasm",
+                "Pulley-1",
+                replacementFilePath,
+                true,
+                new AssemblyComponentReplacementResult("Pulley-1", replacementFilePath, string.Empty, false, 0, true, true),
+                new SwSaveResult(@"C:\SubAsm.sldasm", @"C:\SubAsm.sldasm", "sldasm", false, 0, 0),
+                true,
+                resolution with { ResolvedInstance = new ComponentInstanceInfo("Pulley-1", replacementFilePath, hierarchyPath, 1) },
+                impact with
+                {
+                    SourceFilePath = replacementFilePath,
+                    AffectedInstanceCount = 1,
+                    AffectedInstances = new[] { new ComponentInstanceInfo("Pulley-1", replacementFilePath, hierarchyPath, 1) },
+                    SafeDirectEdit = true,
+                    RecommendedAction = "safe_direct_edit"
+                },
+                true,
+                "completed",
+                null));
+
+        var tool = new WorkflowTools(sta, connectionManager.Object, selection.Object, sketch.Object, feature.Object, workflow.Object);
+
+        string json = await tool.ReplaceNestedComponentAndVerifyPersistence(replacementFilePath, hierarchyPath: hierarchyPath);
+
+        using var parsed = JsonDocument.Parse(json);
+        Assert.Equal("completed", parsed.RootElement.GetProperty("Status").GetString());
+        Assert.True(parsed.RootElement.GetProperty("PersistenceVerified").GetBoolean());
+        workflow.Verify(w => w.ReplaceNestedComponentAndVerifyPersistence(replacementFilePath, null, hierarchyPath, null, "", 0, true), Times.Once);
     }
 }

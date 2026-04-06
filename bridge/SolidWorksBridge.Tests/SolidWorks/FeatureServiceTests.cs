@@ -147,6 +147,48 @@ public class FeatureServiceTests
     }
 
     [Fact]
+    public void Extrude_NewFeatureWithStableTopologyCountsButChangedBodyBox_ReturnsFeatureInfo()
+    {
+        var (manager, _, fm, part, doc) = ConnectedPartWithFm();
+        var before = FakeFeature("Sketch2", "ProfileFeature");
+        var feat = FakeFeature("Boss-Extrude7", "BossExtrude");
+        var bodyBefore = new Mock<IBody2>();
+        var bodyAfter = new Mock<IBody2>();
+
+        bodyBefore.Setup(b => b.GetFaces()).Returns(Enumerable.Repeat(new object(), 6).ToArray());
+        bodyBefore.Setup(b => b.GetEdges()).Returns(Enumerable.Repeat(new object(), 12).ToArray());
+        bodyBefore.Setup(b => b.GetVertices()).Returns(Enumerable.Repeat(new object(), 8).ToArray());
+        bodyBefore.Setup(b => b.GetBodyBox()).Returns(new object[] { 0d, 0d, 0d, 0.01d, 0.01d, 0.005d });
+
+        bodyAfter.Setup(b => b.GetFaces()).Returns(Enumerable.Repeat(new object(), 6).ToArray());
+        bodyAfter.Setup(b => b.GetEdges()).Returns(Enumerable.Repeat(new object(), 12).ToArray());
+        bodyAfter.Setup(b => b.GetVertices()).Returns(Enumerable.Repeat(new object(), 8).ToArray());
+        bodyAfter.Setup(b => b.GetBodyBox()).Returns(new object[] { 0d, 0d, 0d, 0.02d, 0.01d, 0.005d });
+
+        part.SetupSequence(p => p.GetBodies2((int)swBodyType_e.swSolidBody, true))
+            .Returns(new object[] { bodyBefore.Object })
+            .Returns(new object[] { bodyAfter.Object });
+        fm.Setup(f => f.FeatureExtrusion3(
+                It.IsAny<bool>(), It.IsAny<bool>(), It.IsAny<bool>(),
+                It.IsAny<int>(), It.IsAny<int>(),
+                It.IsAny<double>(), It.IsAny<double>(),
+                It.IsAny<bool>(), It.IsAny<bool>(), It.IsAny<bool>(), It.IsAny<bool>(),
+                It.IsAny<double>(), It.IsAny<double>(),
+                It.IsAny<bool>(), It.IsAny<bool>(), It.IsAny<bool>(), It.IsAny<bool>(),
+                It.IsAny<bool>(), It.IsAny<bool>(), It.IsAny<bool>(),
+                It.IsAny<int>(), It.IsAny<double>(), It.IsAny<bool>()));
+        doc.SetupSequence(d => d.IFeatureByPositionReverse(0))
+            .Returns(before)
+            .Returns(before)
+            .Returns(feat);
+
+        var info = new FeatureService(manager.Object).Extrude(0.01);
+
+        Assert.Equal("Boss-Extrude7", info.Name);
+        Assert.Equal("Extrude", info.Type);
+    }
+
+    [Fact]
     public void Extrude_NullReturnFromCom_Throws()
     {
         var (manager, _, _, doc) = ConnectedWithFm();
