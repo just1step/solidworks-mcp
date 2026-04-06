@@ -1,6 +1,7 @@
 using ModelContextProtocol.Server;
 using SolidWorksBridge.SolidWorks;
 using System.ComponentModel;
+using System.Text.Json;
 
 namespace SolidWorksMcpApp.Tools;
 
@@ -19,5 +20,12 @@ public class ConnectionTools(StaDispatcher sta, ISwConnectionManager connection)
     {
         await sta.InvokeLoggedAsync(nameof(SolidWorksDisconnect), null, connection.Disconnect);
         return "Disconnected from SolidWorks.";
+    }
+
+    [McpServerTool, Description("Report the running SolidWorks revision, build metadata, executable path, and this bridge's compatibility classification relative to the compiled interop baseline. Use this before claiming 2025 or 2026 compatibility in a workflow.")]
+    public async Task<string> GetSolidWorksCompatibility()
+    {
+        var result = await sta.InvokeLoggedAsync(nameof(GetSolidWorksCompatibility), null, connection.GetCompatibilityInfo);
+        return JsonSerializer.Serialize(result);
     }
 }

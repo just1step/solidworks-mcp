@@ -87,6 +87,24 @@ public class AppBootstrapperTests
         new(new SwDocumentInfo(path, Path.GetFileNameWithoutExtension(path), type),
             new SwApiDiagnostics(0, Array.Empty<SwCodeInfo>(), 0, Array.Empty<SwCodeInfo>()));
 
+    private static SolidWorksCompatibilityInfo CompatibilityInfo(string state = "certified-baseline") =>
+        new(
+            state,
+            "compatibility summary",
+            "32.1.0",
+            32,
+            2024,
+            new SolidWorksRuntimeVersionInfo(
+                "32.0.0",
+                32,
+                0,
+                0,
+                2024,
+                new SwBuildNumbers("32", "32.0.0", string.Empty),
+                @"C:\Program Files\SOLIDWORKS Corp\SOLIDWORKS\sldworks.exe"),
+            new SolidWorksLicenseInfo(0, "swLicenseType_Full", "Full SolidWorks license."),
+            new[] { "notice" });
+
     // ─────────────────────────────────────────────────────────────
     // Registration
     // ─────────────────────────────────────────────────────────────
@@ -99,7 +117,7 @@ public class AppBootstrapperTests
 
         var expected = new[]
         {
-            "sw.connect", "sw.disconnect",
+            "sw.connect", "sw.disconnect", "sw.get_runtime_compatibility",
             "sw.new_document", "sw.open_document",
             "sw.close_document", "sw.save_document", "sw.save_document_as", "sw.undo",
             "sw.list_documents", "sw.get_active_document",
@@ -153,6 +171,22 @@ public class AppBootstrapperTests
 
         Assert.True(response.Error == null, response.Error?.Message);
         manager.Verify(m => m.Disconnect(), Times.Once);
+    }
+
+    [Fact]
+    public async Task Handler_SwGetRuntimeCompatibility_CallsManager()
+    {
+        var (bootstrapper, manager, _, handler) = Build();
+        bootstrapper.RegisterHandlers();
+        manager.Setup(m => m.GetCompatibilityInfo()).Returns(CompatibilityInfo());
+
+        var response = await handler.HandleAsync(Req("sw.get_runtime_compatibility"));
+
+        Assert.True(response.Error == null, response.Error?.Message);
+        manager.Verify(m => m.GetCompatibilityInfo(), Times.Once);
+
+        string json = JsonSerializer.Serialize(response.Result, PipeMessageSerializer.Options);
+        Assert.Contains("\"compatibilityState\":\"certified-baseline\"", json);
     }
 
     // ─────────────────────────────────────────────────────────────

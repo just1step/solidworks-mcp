@@ -1,11 +1,38 @@
 using System.Drawing;
 using System.Drawing.Imaging;
+using System.Globalization;
 using System.Linq;
 using System.Runtime.InteropServices;
 using SolidWorks.Interop.sldworks;
 using SolidWorks.Interop.swconst;
 
 namespace SolidWorksBridge.SolidWorks;
+
+public record SwBuildNumbers(string BaseVersion, string CurrentVersion, string HotFixes);
+
+public record SolidWorksRuntimeVersionInfo(
+    string RevisionNumber,
+    int? RevisionMajor,
+    int? ServicePack,
+    int? Hotfix,
+    int? MarketingYear,
+    SwBuildNumbers BuildNumbers,
+    string ExecutablePath);
+
+public record SolidWorksLicenseInfo(
+    int Value,
+    string Name,
+    string Description);
+
+public record SolidWorksCompatibilityInfo(
+    string CompatibilityState,
+    string Summary,
+    string InteropVersion,
+    int InteropRevisionMajor,
+    int? InteropMarketingYear,
+    SolidWorksRuntimeVersionInfo RuntimeVersion,
+    SolidWorksLicenseInfo License,
+    IReadOnlyList<string> Notices);
 
 /// <summary>
 /// Abstraction over the SolidWorks application COM object.
@@ -16,6 +43,10 @@ public interface ISldWorksApp
     // ── Connection ────────────────────────────────────────────────
     bool Visible { get; set; }
     string GetCurrentLanguage();
+    string GetRevisionNumber();
+    SwBuildNumbers GetBuildNumbers();
+    string GetExecutablePath();
+    int GetCurrentLicenseType();
     int GetDocumentCount();
     string[] GetDocuments();
     void CloseAllDocuments(bool save);
@@ -110,6 +141,7 @@ public interface ISwConnectionManager
     void Connect();
     void Disconnect();
     void EnsureConnected();
+    SolidWorksCompatibilityInfo GetCompatibilityInfo();
 }
 
 /// <summary>
@@ -182,6 +214,21 @@ public class SldWorksAppWrapper : ISldWorksApp
     }
 
     public string GetCurrentLanguage() => _swApp.GetCurrentLanguage();
+
+    public string GetRevisionNumber() => _swApp.RevisionNumber();
+
+    public SwBuildNumbers GetBuildNumbers()
+    {
+        _swApp.GetBuildNumbers2(out string baseVersion, out string currentVersion, out string hotFixes);
+        return new SwBuildNumbers(
+            baseVersion ?? string.Empty,
+            currentVersion ?? string.Empty,
+            hotFixes ?? string.Empty);
+    }
+
+    public string GetExecutablePath() => _swApp.GetExecutablePath();
+
+    public int GetCurrentLicenseType() => _swApp.GetCurrentLicenseType();
 
     public int GetDocumentCount() => _swApp.GetDocumentCount();
 
@@ -542,6 +589,10 @@ public class SwConnectionManager : ISwConnectionManager
     private const int RpcServerUnavailable = unchecked((int)0x800706BA);
     private const int RpcCallFailed = unchecked((int)0x800706BE);
     private const int RpcDisconnected = unchecked((int)0x80010108);
+    private static readonly Version InteropAssemblyVersion = typeof(ISldWorks).Assembly.GetName().Version ?? new Version(0, 0);
+    private static readonly string InteropVersion = FormatInteropVersion(InteropAssemblyVersion);
+    private static readonly int InteropRevisionMajor = InteropAssemblyVersion.Major;
+    private static readonly int? InteropMarketingYear = TryGetMarketingYear(InteropRevisionMajor);
 
     public SwConnectionManager(ISwComConnector connector)
     {
@@ -587,6 +638,30 @@ public class SwConnectionManager : ISwConnectionManager
             throw SolidWorksApiErrorFactory.NotConnected();
     }
 
+    public SolidWorksCompatibilityInfo GetCompatibilityInfo()
+    {
+        EnsureConnected();
+
+        var runtimeVersion = CreateRuntimeVersionInfo(_swApp!);
+        var license = CreateLicenseInfo(_swApp!);
+        var notices = new List<string>
+        {
+            $"Bridge interop baseline is revision {InteropRevisionMajor} ({FormatMarketingYear(InteropMarketingYear)}) via SolidWorks.Interop.* {InteropVersion}."
+        };
+
+        var (compatibilityState, summary) = ClassifyCompatibility(runtimeVersion, notices);
+
+        return new SolidWorksCompatibilityInfo(
+            compatibilityState,
+            summary,
+            InteropVersion,
+            InteropRevisionMajor,
+            InteropMarketingYear,
+            runtimeVersion,
+                license,
+            notices);
+    }
+
     private bool TryUseCurrentSession()
     {
         if (_swApp == null)
@@ -625,4 +700,136 @@ public class SwConnectionManager : ISwConnectionManager
         => ex.HResult == RpcServerUnavailable
         || ex.HResult == RpcCallFailed
         || ex.HResult == RpcDisconnected;
+
+    private static SolidWorksRuntimeVersionInfo CreateRuntimeVersionInfo(ISldWorksApp swApp)
+    {
+        string revisionNumber = swApp.GetRevisionNumber();
+        var buildNumbers = swApp.GetBuildNumbers();
+        string executablePath = swApp.GetExecutablePath();
+
+        ParseRevisionNumber(revisionNumber, out int? revisionMajor, out int? servicePack, out int? hotfix);
+
+        return new SolidWorksRuntimeVersionInfo(
+            revisionNumber,
+            revisionMajor,
+            servicePack,
+            hotfix,
+            TryGetMarketingYear(revisionMajor),
+            buildNumbers,
+            executablePath);
+    }
+
+    private static SolidWorksLicenseInfo CreateLicenseInfo(ISldWorksApp swApp)
+    {
+        int rawLicenseType = swApp.GetCurrentLicenseType();
+        if (Enum.IsDefined(typeof(swLicenseType_e), rawLicenseType))
+        {
+            var licenseType = (swLicenseType_e)rawLicenseType;
+            return new SolidWorksLicenseInfo(
+                rawLicenseType,
+                licenseType.ToString(),
+                DescribeLicenseType(licenseType));
+        }
+
+        return new SolidWorksLicenseInfo(
+            rawLicenseType,
+            "UnknownLicenseType",
+            "SolidWorks returned a license type that is not defined in swLicenseType_e.");
+    }
+
+    private static (string CompatibilityState, string Summary) ClassifyCompatibility(
+        SolidWorksRuntimeVersionInfo runtimeVersion,
+        List<string> notices)
+    {
+        if (runtimeVersion.RevisionMajor is null)
+        {
+            notices.Add("The running SolidWorks revision number could not be parsed, so compatibility remains unknown.");
+            return (
+                "unknown-version",
+                "The running SolidWorks revision number could not be parsed, so this bridge cannot classify compatibility yet.");
+        }
+
+        if (runtimeVersion.RevisionMajor == InteropRevisionMajor)
+        {
+            notices.Add($"Runtime revision matches the interop baseline ({InteropRevisionMajor}).");
+            return (
+                "certified-baseline",
+                $"The running SolidWorks session matches the bridge's validated interop baseline ({FormatMarketingYear(runtimeVersion.MarketingYear)})." );
+        }
+
+        if (runtimeVersion.RevisionMajor == InteropRevisionMajor + 1)
+        {
+            notices.Add($"Runtime revision is one major release newer than the interop baseline ({InteropRevisionMajor} -> {runtimeVersion.RevisionMajor}).");
+            notices.Add("This next major version is in the planned certification window, but it is not yet declared fully validated in this repository.");
+            return (
+                "planned-next-version",
+                $"The running SolidWorks session is one major release newer than the validated baseline ({FormatMarketingYear(runtimeVersion.MarketingYear)}), so it still needs certification.");
+        }
+
+        if (runtimeVersion.RevisionMajor > InteropRevisionMajor + 1)
+        {
+            notices.Add("Runtime revision is newer than the current validated and next-version certification window.");
+            return (
+                "unsupported-newer-version",
+                $"The running SolidWorks session is newer than the validated compatibility window for this bridge build ({FormatMarketingYear(runtimeVersion.MarketingYear)})." );
+        }
+
+        notices.Add("Runtime revision is older than the compiled interop baseline and is not declared validated in this repository.");
+        return (
+            "unsupported-older-version",
+            $"The running SolidWorks session is older than the bridge's validated interop baseline ({FormatMarketingYear(runtimeVersion.MarketingYear)}).");
+    }
+
+    private static void ParseRevisionNumber(string revisionNumber, out int? revisionMajor, out int? servicePack, out int? hotfix)
+    {
+        revisionMajor = null;
+        servicePack = null;
+        hotfix = null;
+
+        if (string.IsNullOrWhiteSpace(revisionNumber))
+        {
+            return;
+        }
+
+        var segments = revisionNumber.Split('.', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries);
+        if (segments.Length > 0 && int.TryParse(segments[0], NumberStyles.Integer, CultureInfo.InvariantCulture, out int parsedRevisionMajor))
+        {
+            revisionMajor = parsedRevisionMajor;
+        }
+
+        if (segments.Length > 1 && int.TryParse(segments[1], NumberStyles.Integer, CultureInfo.InvariantCulture, out int parsedServicePack))
+        {
+            servicePack = parsedServicePack;
+        }
+
+        if (segments.Length > 2 && int.TryParse(segments[2], NumberStyles.Integer, CultureInfo.InvariantCulture, out int parsedHotfix))
+        {
+            hotfix = parsedHotfix;
+        }
+    }
+
+    private static int? TryGetMarketingYear(int? revisionMajor)
+        => revisionMajor is >= 8 ? revisionMajor + 1992 : null;
+
+    private static string FormatMarketingYear(int? marketingYear)
+        => marketingYear?.ToString(CultureInfo.InvariantCulture) ?? "unknown marketing year";
+
+    private static string FormatInteropVersion(Version version)
+        => version.Build >= 0
+            ? version.ToString(3)
+            : version.ToString(2);
+
+    private static string DescribeLicenseType(swLicenseType_e licenseType) => licenseType switch
+    {
+        swLicenseType_e.swLicenseType_Full => "Full SolidWorks license.",
+        swLicenseType_e.swLicenseType_Educational => "Educational SolidWorks license.",
+        swLicenseType_e.swLicenseType_Student => "Student SolidWorks license.",
+        swLicenseType_e.swLicenseType_StudentDesignKit => "Student Design Kit license.",
+        swLicenseType_e.swLicenseType_PersonalEdition => "Personal Edition SolidWorks license.",
+        swLicenseType_e.swLicenseType_Full_Office => "SolidWorks Office license.",
+        swLicenseType_e.swLicenseType_Full_Professional => "SolidWorks Professional license.",
+        swLicenseType_e.swLicenseType_Full_Premium => "SolidWorks Premium license.",
+        swLicenseType_e.swLicenseType_Maker => "SolidWorks Maker license.",
+        _ => "Recognized SolidWorks license type."
+    };
 }

@@ -68,6 +68,12 @@ public class AppBootstrapper
             return Task.FromResult<object?>(new { connected = false });
         });
 
+        _messageHandler.Register("sw.get_runtime_compatibility", _ =>
+        {
+            var result = _connectionManager.GetCompatibilityInfo();
+            return Task.FromResult<object?>(result);
+        });
+
         // ── Document lifecycle ────────────────────────────────────
         _messageHandler.Register("sw.new_document", req =>
         {

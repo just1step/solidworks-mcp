@@ -7,6 +7,17 @@ namespace SolidWorksBridge.Tests.SolidWorks;
 [Collection("SolidWorks Integration")]
 public class SwConnectionManagerTests
 {
+    private static Mock<ISldWorksApp> VersionedApp(string revisionNumber)
+    {
+        var app = new Mock<ISldWorksApp>();
+        app.Setup(a => a.GetDocumentCount()).Returns(0);
+        app.Setup(a => a.GetRevisionNumber()).Returns(revisionNumber);
+        app.Setup(a => a.GetBuildNumbers()).Returns(new SwBuildNumbers(revisionNumber.Split('.')[0], revisionNumber, string.Empty));
+        app.Setup(a => a.GetExecutablePath()).Returns(@"C:\Program Files\SOLIDWORKS Corp\SOLIDWORKS\sldworks.exe");
+        app.Setup(a => a.GetCurrentLicenseType()).Returns(0);
+        return app;
+    }
+
     // ─────────────────────────────────────────────
     // Unit Tests (Mocked — no real SolidWorks needed)
     // ─────────────────────────────────────────────
@@ -217,6 +228,81 @@ public class SwConnectionManagerTests
         Assert.Same(recreatedApp.Object, manager.SwApp);
         connector.Verify(c => c.CreateNewInstance(), Times.Once);
         recreatedApp.VerifySet(a => a.Visible = true, Times.Once);
+    }
+
+    [Fact]
+    public void GetCompatibilityInfo_OnInteropBaseline_ReturnsCertifiedBaseline()
+    {
+        var app = VersionedApp("32.0.0");
+        var connector = new Mock<ISwComConnector>();
+        connector.Setup(c => c.GetActiveInstance()).Returns(app.Object);
+
+        var manager = new SwConnectionManager(connector.Object);
+
+        var result = manager.GetCompatibilityInfo();
+
+        Assert.Equal("certified-baseline", result.CompatibilityState);
+        Assert.Equal("32.1.0", result.InteropVersion);
+        Assert.Equal(32, result.InteropRevisionMajor);
+        Assert.Equal(2024, result.InteropMarketingYear);
+        Assert.Equal("32.0.0", result.RuntimeVersion.RevisionNumber);
+        Assert.Equal(32, result.RuntimeVersion.RevisionMajor);
+        Assert.Equal(2024, result.RuntimeVersion.MarketingYear);
+        Assert.Equal("swLicenseType_Full", result.License.Name);
+        Assert.Equal(0, result.License.Value);
+    }
+
+    [Fact]
+    public void GetCompatibilityInfo_OnNextMajor_ReturnsPlannedNextVersion()
+    {
+        var app = VersionedApp("33.0.0");
+        var connector = new Mock<ISwComConnector>();
+        connector.Setup(c => c.GetActiveInstance()).Returns(app.Object);
+
+        var manager = new SwConnectionManager(connector.Object);
+
+        var result = manager.GetCompatibilityInfo();
+
+        Assert.Equal("planned-next-version", result.CompatibilityState);
+        Assert.Equal(33, result.RuntimeVersion.RevisionMajor);
+        Assert.Equal(2025, result.RuntimeVersion.MarketingYear);
+        Assert.Equal("swLicenseType_Full", result.License.Name);
+        Assert.Contains(result.Notices, notice => notice.Contains("planned certification window"));
+    }
+
+    [Fact]
+    public void GetCompatibilityInfo_OnOlderMajor_ReturnsUnsupportedOlderVersion()
+    {
+        var app = VersionedApp("31.0.0");
+        var connector = new Mock<ISwComConnector>();
+        connector.Setup(c => c.GetActiveInstance()).Returns(app.Object);
+
+        var manager = new SwConnectionManager(connector.Object);
+
+        var result = manager.GetCompatibilityInfo();
+
+        Assert.Equal("unsupported-older-version", result.CompatibilityState);
+        Assert.Equal(31, result.RuntimeVersion.RevisionMajor);
+        Assert.Equal(2023, result.RuntimeVersion.MarketingYear);
+        Assert.Equal("swLicenseType_Full", result.License.Name);
+        Assert.Contains(result.Notices, notice => notice.Contains("older than the compiled interop baseline"));
+    }
+
+    [Fact]
+    public void GetCompatibilityInfo_OnPremiumLicense_DecodesLicenseName()
+    {
+        var app = VersionedApp("32.0.0");
+        app.Setup(a => a.GetCurrentLicenseType()).Returns(7);
+        var connector = new Mock<ISwComConnector>();
+        connector.Setup(c => c.GetActiveInstance()).Returns(app.Object);
+
+        var manager = new SwConnectionManager(connector.Object);
+
+        var result = manager.GetCompatibilityInfo();
+
+        Assert.Equal(7, result.License.Value);
+        Assert.Equal("swLicenseType_Full_Premium", result.License.Name);
+        Assert.Contains("Premium", result.License.Description);
     }
 
 }
