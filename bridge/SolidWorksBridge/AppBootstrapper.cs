@@ -184,6 +184,12 @@ public class AppBootstrapper
             return Task.FromResult<object?>(result);
         });
 
+        _messageHandler.Register("sw.select.get_feature_diagnostics", _ =>
+        {
+            var result = _selectionService.GetFeatureDiagnostics();
+            return Task.FromResult<object?>(result);
+        });
+
         _messageHandler.Register("sw.select.entity", req =>
         {
             var p = req.GetParams<SelectEntityParams>()
@@ -444,6 +450,13 @@ public class AppBootstrapper
                 p.ConfigName,
                 p.UseConfigChoice,
                 p.ReattachMates);
+            return Task.FromResult<object?>(result);
+        });
+
+        _messageHandler.Register("sw.workflow.diagnose_active_document_health", req =>
+        {
+            var p = req.GetParams<DiagnoseActiveDocumentHealthParams>() ?? new DiagnoseActiveDocumentHealthParams();
+            var result = _workflowService.DiagnoseActiveDocumentHealth(p.ForceRebuild, p.TopOnly, p.SaveDocument);
             return Task.FromResult<object?>(result);
         });
 
@@ -774,6 +787,18 @@ public class AppBootstrapper
         public bool ReattachMates { get; set; } = true;
     }
 
+    public class DiagnoseActiveDocumentHealthParams
+    {
+        [System.Text.Json.Serialization.JsonPropertyName("forceRebuild")]
+        public bool ForceRebuild { get; set; } = true;
+
+        [System.Text.Json.Serialization.JsonPropertyName("topOnly")]
+        public bool TopOnly { get; set; }
+
+        [System.Text.Json.Serialization.JsonPropertyName("saveDocument")]
+        public bool SaveDocument { get; set; }
+    }
+
     public class ReviewTargetedStaticInterferenceParams
     {
         [System.Text.Json.Serialization.JsonPropertyName("firstHierarchyPath")]
@@ -824,7 +849,7 @@ public class AppBootstrapper
         var sketchService = new SketchService(connectionManager);
         var featureService = new FeatureService(connectionManager);
         var assemblyService = new AssemblyService(connectionManager);
-        var workflowService = new WorkflowService(documentService, assemblyService);
+        var workflowService = new WorkflowService(documentService, assemblyService, selectionService);
         var messageHandler = new MessageHandler();
 
         return new AppBootstrapper(

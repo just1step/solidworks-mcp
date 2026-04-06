@@ -1,4 +1,5 @@
 using Moq;
+using SolidWorks.Interop.sldworks;
 using SolidWorksBridge.SolidWorks;
 
 namespace SolidWorksBridge.Tests.SolidWorks;
@@ -226,6 +227,47 @@ public class DocumentServiceTests
 
         Assert.Equal(expected, result);
         swApp.Verify(s => s.SaveDocAs(outputPath, sourcePath, true), Times.Once);
+    }
+
+    [Fact]
+    public void GetActiveDocumentRebuildState_ReadsNeedsRebuild2()
+    {
+        var (manager, swApp) = ConnectedMocks();
+        var doc = new Mock<IModelDoc2>();
+        var extension = new Mock<ModelDocExtension>();
+        extension.SetupGet(e => e.NeedsRebuild2).Returns(1);
+        doc.SetupGet(d => d.Extension).Returns(extension.Object);
+        swApp.SetupGet(s => s.IActiveDoc2).Returns(doc.Object);
+
+        var svc = new DocumentService(manager.Object);
+        var result = svc.GetActiveDocumentRebuildState();
+
+        Assert.True(result.NeedsRebuild);
+        Assert.Equal(1, result.RawStatus);
+        Assert.Contains(result.StatusCodes, code => code.Name == "swModelRebuildStatus_NonFrozenFeatureNeedsRebuild");
+    }
+
+    [Fact]
+    public void ForceRebuildActiveDocument_ReturnsBeforeAndAfterState()
+    {
+        var (manager, swApp) = ConnectedMocks();
+        var doc = new Mock<IModelDoc2>();
+        var extension = new Mock<ModelDocExtension>();
+        extension.SetupSequence(e => e.NeedsRebuild2)
+            .Returns(1)
+            .Returns(0);
+        doc.SetupGet(d => d.Extension).Returns(extension.Object);
+        doc.Setup(d => d.ForceRebuild3(false)).Returns(true);
+        swApp.SetupGet(s => s.IActiveDoc2).Returns(doc.Object);
+
+        var svc = new DocumentService(manager.Object);
+        var result = svc.ForceRebuildActiveDocument();
+
+        Assert.True(result.RebuildAttempted);
+        Assert.True(result.RebuildSucceeded);
+        Assert.True(result.StatusBefore.NeedsRebuild);
+        Assert.False(result.StatusAfter.NeedsRebuild);
+        doc.Verify(d => d.ForceRebuild3(false), Times.Once);
     }
 
     [Fact]

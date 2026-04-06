@@ -33,8 +33,36 @@ public record TargetedStaticInterferenceReviewResult(
     string Status,
     string? FailureReason);
 
+public record SaveHealthInfo(
+    bool SaveAttempted,
+    bool SaveSucceeded,
+    string? DocumentPath,
+    SwSaveResult? SaveResult,
+    SwApiDiagnostics? Diagnostics,
+    bool HasErrors,
+    bool HasWarnings,
+    string? FailureReason);
+
+public record ActiveDocumentHealthDiagnosticsResult(
+    SwDocumentInfo? ActiveDocument,
+    EditStateInfo? EditState,
+    FeatureDiagnosticsResult? FeatureDiagnosticsBeforeRebuild,
+    RebuildExecutionResult Rebuild,
+    FeatureDiagnosticsResult? FeatureDiagnosticsAfterRebuild,
+    SaveHealthInfo SaveHealth,
+    bool HasBlockingIssues,
+    bool HasWarnings,
+    bool ReadyForVerificationGate,
+    string Status,
+    string? FailureReason);
+
 public interface IWorkflowService
 {
+    ActiveDocumentHealthDiagnosticsResult DiagnoseActiveDocumentHealth(
+        bool forceRebuild = true,
+        bool topOnly = false,
+        bool saveDocument = false);
+
     TargetedStaticInterferenceReviewResult ReviewTargetedStaticInterference(
         string firstHierarchyPath,
         string secondHierarchyPath,
@@ -54,11 +82,103 @@ public class WorkflowService : IWorkflowService
 {
     private readonly IDocumentService _documents;
     private readonly IAssemblyService _assembly;
+    private readonly ISelectionService? _selection;
 
     public WorkflowService(IDocumentService documents, IAssemblyService assembly)
+        : this(documents, assembly, null)
+    {
+    }
+
+    public WorkflowService(IDocumentService documents, IAssemblyService assembly, ISelectionService? selection)
     {
         _documents = documents ?? throw new ArgumentNullException(nameof(documents));
         _assembly = assembly ?? throw new ArgumentNullException(nameof(assembly));
+        _selection = selection;
+    }
+
+    public ActiveDocumentHealthDiagnosticsResult DiagnoseActiveDocumentHealth(
+        bool forceRebuild = true,
+        bool topOnly = false,
+        bool saveDocument = false)
+    {
+        if (_selection == null)
+        {
+            throw new InvalidOperationException("Active document health diagnostics require an ISelectionService instance.");
+        }
+
+        var activeDocument = _documents.GetActiveDocument();
+        if (activeDocument == null)
+        {
+            return CreateHealthFailureResult(
+                activeDocument: null,
+                editState: null,
+                featureDiagnosticsBeforeRebuild: null,
+                rebuild: CreateNoOpRebuildResult(topOnly),
+                featureDiagnosticsAfterRebuild: null,
+                saveHealth: new SaveHealthInfo(false, false, null, null, null, false, false, null),
+                status: "no_active_document",
+                failureReason: "No active document.");
+        }
+
+        var editState = _selection.GetEditState();
+        if (editState.IsEditing)
+        {
+            return CreateHealthFailureResult(
+                activeDocument,
+                editState,
+                featureDiagnosticsBeforeRebuild: null,
+                rebuild: CreateNoOpRebuildResult(topOnly),
+                featureDiagnosticsAfterRebuild: null,
+                saveHealth: new SaveHealthInfo(false, false, activeDocument.Path, null, null, false, false, null),
+                status: "editing_state_blocks_diagnostics",
+                failureReason: "Finish the active sketch or edit mode before running document health diagnostics.");
+        }
+
+        var featureDiagnosticsBeforeRebuild = _selection.GetFeatureDiagnostics();
+        RebuildExecutionResult rebuild;
+        if (forceRebuild)
+        {
+            rebuild = _documents.ForceRebuildActiveDocument(topOnly);
+        }
+        else
+        {
+            var currentState = _documents.GetActiveDocumentRebuildState();
+            rebuild = new RebuildExecutionResult(
+                RebuildAttempted: false,
+                RebuildSucceeded: true,
+                TopOnly: topOnly,
+                StatusBefore: currentState,
+                StatusAfter: currentState);
+        }
+
+        var featureDiagnosticsAfterRebuild = _selection.GetFeatureDiagnostics();
+        var saveHealth = EvaluateSaveHealth(activeDocument, saveDocument);
+
+        bool hasBlockingIssues = rebuild.StatusAfter.NeedsRebuild
+            || featureDiagnosticsAfterRebuild.ErrorCount > 0
+            || saveHealth.HasErrors
+            || (saveHealth.SaveAttempted && !saveHealth.SaveSucceeded);
+        bool hasWarnings = featureDiagnosticsAfterRebuild.WarningCount > 0 || saveHealth.HasWarnings;
+        bool readyForVerificationGate = !hasBlockingIssues;
+        string status = saveHealth.SaveAttempted && !saveHealth.SaveSucceeded
+            ? "save_failed"
+            : "completed";
+        string? failureReason = saveHealth.SaveAttempted && !saveHealth.SaveSucceeded
+            ? saveHealth.FailureReason
+            : null;
+
+        return new ActiveDocumentHealthDiagnosticsResult(
+            ActiveDocument: activeDocument,
+            EditState: editState,
+            FeatureDiagnosticsBeforeRebuild: featureDiagnosticsBeforeRebuild,
+            Rebuild: rebuild,
+            FeatureDiagnosticsAfterRebuild: featureDiagnosticsAfterRebuild,
+            SaveHealth: saveHealth,
+            HasBlockingIssues: hasBlockingIssues,
+            HasWarnings: hasWarnings,
+            ReadyForVerificationGate: readyForVerificationGate,
+            Status: status,
+            FailureReason: failureReason);
     }
 
     public TargetedStaticInterferenceReviewResult ReviewTargetedStaticInterference(
@@ -462,6 +582,104 @@ public class WorkflowService : IWorkflowService
             false,
             status,
             failureReason);
+    }
+
+    private SaveHealthInfo EvaluateSaveHealth(SwDocumentInfo activeDocument, bool saveDocument)
+    {
+        if (!saveDocument)
+        {
+            return new SaveHealthInfo(false, false, activeDocument.Path, null, null, false, false, null);
+        }
+
+        if (string.IsNullOrWhiteSpace(activeDocument.Path))
+        {
+            return new SaveHealthInfo(
+                SaveAttempted: true,
+                SaveSucceeded: false,
+                DocumentPath: null,
+                SaveResult: null,
+                Diagnostics: null,
+                HasErrors: true,
+                HasWarnings: false,
+                FailureReason: "The active document must be saved to a file path before save-health diagnostics can run.");
+        }
+
+        try
+        {
+            var saveResult = _documents.SaveDocument(activeDocument.Path);
+            return new SaveHealthInfo(
+                SaveAttempted: true,
+                SaveSucceeded: true,
+                DocumentPath: activeDocument.Path,
+                SaveResult: saveResult,
+                Diagnostics: saveResult.Diagnostics,
+                HasErrors: saveResult.Errors != 0,
+                HasWarnings: saveResult.Warnings != 0,
+                FailureReason: null);
+        }
+        catch (SolidWorksApiException ex)
+        {
+            return new SaveHealthInfo(
+                SaveAttempted: true,
+                SaveSucceeded: false,
+                DocumentPath: activeDocument.Path,
+                SaveResult: null,
+                Diagnostics: ex.Diagnostics,
+                HasErrors: true,
+                HasWarnings: ex.Diagnostics?.Warnings.Count > 0,
+                FailureReason: ex.Message);
+        }
+        catch (InvalidOperationException ex)
+        {
+            return new SaveHealthInfo(
+                SaveAttempted: true,
+                SaveSucceeded: false,
+                DocumentPath: activeDocument.Path,
+                SaveResult: null,
+                Diagnostics: null,
+                HasErrors: true,
+                HasWarnings: false,
+                FailureReason: ex.Message);
+        }
+    }
+
+    private static ActiveDocumentHealthDiagnosticsResult CreateHealthFailureResult(
+        SwDocumentInfo? activeDocument,
+        EditStateInfo? editState,
+        FeatureDiagnosticsResult? featureDiagnosticsBeforeRebuild,
+        RebuildExecutionResult rebuild,
+        FeatureDiagnosticsResult? featureDiagnosticsAfterRebuild,
+        SaveHealthInfo saveHealth,
+        string status,
+        string failureReason)
+    {
+        return new ActiveDocumentHealthDiagnosticsResult(
+            ActiveDocument: activeDocument,
+            EditState: editState,
+            FeatureDiagnosticsBeforeRebuild: featureDiagnosticsBeforeRebuild,
+            Rebuild: rebuild,
+            FeatureDiagnosticsAfterRebuild: featureDiagnosticsAfterRebuild,
+            SaveHealth: saveHealth,
+            HasBlockingIssues: true,
+            HasWarnings: false,
+            ReadyForVerificationGate: false,
+            Status: status,
+            FailureReason: failureReason);
+    }
+
+    private static RebuildExecutionResult CreateNoOpRebuildResult(bool topOnly)
+    {
+        var fullyRebuilt = new RebuildStateInfo(
+            RawStatus: 0,
+            NeedsRebuild: false,
+            StatusCodes: [new SwCodeInfo(0, nameof(swModelRebuildStatus_e.swModelRebuildStatus_FullyRebuilt), "The model does not currently need rebuild.")],
+            Summary: "The model does not currently need rebuild.");
+        return new RebuildExecutionResult(
+            RebuildAttempted: false,
+            RebuildSucceeded: true,
+            TopOnly: topOnly,
+            StatusBefore: fullyRebuilt,
+            StatusAfter: fullyRebuilt);
     }
 
     private static string GetReplacementTargetHierarchyPath(string resolvedHierarchyPath, string owningAssemblyHierarchyPath)

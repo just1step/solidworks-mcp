@@ -1,4 +1,5 @@
 using SolidWorksBridge.SolidWorks;
+using SolidWorks.Interop.sldworks;
 
 namespace SolidWorksBridge.SolidWorks;
 
@@ -18,6 +19,19 @@ public enum SwDocType
 public record SwDocumentInfo(string Path, string Title, int Type);
 
 public record SwOpenResult(SwDocumentInfo Document, SwApiDiagnostics Diagnostics);
+
+public record RebuildStateInfo(
+    int RawStatus,
+    bool NeedsRebuild,
+    IReadOnlyList<SwCodeInfo> StatusCodes,
+    string Summary);
+
+public record RebuildExecutionResult(
+    bool RebuildAttempted,
+    bool RebuildSucceeded,
+    bool TopOnly,
+    RebuildStateInfo StatusBefore,
+    RebuildStateInfo StatusAfter);
 
 /// <summary>
 /// Standard model orientations supported by SolidWorks.
@@ -64,6 +78,12 @@ public interface IDocumentService
 
     /// <summary>Save an open document by file path.</summary>
     SwSaveResult SaveDocument(string path);
+
+    /// <summary>Get the active document's native rebuild state.</summary>
+    RebuildStateInfo GetActiveDocumentRebuildState();
+
+    /// <summary>Force a rebuild of the active document and return before/after rebuild state.</summary>
+    RebuildExecutionResult ForceRebuildActiveDocument(bool topOnly = false);
 
     /// <summary>
     /// Save or export a document to a new path. The output format is inferred from
@@ -138,6 +158,36 @@ public class DocumentService : IDocumentService
         return _connectionManager.SwApp!.SaveDoc(path);
     }
 
+    public RebuildStateInfo GetActiveDocumentRebuildState()
+    {
+        _connectionManager.EnsureConnected();
+
+        var doc = _connectionManager.SwApp!.IActiveDoc2
+            ?? throw new InvalidOperationException("No active document.");
+        var extension = doc.Extension
+            ?? throw new InvalidOperationException("No model extension available on the active document.");
+
+        return CreateRebuildStateInfo(extension.NeedsRebuild2);
+    }
+
+    public RebuildExecutionResult ForceRebuildActiveDocument(bool topOnly = false)
+    {
+        _connectionManager.EnsureConnected();
+
+        var doc = _connectionManager.SwApp!.IActiveDoc2
+            ?? throw new InvalidOperationException("No active document.");
+        var before = GetActiveDocumentRebuildState();
+        bool rebuildSucceeded = doc.ForceRebuild3(topOnly);
+        var after = GetActiveDocumentRebuildState();
+
+        return new RebuildExecutionResult(
+            RebuildAttempted: true,
+            RebuildSucceeded: rebuildSucceeded,
+            TopOnly: topOnly,
+            StatusBefore: before,
+            StatusAfter: after);
+    }
+
     public SwSaveResult SaveDocumentAs(string outputPath, string? sourcePath = null, bool saveAsCopy = true)
     {
         _connectionManager.EnsureConnected();
@@ -178,5 +228,16 @@ public class DocumentService : IDocumentService
     {
         _connectionManager.EnsureConnected();
         return _connectionManager.SwApp!.GetActiveDoc();
+    }
+
+    private static RebuildStateInfo CreateRebuildStateInfo(int rawStatus)
+    {
+        var statusCodes = SolidWorksApiErrorFactory.CreateModelRebuildStatusCodes(rawStatus);
+        string summary = string.Join("; ", statusCodes.Select(code => code.Description));
+        return new RebuildStateInfo(
+            RawStatus: rawStatus,
+            NeedsRebuild: rawStatus != 0,
+            StatusCodes: statusCodes,
+            Summary: summary);
     }
 }

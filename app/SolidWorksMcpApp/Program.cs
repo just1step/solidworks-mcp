@@ -166,7 +166,8 @@ internal static class Program
         sc.AddSingleton<IAssemblyService>(sp  => new AssemblyService(sp.GetRequiredService<ISwConnectionManager>()));
         sc.AddSingleton<IWorkflowService>(sp  => new WorkflowService(
             sp.GetRequiredService<IDocumentService>(),
-            sp.GetRequiredService<IAssemblyService>()));
+            sp.GetRequiredService<IAssemblyService>(),
+            sp.GetRequiredService<ISelectionService>()));
 
         return sc.BuildServiceProvider();
     }

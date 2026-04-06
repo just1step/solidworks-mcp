@@ -22,8 +22,7 @@ public class HelloWorldVisualIntegrationTests : IDisposable
                 new LetterPlacement("V7", 0, 0, 1, 7),
                 new LetterPlacement("V7", 6, 0, 7, 7),
                 new LetterPlacement("H5", 1, 3, 6, 4),
-            ],
-            UseAssemblyMates: true),
+            ]),
         ['E'] = new(
             WidthUnits: 6,
             Placements:
@@ -91,7 +90,7 @@ public class HelloWorldVisualIntegrationTests : IDisposable
     private static readonly PrimitivePartSpec[] PrimitiveParts =
     [
         new("V7", "bar-v7.sldprt", PrimitivePartShape.BarWithTopHole, UnitSize, UnitSize * 7, PartDepth),
-        new("V7R", "bar-v7-replacement.sldprt", PrimitivePartShape.BarWithDualTopHoles, UnitSize, UnitSize * 7, PartDepth),
+        new("V7R", "bar-v7-replacement.sldprt", PrimitivePartShape.BarWithTopHoleAndEndPocket, UnitSize, UnitSize * 7, PartDepth),
         new("H5", "bar-h5.sldprt", PrimitivePartShape.BarWithFrontHole, UnitSize * 5, UnitSize, PartDepth),
         new("H4", "bar-h4.sldprt", PrimitivePartShape.BarWithFrontHole, UnitSize * 4, UnitSize, PartDepth),
         new("H3", "bar-h3.sldprt", PrimitivePartShape.BarPlain, UnitSize * 3, UnitSize, PartDepth),
@@ -139,7 +138,7 @@ public class HelloWorldVisualIntegrationTests : IDisposable
     {
         BarPlain,
         BarWithTopHole,
-        BarWithDualTopHoles,
+        BarWithTopHoleAndEndPocket,
         BarWithFrontHole,
         BarThroughAll,
         FilletedCube,
@@ -308,13 +307,19 @@ public class HelloWorldVisualIntegrationTests : IDisposable
                 Assert.Equal("ExtrudeCut", _ctx.Feature.ExtrudeCut(spec.Depth * 3, EndCondition.ThroughAll).Type);
                 break;
 
-            case PrimitivePartShape.BarWithDualTopHoles:
+            case PrimitivePartShape.BarWithTopHoleAndEndPocket:
                 SelectPartFace(Axis.Z, true);
                 _ctx.Sketch.InsertSketch();
                 _ctx.Sketch.AddCircle(0, spec.Height / 2.0 - UnitSize, UnitSize * 0.25);
-                _ctx.Sketch.AddCircle(0, spec.Height / 2.0 - (UnitSize * 2.5), UnitSize * 0.2);
                 _ctx.Sketch.FinishSketch();
                 Assert.Equal("ExtrudeCut", _ctx.Feature.ExtrudeCut(spec.Depth * 3, EndCondition.ThroughAll).Type);
+
+                // Preserve the faces used by the H subassembly mates and place the distinguishing change on the end face.
+                SelectPartFace(Axis.Y, true);
+                _ctx.Sketch.InsertSketch();
+                _ctx.Sketch.AddCircle(0, 0, Math.Min(spec.Width, spec.Depth) * 0.18);
+                _ctx.Sketch.FinishSketch();
+                Assert.Equal("ExtrudeCut", _ctx.Feature.ExtrudeCut(UnitSize * 1.5).Type);
                 break;
 
             case PrimitivePartShape.BarWithFrontHole:
@@ -443,6 +448,7 @@ public class HelloWorldVisualIntegrationTests : IDisposable
         Assert.False(staleReview.ScopeValidated);
         Assert.Null(staleReview.InterferenceCheck);
 
+        AddCoincidentMate(first.Name, Axis.Z, false, second.Name, Axis.Z, false);
         var interference = _ctx.Assembly.CheckInterference([first.Name, second.Name]);
         Assert.True(interference.HasInterference);
         Assert.Equal(2, interference.CheckedComponentCount);
@@ -624,6 +630,8 @@ public class HelloWorldVisualIntegrationTests : IDisposable
         var recursiveComponents = _ctx.Assembly.ListComponentsRecursive();
         var postInterference = _ctx.Assembly.CheckInterference(treatCoincidenceAsInterference: false);
         var postReplacementImpact = _ctx.Assembly.AnalyzeSharedPartEditImpact(hierarchyPath: result.PersistenceResolution!.ResolvedInstance!.HierarchyPath);
+        var healthDiagnostics = new WorkflowService(_ctx.Documents, _ctx.Assembly, _ctx.Selection)
+            .DiagnoseActiveDocumentHealth(forceRebuild: true, topOnly: false, saveDocument: true);
 
         Assert.Equal("completed", result.Status);
         Assert.True(result.PersistenceVerified);
@@ -637,6 +645,19 @@ public class HelloWorldVisualIntegrationTests : IDisposable
         Assert.True(postReplacementImpact.SafeDirectEdit);
         Assert.Equal("safe_direct_edit", postReplacementImpact.RecommendedAction);
         Assert.False(postInterference.HasInterference, "Replacement should preserve a non-interfering HELLO WORLD engineering assembly.");
+        Assert.Equal("completed", healthDiagnostics.Status);
+        Assert.NotNull(healthDiagnostics.ActiveDocument);
+        Assert.Equal(setup.ParentAssemblyPath, healthDiagnostics.ActiveDocument!.Path, StringComparer.OrdinalIgnoreCase);
+        Assert.True(healthDiagnostics.Rebuild.RebuildAttempted);
+        Assert.False(healthDiagnostics.HasBlockingIssues);
+        Assert.False(healthDiagnostics.HasWarnings);
+        Assert.True(healthDiagnostics.ReadyForVerificationGate);
+        Assert.True(healthDiagnostics.SaveHealth.SaveAttempted);
+        Assert.True(healthDiagnostics.SaveHealth.SaveSucceeded);
+        Assert.NotNull(healthDiagnostics.SaveHealth.SaveResult);
+        Assert.NotNull(healthDiagnostics.FeatureDiagnosticsAfterRebuild);
+        Assert.Equal(0, healthDiagnostics.FeatureDiagnosticsAfterRebuild!.WarningCount);
+        Assert.Empty(healthDiagnostics.FeatureDiagnosticsAfterRebuild.WhatsWrongItems);
 
         Assert.Equal(4, beforeExports.Count);
         Assert.Equal(4, afterExports.Count);

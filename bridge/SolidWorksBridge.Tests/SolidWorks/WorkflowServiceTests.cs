@@ -7,6 +7,22 @@ public class WorkflowServiceTests
 {
     private static SwApiDiagnostics Diagnostics() => new(0, Array.Empty<SwCodeInfo>(), 0, Array.Empty<SwCodeInfo>());
 
+    private static FeatureDiagnosticsResult FeatureDiagnostics(int errors = 0, int warnings = 0) =>
+        new(
+            Array.Empty<FeatureDiagnosticInfo>(),
+            Array.Empty<WhatsWrongItemInfo>(),
+            errors,
+            warnings);
+
+    private static RebuildStateInfo RebuildState(int rawStatus) =>
+        new(
+            rawStatus,
+            rawStatus != 0,
+            rawStatus == 0
+                ? [new SwCodeInfo(0, "swModelRebuildStatus_FullyRebuilt", "The model does not currently need rebuild.")]
+                : [new SwCodeInfo(rawStatus, "swModelRebuildStatus_NonFrozenFeatureNeedsRebuild", "Non-frozen features need rebuild.")],
+            rawStatus == 0 ? "The model does not currently need rebuild." : "Non-frozen features need rebuild.");
+
     private static AssemblyTargetResolutionResult ResolvedTarget(
         string hierarchyPath = "SubAsm-1/Pulley-1",
         string sourcePath = @"C:\OldPulley.sldprt",
@@ -220,6 +236,87 @@ public class WorkflowServiceTests
         documents.Verify(d => d.OpenDocument(It.IsAny<string>()), Times.Never);
         documents.Verify(d => d.SaveDocument(It.IsAny<string>()), Times.Never);
         assembly.Verify(a => a.ReplaceComponent(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<bool>(), It.IsAny<int>(), It.IsAny<bool>()), Times.Never);
+    }
+
+
+    [Fact]
+    public void DiagnoseActiveDocumentHealth_WhenEditing_ReturnsBlockedStatus()
+    {
+        var documents = new Mock<IDocumentService>();
+        var assembly = new Mock<IAssemblyService>();
+        var selection = new Mock<ISelectionService>();
+        documents.Setup(d => d.GetActiveDocument()).Returns(new SwDocumentInfo(@"C:\Part.sldprt", "Part", 1));
+        selection.Setup(s => s.GetEditState()).Returns(new EditStateInfo(true, "Sketch", false, false));
+
+        var service = new WorkflowService(documents.Object, assembly.Object, selection.Object);
+
+        var result = service.DiagnoseActiveDocumentHealth();
+
+        Assert.Equal("editing_state_blocks_diagnostics", result.Status);
+        Assert.False(result.ReadyForVerificationGate);
+        Assert.True(result.HasBlockingIssues);
+        selection.Verify(s => s.GetFeatureDiagnostics(), Times.Never);
+        documents.Verify(d => d.ForceRebuildActiveDocument(It.IsAny<bool>()), Times.Never);
+    }
+
+    [Fact]
+    public void DiagnoseActiveDocumentHealth_CollectsRebuildAndSaveDiagnostics()
+    {
+        var documents = new Mock<IDocumentService>();
+        var assembly = new Mock<IAssemblyService>();
+        var selection = new Mock<ISelectionService>();
+        var active = new SwDocumentInfo(@"C:\Asm.sldasm", "Asm", 2);
+        documents.Setup(d => d.GetActiveDocument()).Returns(active);
+        selection.Setup(s => s.GetEditState()).Returns(new EditStateInfo(false, "None", true, true));
+        selection.SetupSequence(s => s.GetFeatureDiagnostics())
+            .Returns(FeatureDiagnostics())
+            .Returns(FeatureDiagnostics(warnings: 1));
+        documents.Setup(d => d.ForceRebuildActiveDocument(false)).Returns(new RebuildExecutionResult(true, true, false, RebuildState(1), RebuildState(0)));
+        documents.Setup(d => d.SaveDocument(active.Path)).Returns(new SwSaveResult(active.Path, active.Path, "sldasm", false, 0, 1, Diagnostics()));
+
+        var service = new WorkflowService(documents.Object, assembly.Object, selection.Object);
+
+        var result = service.DiagnoseActiveDocumentHealth(forceRebuild: true, topOnly: false, saveDocument: true);
+
+        Assert.Equal("completed", result.Status);
+        Assert.False(result.HasBlockingIssues);
+        Assert.True(result.HasWarnings);
+        Assert.True(result.ReadyForVerificationGate);
+        Assert.True(result.Rebuild.RebuildAttempted);
+        Assert.True(result.SaveHealth.SaveAttempted);
+        Assert.True(result.SaveHealth.SaveSucceeded);
+        Assert.True(result.SaveHealth.HasWarnings);
+        documents.Verify(d => d.ForceRebuildActiveDocument(false), Times.Once);
+        documents.Verify(d => d.SaveDocument(active.Path), Times.Once);
+    }
+
+    [Fact]
+    public void DiagnoseActiveDocumentHealth_WhenSaveFails_ReturnsSaveFailedStatus()
+    {
+        var documents = new Mock<IDocumentService>();
+        var assembly = new Mock<IAssemblyService>();
+        var selection = new Mock<ISelectionService>();
+        var active = new SwDocumentInfo(@"C:\Asm.sldasm", "Asm", 2);
+        documents.Setup(d => d.GetActiveDocument()).Returns(active);
+        selection.Setup(s => s.GetEditState()).Returns(new EditStateInfo(false, "None", true, true));
+        selection.SetupSequence(s => s.GetFeatureDiagnostics())
+            .Returns(FeatureDiagnostics())
+            .Returns(FeatureDiagnostics());
+        documents.Setup(d => d.GetActiveDocumentRebuildState()).Returns(RebuildState(0));
+        documents.Setup(d => d.SaveDocument(active.Path)).Throws(new SolidWorksApiException(
+            "IModelDoc2.Save3",
+            "save failed",
+            diagnostics: Diagnostics()));
+
+        var service = new WorkflowService(documents.Object, assembly.Object, selection.Object);
+
+        var result = service.DiagnoseActiveDocumentHealth(forceRebuild: false, saveDocument: true);
+
+        Assert.Equal("save_failed", result.Status);
+        Assert.True(result.HasBlockingIssues);
+        Assert.False(result.ReadyForVerificationGate);
+        Assert.True(result.SaveHealth.SaveAttempted);
+        Assert.False(result.SaveHealth.SaveSucceeded);
     }
 
     [Fact]

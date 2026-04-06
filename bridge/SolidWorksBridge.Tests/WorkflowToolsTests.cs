@@ -248,4 +248,41 @@ public class WorkflowToolsTests
         Assert.True(parsed.RootElement.GetProperty("HasInterference").GetBoolean());
         workflow.Verify(w => w.ReviewTargetedStaticInterference(firstHierarchyPath, secondHierarchyPath, false), Times.Once);
     }
+
+    [Fact]
+    public async Task DiagnoseActiveDocumentHealth_DelegatesToWorkflowService()
+    {
+        using var sta = new StaDispatcher();
+
+        var connectionManager = new Mock<ISwConnectionManager>();
+        var selection = new Mock<ISelectionService>();
+        var sketch = new Mock<ISketchService>();
+        var feature = new Mock<IFeatureService>();
+        var workflow = new Mock<IWorkflowService>();
+
+        workflow.Setup(w => w.DiagnoseActiveDocumentHealth(true, false, true))
+            .Returns(new ActiveDocumentHealthDiagnosticsResult(
+                new SwDocumentInfo(@"C:\Asm.sldasm", "Asm", 2),
+                new EditStateInfo(false, "None", true, true),
+                new FeatureDiagnosticsResult(Array.Empty<FeatureDiagnosticInfo>(), Array.Empty<WhatsWrongItemInfo>(), 0, 0),
+                new RebuildExecutionResult(true, true, false,
+                    new RebuildStateInfo(1, true, [new SwCodeInfo(1, "swModelRebuildStatus_NonFrozenFeatureNeedsRebuild", "Non-frozen features need rebuild.")], "Non-frozen features need rebuild."),
+                    new RebuildStateInfo(0, false, [new SwCodeInfo(0, "swModelRebuildStatus_FullyRebuilt", "The model does not currently need rebuild.")], "The model does not currently need rebuild.")),
+                new FeatureDiagnosticsResult(Array.Empty<FeatureDiagnosticInfo>(), Array.Empty<WhatsWrongItemInfo>(), 0, 0),
+                new SaveHealthInfo(true, true, @"C:\Asm.sldasm", new SwSaveResult(@"C:\Asm.sldasm", @"C:\Asm.sldasm", "sldasm", false, 0, 0), new SwApiDiagnostics(0, Array.Empty<SwCodeInfo>(), 0, Array.Empty<SwCodeInfo>()), false, false, null),
+                false,
+                false,
+                true,
+                "completed",
+                null));
+
+        var tool = new WorkflowTools(sta, connectionManager.Object, selection.Object, sketch.Object, feature.Object, workflow.Object);
+
+        string json = await tool.DiagnoseActiveDocumentHealth(forceRebuild: true, topOnly: false, saveDocument: true);
+
+        using var parsed = JsonDocument.Parse(json);
+        Assert.Equal("completed", parsed.RootElement.GetProperty("Status").GetString());
+        Assert.True(parsed.RootElement.GetProperty("ReadyForVerificationGate").GetBoolean());
+        workflow.Verify(w => w.DiagnoseActiveDocumentHealth(true, false, true), Times.Once);
+    }
 }

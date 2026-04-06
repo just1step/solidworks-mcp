@@ -16,6 +16,20 @@ public class WorkflowTools(
     IFeatureService feature,
     IWorkflowService workflow)
 {
+    [McpServerTool, Description("Collect a structured active-document health report by reading native SolidWorks feature diagnostics, rebuild state, and optional save diagnostics. Use this as a verification gate after risky edits instead of inferring health from screenshots or a single API call.")]
+    public async Task<string> DiagnoseActiveDocumentHealth(
+        [Description("When true, runs ForceRebuild3 before evaluating the final diagnostics state.")] bool forceRebuild = true,
+        [Description("Passed to ForceRebuild3. For assemblies, true rebuilds only the top-level assembly; false includes subassemblies.")] bool topOnly = false,
+        [Description("When true, silently saves the active document after diagnostics collection so save warnings and errors are included in the report.")] bool saveDocument = false)
+    {
+        var payload = new { forceRebuild, topOnly, saveDocument };
+        var result = await sta.InvokeLoggedAsync(
+            nameof(DiagnoseActiveDocumentHealth),
+            payload,
+            () => workflow.DiagnoseActiveDocumentHealth(forceRebuild, topOnly, saveDocument));
+        return JsonSerializer.Serialize(result);
+    }
+
     [McpServerTool, Description("Run the proven one-shot face-cut workflow: select a planar face by ListEntities index, open a sketch on that face, enumerate the face edges via IFace2.GetEdges, select those edges, project them with ISketchManager.SketchUseEdge3, then exit/reselect the sketch as required and create a cut. Use this instead of manually chaining SelectEntity + InsertSketch + SketchUseEdge3 + ExtrudeCut when cutting from an existing face outline.")]
     public async Task<string> CutFaceByProjectedEdges(
         [Description("Zero-based face index from ListEntities(Face).")]

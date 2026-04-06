@@ -157,6 +157,20 @@ public static class SolidWorksApiErrorFactory
         return new SwApiDiagnostics(errorCode, [code], 0, Array.Empty<SwCodeInfo>());
     }
 
+    public static SwCodeInfo CreateFeatureErrorCodeInfo(int errorCode)
+    {
+        return errorCode == 0
+            ? new SwCodeInfo(0, nameof(swFeatureError_e.swFeatureErrorNone), "No feature error.")
+            : DecodeValue<swFeatureError_e>(errorCode);
+    }
+
+    public static IReadOnlyList<SwCodeInfo> CreateModelRebuildStatusCodes(int rawStatus)
+    {
+        return rawStatus == 0
+            ? [new SwCodeInfo(0, nameof(swModelRebuildStatus_e.swModelRebuildStatus_FullyRebuilt), "The model does not currently need rebuild.")]
+            : DecodeFlags<swModelRebuildStatus_e>(rawStatus);
+    }
+
     public static IReadOnlyList<SwCodeInfo> DecodeFlags<TEnum>(int rawCode)
         where TEnum : struct, Enum
     {

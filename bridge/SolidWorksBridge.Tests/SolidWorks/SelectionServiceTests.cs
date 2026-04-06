@@ -120,7 +120,7 @@ public class SelectionServiceTests
         return feature.Object;
     }
 
-    private static Feature FeatureNode(string name, string typeName, object[]? children = null, Feature? next = null, bool canSelect = true)
+    private static Feature FeatureNode(string name, string typeName, object[]? children = null, Feature? next = null, bool canSelect = true, int errorCode = 0, bool isWarning = false)
     {
         var feature = new Mock<Feature>();
         feature.Setup(f => f.Name).Returns(name);
@@ -128,6 +128,8 @@ public class SelectionServiceTests
         feature.Setup(f => f.GetNextFeature()).Returns(next);
         feature.Setup(f => f.GetChildren()).Returns(children ?? Array.Empty<object>());
         feature.Setup(f => f.Select2(false, -1)).Returns(canSelect);
+        var warningOut = isWarning;
+        feature.Setup(f => f.GetErrorCode2(out warningOut)).Returns(errorCode);
         return feature.Object;
     }
 
@@ -402,6 +404,73 @@ public class SelectionServiceTests
                 Assert.Equal("Cut-Extrude1", item.Name);
                 Assert.False(item.IsSketch);
             });
+    }
+
+    [Fact]
+    public void GetFeatureDiagnostics_ReturnsFeatureErrorCodesAndWhatsWrongItems()
+    {
+        var warningFeature = FeatureNode("MateGroup", "MateGroup", errorCode: 48, isWarning: true);
+        var errorFeature = FeatureNode("MateCoincident1", "MateCoincident", next: warningFeature, errorCode: 46, isWarning: false);
+        var extension = new Mock<ModelDocExtension>();
+        object whatsWrongFeatures = new object[] { errorFeature, warningFeature };
+        object whatsWrongCodes = new object[] { 46, 48 };
+        object whatsWrongWarnings = new object[] { false, true };
+
+        var (manager, _, doc) = ConnectedWithDoc();
+        doc.Setup(d => d.FirstFeature()).Returns(errorFeature);
+        doc.Setup(d => d.GetActiveSketch2()).Returns((object?)null);
+        doc.SetupGet(d => d.Extension).Returns(extension.Object);
+        extension.Setup(e => e.GetWhatsWrong(out whatsWrongFeatures, out whatsWrongCodes, out whatsWrongWarnings)).Returns(true);
+
+        var result = new SelectionService(manager.Object).GetFeatureDiagnostics();
+
+        Assert.Equal(1, result.ErrorCount);
+        Assert.Equal(1, result.WarningCount);
+        Assert.Collection(result.FeatureDiagnostics,
+            item =>
+            {
+                Assert.Equal("MateCoincident1", item.Name);
+                Assert.True(item.HasIssue);
+                Assert.False(item.IsWarning);
+                Assert.Equal(46, item.ErrorCode);
+                Assert.Equal("swFeatureErrorMateOverdefined", item.ErrorName);
+                Assert.True(item.AppearsInWhatsWrong);
+            },
+            item =>
+            {
+                Assert.Equal("MateGroup", item.Name);
+                Assert.True(item.HasIssue);
+                Assert.True(item.IsWarning);
+                Assert.Equal(48, item.ErrorCode);
+                Assert.Equal("swFeatureErrorMateBroken", item.ErrorName);
+                Assert.True(item.AppearsInWhatsWrong);
+            });
+        Assert.Collection(result.WhatsWrongItems,
+            item =>
+            {
+                Assert.Equal("MateCoincident1", item.Name);
+                Assert.False(item.IsWarning);
+                Assert.Equal(46, item.ErrorCode);
+            },
+            item =>
+            {
+                Assert.Equal("MateGroup", item.Name);
+                Assert.True(item.IsWarning);
+                Assert.Equal(48, item.ErrorCode);
+            });
+    }
+
+    [Fact]
+    public void GetFeatureDiagnostics_WhenSketchIsActive_Throws()
+    {
+        var sketch = FeatureNode("Sketch9", "ProfileFeature");
+        var (manager, _, doc) = ConnectedWithDoc();
+        doc.Setup(d => d.FirstFeature()).Returns(sketch);
+        doc.Setup(d => d.GetActiveSketch2()).Returns(new object());
+
+        var error = Assert.Throws<InvalidOperationException>(() => new SelectionService(manager.Object).GetFeatureDiagnostics());
+
+        Assert.Contains("Finish the active sketch", error.Message);
     }
 
     [Fact]

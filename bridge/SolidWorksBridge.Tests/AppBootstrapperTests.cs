@@ -105,7 +105,7 @@ public class AppBootstrapperTests
             "sw.list_documents", "sw.get_active_document",
             "sw.view.show_standard", "sw.view.rotate", "sw.view.export_png",
             "sw.select.by_name", "sw.select.list_entities",
-            "sw.select.entity", "sw.select.measure_entities", "sw.select.clear",
+            "sw.select.entity", "sw.select.measure_entities", "sw.select.clear", "sw.select.get_feature_diagnostics",
             "sw.sketch.insert", "sw.sketch.finish",
             "sw.sketch.add_line", "sw.sketch.add_circle",
             "sw.sketch.add_rectangle", "sw.sketch.add_arc",
@@ -118,6 +118,7 @@ public class AppBootstrapperTests
             "sw.assembly.add_mate_distance", "sw.assembly.add_mate_angle",
             "sw.assembly.list_components", "sw.assembly.list_components_recursive",
             "sw.assembly.check_interference", "sw.assembly.replace_component",
+            "sw.workflow.diagnose_active_document_health",
             "sw.workflow.replace_nested_component_and_verify_persistence",
             "sw.workflow.review_targeted_static_interference"
         };
@@ -335,6 +336,68 @@ public class AppBootstrapperTests
 
         // Should succeed (no error), result is null — that's valid
         Assert.Null(response.Error);
+    }
+
+    [Fact]
+    public async Task Handler_SwSelectGetFeatureDiagnostics_CallsSelectionService()
+    {
+        var manager = new Mock<ISwConnectionManager>();
+        var docSvc = new Mock<IDocumentService>();
+        var selSvc = new Mock<ISelectionService>();
+        var sketchSvc = new Mock<ISketchService>();
+        var featureSvc = new Mock<IFeatureService>();
+        var assemblySvc = new Mock<IAssemblyService>();
+        var workflowSvc = new Mock<IWorkflowService>();
+        var handler = new MessageHandler();
+        var bootstrapper = new AppBootstrapper(
+            manager.Object, docSvc.Object,
+            selSvc.Object, sketchSvc.Object, featureSvc.Object, assemblySvc.Object, workflowSvc.Object,
+            handler);
+        bootstrapper.RegisterHandlers();
+
+        selSvc.Setup(s => s.GetFeatureDiagnostics()).Returns(new FeatureDiagnosticsResult(
+            new[]
+            {
+                new FeatureDiagnosticInfo(0, "MateCoincident1", "MateCoincident", false, false, true, 46, false, "swFeatureErrorMateOverdefined", "Mate overdefined.", true),
+            },
+            new[]
+            {
+                new WhatsWrongItemInfo("MateCoincident1", "MateCoincident", 46, false, "swFeatureErrorMateOverdefined", "Mate overdefined."),
+            },
+            1,
+            0));
+
+        var response = await handler.HandleAsync(Req("sw.select.get_feature_diagnostics"));
+
+        Assert.Null(response.Error);
+        selSvc.Verify(s => s.GetFeatureDiagnostics(), Times.Once);
+    }
+
+    [Fact]
+    public async Task Handler_DiagnoseActiveDocumentHealth_CallsWorkflowService()
+    {
+        var (bootstrapper, workflowSvc, handler) = BuildWithWorkflow();
+        bootstrapper.RegisterHandlers();
+
+        workflowSvc.Setup(w => w.DiagnoseActiveDocumentHealth(true, false, true)).Returns(new ActiveDocumentHealthDiagnosticsResult(
+            new SwDocumentInfo(@"C:\Asm.sldasm", "Asm", 2),
+            new EditStateInfo(false, "None", true, true),
+            new FeatureDiagnosticsResult(Array.Empty<FeatureDiagnosticInfo>(), Array.Empty<WhatsWrongItemInfo>(), 0, 0),
+            new RebuildExecutionResult(true, true, false,
+                new RebuildStateInfo(1, true, [new SwCodeInfo(1, "swModelRebuildStatus_NonFrozenFeatureNeedsRebuild", "Non-frozen features need rebuild.")], "Non-frozen features need rebuild."),
+                new RebuildStateInfo(0, false, [new SwCodeInfo(0, "swModelRebuildStatus_FullyRebuilt", "The model does not currently need rebuild.")], "The model does not currently need rebuild.")),
+            new FeatureDiagnosticsResult(Array.Empty<FeatureDiagnosticInfo>(), Array.Empty<WhatsWrongItemInfo>(), 0, 0),
+            new SaveHealthInfo(true, true, @"C:\Asm.sldasm", new SwSaveResult(@"C:\Asm.sldasm", @"C:\Asm.sldasm", "sldasm", false, 0, 0), new SwApiDiagnostics(0, Array.Empty<SwCodeInfo>(), 0, Array.Empty<SwCodeInfo>()), false, false, null),
+            false,
+            false,
+            true,
+            "completed",
+            null));
+
+        var response = await handler.HandleAsync(Req("sw.workflow.diagnose_active_document_health", new { forceRebuild = true, topOnly = false, saveDocument = true }));
+
+        Assert.Null(response.Error);
+        workflowSvc.Verify(w => w.DiagnoseActiveDocumentHealth(true, false, true), Times.Once);
     }
 
     [Fact]

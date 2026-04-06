@@ -22,6 +22,13 @@ public class SelectionTools(StaDispatcher sta, ISelectionService selection)
         return JsonSerializer.Serialize(list);
     }
 
+    [McpServerTool, Description("Read the active document's FeatureManager error state using SolidWorks' official feature error codes and What's Wrong diagnostics. Use this when the SolidWorks UI shows red/error items and you need structured error details instead of inferring problems from screenshots.")]
+    public async Task<string> GetFeatureDiagnostics()
+    {
+        var diagnostics = await sta.InvokeLoggedAsync(nameof(GetFeatureDiagnostics), null, selection.GetFeatureDiagnostics);
+        return JsonSerializer.Serialize(diagnostics);
+    }
+
     [McpServerTool, Description("Select an entity in SolidWorks by name and selection type string. For datum planes, prefer 'PLANE'; common SolidWorks enum names like 'swSelDATUMPLANES' are also accepted and retried with compatible aliases.")]
     public async Task<string> SelectByName(
         [Description("Name of the entity to select")] string name,

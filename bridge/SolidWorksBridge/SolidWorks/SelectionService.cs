@@ -37,6 +37,42 @@ public record FeatureTreeItemInfo(
     bool HasChildren);
 
 /// <summary>
+/// Diagnostic state for one FeatureManager node based on SolidWorks feature error codes.
+/// </summary>
+public record FeatureDiagnosticInfo(
+    int Index,
+    string Name,
+    string TypeName,
+    bool IsSketch,
+    bool HasChildren,
+    bool HasIssue,
+    int ErrorCode,
+    bool IsWarning,
+    string ErrorName,
+    string ErrorDescription,
+    bool AppearsInWhatsWrong);
+
+/// <summary>
+/// One item from SolidWorks' What's Wrong system for the active document.
+/// </summary>
+public record WhatsWrongItemInfo(
+    string Name,
+    string TypeName,
+    int ErrorCode,
+    bool IsWarning,
+    string ErrorName,
+    string ErrorDescription);
+
+/// <summary>
+/// Combined feature-tree and What's Wrong diagnostics for the active document.
+/// </summary>
+public record FeatureDiagnosticsResult(
+    IReadOnlyList<FeatureDiagnosticInfo> FeatureDiagnostics,
+    IReadOnlyList<WhatsWrongItemInfo> WhatsWrongItems,
+    int ErrorCount,
+    int WarningCount);
+
+/// <summary>
 /// Lightweight description of whether the active document is currently in an edit mode
 /// that blocks safe feature-tree reads or delete operations.
 /// </summary>
@@ -142,6 +178,11 @@ public interface ISelectionService
     IReadOnlyList<FeatureTreeItemInfo> ListFeatureTree();
 
     /// <summary>
+    /// Read SolidWorks feature error codes and What's Wrong items for the active document.
+    /// </summary>
+    FeatureDiagnosticsResult GetFeatureDiagnostics();
+
+    /// <summary>
     /// Report whether the active document is currently editing a sketch or is otherwise in a safe state
     /// for feature-tree reads and delete operations.
     /// </summary>
@@ -215,6 +256,8 @@ public class SelectionService : ISelectionService
         SelectableEntityType EntityType,
         string? ComponentName,
         double[]? Box);
+
+    private sealed record FeatureErrorInfo(int ErrorCode, bool IsWarning, SwCodeInfo CodeInfo);
 
     private sealed record FeatureNode(
         Feature Feature,
@@ -317,6 +360,44 @@ public class SelectionService : ISelectionService
                 node.HasChildren))
             .ToList()
             .AsReadOnly();
+    }
+
+    public FeatureDiagnosticsResult GetFeatureDiagnostics()
+    {
+        _cm.EnsureConnected();
+        var doc = GetActiveModelDoc();
+        EnsureNotEditing(doc, "reading feature diagnostics");
+
+        var treeNodes = EnumerateFeatureTree(doc).ToList();
+        var whatsWrongItems = EnumerateWhatsWrongItems(doc).ToList();
+        var whatsWrongKeys = new HashSet<string>(
+            whatsWrongItems.Select(item => BuildFeatureKey(item.Name, item.TypeName)),
+            StringComparer.OrdinalIgnoreCase);
+
+        var featureDiagnostics = treeNodes
+            .Select(node =>
+            {
+                var error = GetFeatureErrorInfo(node.Feature);
+                return new FeatureDiagnosticInfo(
+                    node.Index,
+                    node.Name,
+                    node.TypeName,
+                    node.IsSketch,
+                    node.HasChildren,
+                    HasIssue: error.ErrorCode != 0,
+                    ErrorCode: error.ErrorCode,
+                    IsWarning: error.IsWarning,
+                    ErrorName: error.CodeInfo.Name,
+                    ErrorDescription: error.CodeInfo.Description,
+                    AppearsInWhatsWrong: whatsWrongKeys.Contains(BuildFeatureKey(node.Name, node.TypeName)));
+            })
+            .ToList()
+            .AsReadOnly();
+
+        int warningCount = whatsWrongItems.Count(item => item.IsWarning);
+        int errorCount = whatsWrongItems.Count - warningCount;
+
+        return new FeatureDiagnosticsResult(featureDiagnostics, whatsWrongItems.AsReadOnly(), errorCount, warningCount);
     }
 
     public EditStateInfo GetEditState()
@@ -585,6 +666,41 @@ public class SelectionService : ISelectionService
         }
     }
 
+    private static IEnumerable<WhatsWrongItemInfo> EnumerateWhatsWrongItems(IModelDoc2 doc)
+    {
+        var extension = doc.Extension;
+        if (extension == null)
+        {
+            yield break;
+        }
+
+        object featuresRaw;
+        object errorCodesRaw;
+        object warningsRaw;
+        if (!extension.GetWhatsWrong(out featuresRaw, out errorCodesRaw, out warningsRaw))
+        {
+            yield break;
+        }
+
+        var features = (featuresRaw as object[] ?? Array.Empty<object>()).OfType<Feature>().ToArray();
+        var errorCodes = ToIntArray(errorCodesRaw);
+        var warnings = ToBoolArray(warningsRaw);
+        int count = new[] { features.Length, errorCodes.Length, warnings.Length }.Min();
+        for (int index = 0; index < count; index++)
+        {
+            var feature = features[index];
+            int errorCode = errorCodes[index];
+            var codeInfo = SolidWorksApiErrorFactory.CreateFeatureErrorCodeInfo(errorCode);
+            yield return new WhatsWrongItemInfo(
+                Name: SafeGetFeatureName(feature) ?? $"Feature{index + 1}",
+                TypeName: SafeGetFeatureTypeName(feature) ?? "Unknown",
+                ErrorCode: errorCode,
+                IsWarning: warnings[index],
+                ErrorName: codeInfo.Name,
+                ErrorDescription: codeInfo.Description);
+        }
+    }
+
     private static IEnumerable<string> ExpandSelectionTypes(string selType)
     {
         if (SelectionTypeAliases.TryGetValue(selType, out var aliases))
@@ -593,6 +709,62 @@ public class SelectionService : ISelectionService
         }
 
         return [selType];
+    }
+
+    private static FeatureErrorInfo GetFeatureErrorInfo(Feature feature)
+    {
+        bool isWarning;
+        int errorCode = feature.GetErrorCode2(out isWarning);
+        return new FeatureErrorInfo(errorCode, isWarning, SolidWorksApiErrorFactory.CreateFeatureErrorCodeInfo(errorCode));
+    }
+
+    private static string BuildFeatureKey(string name, string typeName)
+        => string.Concat(name, "||", typeName);
+
+    private static int[] ToIntArray(object? raw)
+    {
+        return raw switch
+        {
+            null => Array.Empty<int>(),
+            int[] ints => ints,
+            object[] objects => objects.Select(ToInt).ToArray(),
+            _ => Array.Empty<int>(),
+        };
+    }
+
+    private static int ToInt(object? value)
+    {
+        return value switch
+        {
+            null => 0,
+            int intValue => intValue,
+            short shortValue => shortValue,
+            long longValue => unchecked((int)longValue),
+            _ => Convert.ToInt32(value),
+        };
+    }
+
+    private static bool[] ToBoolArray(object? raw)
+    {
+        return raw switch
+        {
+            null => Array.Empty<bool>(),
+            bool[] bools => bools,
+            object[] objects => objects.Select(ToBool).ToArray(),
+            _ => Array.Empty<bool>(),
+        };
+    }
+
+    private static bool ToBool(object? value)
+    {
+        return value switch
+        {
+            null => false,
+            bool boolValue => boolValue,
+            short shortValue => shortValue != 0,
+            int intValue => intValue != 0,
+            _ => Convert.ToBoolean(value),
+        };
     }
 
     private static bool IsPlaneSelection(string selType)
