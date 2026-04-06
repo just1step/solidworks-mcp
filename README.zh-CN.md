@@ -17,10 +17,41 @@ SolidWorks MCP Server 是面向 Windows 的 SolidWorks MCP 桌面自动化服务
 
 ## 快速导航
 
+- [软件架构总览](#软件架构总览)
 - [使用指引](#使用指引)
 - [开发指引](#开发指引)
 - [提交 Issue 指引](#提交-issue-指引)
 - [关联库与参考链接](#关联库与参考链接)
+
+## 软件架构总览
+
+这个项目应该被理解为“一个面对用户的 exe + 若干内部层”，而不是几个彼此独立、需要分别手动启动的程序。
+
+核心运行模型：
+
+- `SolidWorksMcpApp.exe` 是本地使用和开发调试时唯一支持的启动入口。
+- 托盘进程就是 Hub，负责持有共享的 SolidWorks COM 连接、共享 STA 执行线程、日志与客户端监控。
+- MCP 客户端会以 `--proxy` 模式启动同一个 exe。这个 Proxy 进程通过本地 Named Pipe 回连 Hub，并转发 stdio MCP 流量。
+- `SolidWorksBridge` 是托盘程序内部使用的实现层，负责 SolidWorks COM 服务、消息处理和底层 pipe 机制，但它不是面向用户的独立启动入口。
+
+高层执行链路：
+
+1. 启动 `SolidWorksMcpApp.exe`。
+2. Hub 初始化共享服务并等待本地 MCP 客户端接入。
+3. VS Code、Copilot 或 Claude 在需要时启动 Proxy 会话。
+4. Proxy 把 MCP 请求转发给 Hub。
+5. Hub 通过内部 bridge / service 层执行 SolidWorks 工具调用。
+
+仓库目录对应关系：
+
+- `app/SolidWorksMcpApp/`：托盘 UI、Hub/Proxy Host、MCP 工具注册、日志与打包入口。
+- `bridge/SolidWorksBridge/`：供 app 内部使用的 SolidWorks COM 服务、消息处理和 pipe 基础设施。
+- `bridge/SolidWorksBridge.Tests/`：bridge / service 层的单测与集成测试。
+
+启动原则：
+
+- 不要单独启动 `SolidWorksBridge`。
+- 统一启动 `SolidWorksMcpApp.exe`，然后让 MCP 客户端走 Hub/Proxy 这条正式链路。
 
 ## 使用指引
 
@@ -127,6 +158,9 @@ dotnet build -c Release
 如果你使用 VS Code，也可以直接运行 [`.vscode/tasks.json`](./.vscode/tasks.json) 里的任务：
 
 - `Build SolidWorks MCP App`
+- `Start SolidWorks MCP App`
+
+本地手动测试时，直接启动托盘 app 即可。仓库里不再保留 `deploy-local.bat` 或“单独启动 bridge”的脚本入口，因为托盘 app 才是唯一权威的运行入口。
 
 ### 本地测试
 

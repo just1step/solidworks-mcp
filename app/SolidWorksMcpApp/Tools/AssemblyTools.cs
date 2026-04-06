@@ -75,6 +75,28 @@ public class AssemblyTools(StaDispatcher sta, IAssemblyService assembly)
         return JsonSerializer.Serialize(list);
     }
 
+    [McpServerTool, Description("Resolve one exact component instance in the active SolidWorks assembly by name, hierarchy path, path, or any combination. Returns a resolved target or explicit ambiguity details for downstream workflows.")]
+    public async Task<string> ResolveComponentTarget(
+        [Description("Optional component instance name to match exactly, for example Pulley-1.")] string? componentName = null,
+        [Description("Optional full hierarchy path to match exactly. This is the most precise selector when available.")] string? hierarchyPath = null,
+        [Description("Optional full source model path to match exactly.")] string? componentPath = null)
+    {
+        var payload = new { componentName, hierarchyPath, componentPath };
+        var result = await sta.InvokeLoggedAsync(nameof(ResolveComponentTarget), payload, () => assembly.ResolveComponentTarget(componentName, hierarchyPath, componentPath));
+        return JsonSerializer.Serialize(result);
+    }
+
+    [McpServerTool, Description("Analyze how many placements would change if the resolved component's source file were edited directly. Use this before any geometry-changing part edit.")]
+    public async Task<string> AnalyzeSharedPartEditImpact(
+        [Description("Optional component instance name to match exactly, for example Pulley-1.")] string? componentName = null,
+        [Description("Optional full hierarchy path to match exactly. This is the most precise selector when available.")] string? hierarchyPath = null,
+        [Description("Optional full source model path to match exactly.")] string? componentPath = null)
+    {
+        var payload = new { componentName, hierarchyPath, componentPath };
+        var result = await sta.InvokeLoggedAsync(nameof(AnalyzeSharedPartEditImpact), payload, () => assembly.AnalyzeSharedPartEditImpact(componentName, hierarchyPath, componentPath));
+        return JsonSerializer.Serialize(result);
+    }
+
     [McpServerTool, Description("Run a static interference check in the active SolidWorks assembly using the official ToolsCheckInterference2 workflow. The assembly must be fully resolved, and this tool temporarily changes the selection set while it runs.")]
     public async Task<string> CheckInterference(
         [Description("Optional component instance hierarchy paths to check. Leave null to check the whole active assembly.")] string[]? hierarchyPaths = null,

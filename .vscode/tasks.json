@@ -14,16 +14,9 @@
       "group": "build"
     },
     {
-      "label": "Deploy SolidWorks MCP",
+      "label": "Start SolidWorks MCP App",
       "type": "shell",
-      "command": "${workspaceFolder}\\scripts\\deploy-local.bat",
-      "problemMatcher": [],
-      "group": "build"
-    },
-    {
-      "label": "Start SolidWorks Bridge",
-      "type": "shell",
-      "command": "${workspaceFolder}\\scripts\\start-bridge.bat",
+      "command": "${workspaceFolder}\\app\\SolidWorksMcpApp\\bin\\Debug\\net8.0-windows\\win-x64\\SolidWorksMcpApp.exe",
       "isBackground": true,
       "problemMatcher": []
     }

@@ -24,6 +24,26 @@ public record AssemblyInterferenceCheckResult(
     int InterferingFaceCount,
     IReadOnlyList<ComponentInstanceInfo> InterferingComponents);
 
+public record AssemblyTargetResolutionResult(
+    string? RequestedName,
+    string? RequestedHierarchyPath,
+    string? RequestedComponentPath,
+    bool IsResolved,
+    bool IsAmbiguous,
+    ComponentInstanceInfo? ResolvedInstance,
+    string? OwningAssemblyHierarchyPath,
+    string? OwningAssemblyFilePath,
+    int SourceFileReuseCount,
+    IReadOnlyList<ComponentInstanceInfo> MatchingInstances);
+
+public record SharedPartEditImpactResult(
+    AssemblyTargetResolutionResult TargetResolution,
+    string? SourceFilePath,
+    int AffectedInstanceCount,
+    IReadOnlyList<ComponentInstanceInfo> AffectedInstances,
+    bool SafeDirectEdit,
+    string RecommendedAction);
+
 public record AssemblyComponentReplacementResult(
     string ReplacedHierarchyPath,
     string ReplacementFilePath,
@@ -104,6 +124,22 @@ public interface IAssemblyService
     /// List all component instances in the active assembly by recursively traversing subassemblies.
     /// </summary>
     IReadOnlyList<ComponentInstanceInfo> ListComponentsRecursive();
+
+    /// <summary>
+    /// Resolve one exact component instance in the active assembly using name, hierarchy path, path, or any combination.
+    /// </summary>
+    AssemblyTargetResolutionResult ResolveComponentTarget(
+        string? componentName = null,
+        string? hierarchyPath = null,
+        string? componentPath = null);
+
+    /// <summary>
+    /// Analyze how many placements would change if the resolved component's source file were edited directly.
+    /// </summary>
+    SharedPartEditImpactResult AnalyzeSharedPartEditImpact(
+        string? componentName = null,
+        string? hierarchyPath = null,
+        string? componentPath = null);
 
     /// <summary>
     /// Run a static interference check for the active assembly or a subset of component instances.
@@ -200,6 +236,74 @@ public class AssemblyService : IAssemblyService
         return instances.AsReadOnly();
     }
 
+    public AssemblyTargetResolutionResult ResolveComponentTarget(
+        string? componentName = null,
+        string? hierarchyPath = null,
+        string? componentPath = null)
+    {
+        ValidateTargetCriteria(componentName, hierarchyPath, componentPath);
+
+        _cm.EnsureConnected();
+        var assy = GetAssemblyDoc();
+        var activeAssemblyPath = NormalizeCriteria(((IModelDoc2)assy).GetPathName());
+        var instances = EnumerateComponentInstances(assy);
+
+        return ResolveComponentTargetCore(instances, activeAssemblyPath, componentName, hierarchyPath, componentPath);
+    }
+
+    public SharedPartEditImpactResult AnalyzeSharedPartEditImpact(
+        string? componentName = null,
+        string? hierarchyPath = null,
+        string? componentPath = null)
+    {
+        ValidateTargetCriteria(componentName, hierarchyPath, componentPath);
+
+        _cm.EnsureConnected();
+        var assy = GetAssemblyDoc();
+        var activeAssemblyPath = NormalizeCriteria(((IModelDoc2)assy).GetPathName());
+        var instances = EnumerateComponentInstances(assy);
+        var resolution = ResolveComponentTargetCore(instances, activeAssemblyPath, componentName, hierarchyPath, componentPath);
+
+        if (!resolution.IsResolved || resolution.ResolvedInstance == null)
+        {
+            return new SharedPartEditImpactResult(
+                resolution,
+                SourceFilePath: null,
+                AffectedInstanceCount: 0,
+                AffectedInstances: Array.Empty<ComponentInstanceInfo>(),
+                SafeDirectEdit: false,
+                RecommendedAction: resolution.IsAmbiguous ? "resolve_target_ambiguity" : "resolve_target_first");
+        }
+
+        var sourceFilePath = NormalizeCriteria(resolution.ResolvedInstance.Path);
+        if (sourceFilePath == null)
+        {
+            return new SharedPartEditImpactResult(
+                resolution,
+                SourceFilePath: null,
+                AffectedInstanceCount: 1,
+                AffectedInstances: new[] { resolution.ResolvedInstance },
+                SafeDirectEdit: false,
+                RecommendedAction: "review_manually_missing_source_file");
+        }
+
+        var affectedInstances = instances
+            .Where(instance => string.Equals(instance.Info.Path, sourceFilePath, StringComparison.OrdinalIgnoreCase))
+            .Select(instance => instance.Info)
+            .ToList()
+            .AsReadOnly();
+
+        bool safeDirectEdit = affectedInstances.Count == 1;
+
+        return new SharedPartEditImpactResult(
+            resolution,
+            SourceFilePath: sourceFilePath,
+            AffectedInstanceCount: affectedInstances.Count,
+            AffectedInstances: affectedInstances,
+            SafeDirectEdit: safeDirectEdit,
+            RecommendedAction: safeDirectEdit ? "safe_direct_edit" : "replace_single_instance_before_edit");
+    }
+
     public AssemblyInterferenceCheckResult CheckInterference(
         IReadOnlyList<string>? hierarchyPaths = null,
         bool treatCoincidenceAsInterference = false)
@@ -280,7 +384,7 @@ public class AssemblyService : IAssemblyService
         }
 
         object checkedComponents = selectedInstances
-            .Select(instance => new DispatchWrapper(instance.Component))
+            .Select(instance => WrapDispatchObject(instance.Component))
             .Cast<object>()
             .ToArray();
         object interferingComponentsRaw;
@@ -542,6 +646,55 @@ public class AssemblyService : IAssemblyService
 
     private sealed record ComponentInstance(IComponent2 Component, ComponentInstanceInfo Info);
 
+    private static AssemblyTargetResolutionResult ResolveComponentTargetCore(
+        IReadOnlyList<ComponentInstance> instances,
+        string? activeAssemblyPath,
+        string? componentName,
+        string? hierarchyPath,
+        string? componentPath)
+    {
+        var normalizedName = NormalizeCriteria(componentName);
+        var normalizedHierarchyPath = NormalizeCriteria(hierarchyPath);
+        var normalizedComponentPath = NormalizeCriteria(componentPath);
+
+        var matches = instances
+            .Where(instance => MatchesTarget(instance.Info, normalizedName, normalizedHierarchyPath, normalizedComponentPath))
+            .Select(instance => instance.Info)
+            .ToList()
+            .AsReadOnly();
+
+        if (matches.Count != 1)
+        {
+            return new AssemblyTargetResolutionResult(
+                RequestedName: normalizedName,
+                RequestedHierarchyPath: normalizedHierarchyPath,
+                RequestedComponentPath: normalizedComponentPath,
+                IsResolved: false,
+                IsAmbiguous: matches.Count > 1,
+                ResolvedInstance: null,
+                OwningAssemblyHierarchyPath: null,
+                OwningAssemblyFilePath: null,
+                SourceFileReuseCount: 0,
+                MatchingInstances: matches);
+        }
+
+        var resolvedInstance = matches[0];
+        var owningAssemblyHierarchyPath = GetParentHierarchyPath(resolvedInstance.HierarchyPath);
+        string? owningAssemblyFilePath = ResolveOwningAssemblyFilePath(instances, owningAssemblyHierarchyPath, activeAssemblyPath);
+
+        return new AssemblyTargetResolutionResult(
+            RequestedName: normalizedName,
+            RequestedHierarchyPath: normalizedHierarchyPath,
+            RequestedComponentPath: normalizedComponentPath,
+            IsResolved: true,
+            IsAmbiguous: false,
+            ResolvedInstance: resolvedInstance,
+            OwningAssemblyHierarchyPath: owningAssemblyHierarchyPath,
+            OwningAssemblyFilePath: NormalizeCriteria(owningAssemblyFilePath),
+            SourceFileReuseCount: CountSourceFileReuse(instances, resolvedInstance.Path),
+            MatchingInstances: matches);
+    }
+
     private static IReadOnlyList<ComponentInstance> EnumerateComponentInstances(IAssemblyDoc assy)
     {
         var raw = assy.GetComponents(true) as object[]
@@ -570,6 +723,89 @@ public class AssemblyService : IAssemblyService
             .Where(instance => requested.Contains(instance.Info.HierarchyPath))
             .ToList()
             .AsReadOnly();
+    }
+
+    private static bool MatchesTarget(
+        ComponentInstanceInfo info,
+        string? componentName,
+        string? hierarchyPath,
+        string? componentPath)
+    {
+        return (componentName == null || string.Equals(info.Name, componentName, StringComparison.OrdinalIgnoreCase))
+            && (hierarchyPath == null || string.Equals(info.HierarchyPath, hierarchyPath, StringComparison.OrdinalIgnoreCase))
+            && (componentPath == null || string.Equals(info.Path, componentPath, StringComparison.OrdinalIgnoreCase));
+    }
+
+    private static int CountSourceFileReuse(IReadOnlyList<ComponentInstance> instances, string? componentPath)
+    {
+        var normalizedComponentPath = NormalizeCriteria(componentPath);
+        if (normalizedComponentPath == null)
+        {
+            return 0;
+        }
+
+        return instances.Count(instance => string.Equals(instance.Info.Path, normalizedComponentPath, StringComparison.OrdinalIgnoreCase));
+    }
+
+    private static string? ResolveOwningAssemblyFilePath(
+        IReadOnlyList<ComponentInstance> instances,
+        string? owningAssemblyHierarchyPath,
+        string? activeAssemblyPath)
+    {
+        if (owningAssemblyHierarchyPath == null)
+        {
+            return activeAssemblyPath;
+        }
+
+        string? candidateHierarchyPath = owningAssemblyHierarchyPath;
+        while (candidateHierarchyPath != null)
+        {
+            var candidatePath = instances
+                .FirstOrDefault(instance => string.Equals(instance.Info.HierarchyPath, candidateHierarchyPath, StringComparison.OrdinalIgnoreCase))
+                ?.Info.Path;
+
+            if (!string.IsNullOrWhiteSpace(candidatePath))
+            {
+                return NormalizeCriteria(candidatePath);
+            }
+
+            candidateHierarchyPath = GetParentHierarchyPath(candidateHierarchyPath);
+        }
+
+        return activeAssemblyPath;
+    }
+
+    private static object WrapDispatchObject(object value)
+    {
+        try
+        {
+            return new DispatchWrapper(value);
+        }
+        catch (InvalidOperationException)
+        {
+            return value;
+        }
+    }
+
+    private static string? GetParentHierarchyPath(string hierarchyPath)
+    {
+        int separatorIndex = hierarchyPath.LastIndexOf('/');
+        return separatorIndex <= 0 ? null : hierarchyPath[..separatorIndex];
+    }
+
+    private static string? NormalizeCriteria(string? value)
+    {
+        return string.IsNullOrWhiteSpace(value) ? null : value.Trim();
+    }
+
+    private static void ValidateTargetCriteria(string? componentName, string? hierarchyPath, string? componentPath)
+    {
+        if (NormalizeCriteria(componentName) == null
+            && NormalizeCriteria(hierarchyPath) == null
+            && NormalizeCriteria(componentPath) == null)
+        {
+            throw new ArgumentException("At least one of componentName, hierarchyPath, or componentPath must be provided.");
+        }
     }
 
     private static void TraverseComponent(

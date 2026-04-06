@@ -17,10 +17,41 @@ The demo highlights the full interaction loop:
 
 ## Quick Navigation
 
+- [Architecture At A Glance](#architecture-at-a-glance)
 - [Usage Guide](#usage-guide)
 - [Development Guide](#development-guide)
 - [Issue Guide](#issue-guide)
 - [Related Projects And Libraries](#related-projects-and-libraries)
+
+## Architecture At A Glance
+
+The product should be understood as one user-facing executable with internal layers, not as separate apps that are started independently.
+
+Core runtime model:
+
+- `SolidWorksMcpApp.exe` is the only supported startup entrypoint for local use and development.
+- The tray process is the Hub. It owns the shared SolidWorks COM connection, the shared STA execution thread, logs, and client/session monitoring.
+- MCP clients launch the same exe in `--proxy` mode. That Proxy process connects back to the Hub through a local named pipe and relays stdio MCP traffic.
+- `SolidWorksBridge` is an internal implementation layer used by the tray app. It provides the SolidWorks COM-facing services and pipe/message handling, but it is not a standalone product entrypoint.
+
+High-level flow:
+
+1. Start `SolidWorksMcpApp.exe`.
+2. The Hub initializes shared services and waits for local MCP clients.
+3. VS Code, Copilot, or Claude starts a Proxy session when needed.
+4. The Proxy forwards MCP requests to the Hub.
+5. The Hub executes tool calls against SolidWorks through the internal bridge/services layer.
+
+Repository mapping:
+
+- `app/SolidWorksMcpApp/`: tray UI, Hub/Proxy host, MCP tool registration, logging, and packaging entrypoint.
+- `bridge/SolidWorksBridge/`: internal SolidWorks COM services, message handling, and pipe server primitives used by the app.
+- `bridge/SolidWorksBridge.Tests/`: unit and integration tests for the bridge/service behavior.
+
+Startup rule:
+
+- Do not start `SolidWorksBridge` directly.
+- Start `SolidWorksMcpApp.exe`, then let MCP clients connect through the supported Hub/Proxy path.
 
 ## Usage Guide
 
@@ -131,6 +162,9 @@ The main output is:
 You can also use the local VS Code task in [`.vscode/tasks.json`](./.vscode/tasks.json):
 
 - `Build SolidWorks MCP App`
+- `Start SolidWorks MCP App`
+
+For local manual testing, start the tray app directly. The repository no longer maintains a separate `deploy-local.bat` or standalone bridge startup script because the tray app is the authoritative runtime entrypoint.
 
 ### Test
 

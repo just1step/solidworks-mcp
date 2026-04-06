@@ -434,6 +434,189 @@ public class AssemblyServiceTests
     }
 
     [Fact]
+    public void ResolveComponentTarget_WithHierarchyPath_ReturnsResolvedTargetAndReuseCount()
+    {
+        var (manager, assy) = ConnectedWithAssy();
+        var doc = assy.As<IModelDoc2>();
+
+        var child1 = new Mock<Component2>();
+        child1.Setup(c => c.Name2).Returns("NestedPart-1");
+        child1.Setup(c => c.GetPathName()).Returns(@"C:\NestedPart.sldprt");
+        child1.Setup(c => c.GetChildren()).Returns(Array.Empty<object>());
+
+        var child2 = new Mock<Component2>();
+        child2.Setup(c => c.Name2).Returns("NestedPart-2");
+        child2.Setup(c => c.GetPathName()).Returns(@"C:\NestedPart.sldprt");
+        child2.Setup(c => c.GetChildren()).Returns(Array.Empty<object>());
+
+        var subAssembly = new Mock<Component2>();
+        subAssembly.Setup(c => c.Name2).Returns("SubAsm-1");
+        subAssembly.Setup(c => c.GetPathName()).Returns(@"C:\SubAsm.sldasm");
+        subAssembly.Setup(c => c.GetChildren()).Returns(new object[] { child1.Object, child2.Object });
+
+        doc.Setup(d => d.GetPathName()).Returns(@"C:\TopLevel.sldasm");
+        assy.Setup(a => a.GetComponents(true)).Returns(new object[] { subAssembly.Object });
+
+        var result = new AssemblyService(manager.Object).ResolveComponentTarget(hierarchyPath: "SubAsm-1/NestedPart-1");
+
+        Assert.True(result.IsResolved);
+        Assert.False(result.IsAmbiguous);
+        Assert.NotNull(result.ResolvedInstance);
+        Assert.Equal("SubAsm-1/NestedPart-1", result.ResolvedInstance!.HierarchyPath);
+        Assert.Equal("SubAsm-1", result.OwningAssemblyHierarchyPath);
+        Assert.Equal(@"C:\SubAsm.sldasm", result.OwningAssemblyFilePath);
+        Assert.Equal(2, result.SourceFileReuseCount);
+        Assert.Single(result.MatchingInstances);
+        doc.Verify(d => d.ClearSelection2(true), Times.Never);
+    }
+
+    [Fact]
+    public void ResolveComponentTarget_WithAmbiguousName_ReturnsAllCandidates()
+    {
+        var (manager, assy) = ConnectedWithAssy();
+
+        var child1 = new Mock<Component2>();
+        child1.Setup(c => c.Name2).Returns("Pulley-1");
+        child1.Setup(c => c.GetPathName()).Returns(@"C:\PulleyA.sldprt");
+        child1.Setup(c => c.GetChildren()).Returns(Array.Empty<object>());
+
+        var child2 = new Mock<Component2>();
+        child2.Setup(c => c.Name2).Returns("Pulley-1");
+        child2.Setup(c => c.GetPathName()).Returns(@"C:\PulleyB.sldprt");
+        child2.Setup(c => c.GetChildren()).Returns(Array.Empty<object>());
+
+        var leftSubAssembly = new Mock<Component2>();
+        leftSubAssembly.Setup(c => c.Name2).Returns("LeftSubAsm-1");
+        leftSubAssembly.Setup(c => c.GetPathName()).Returns(@"C:\LeftSubAsm.sldasm");
+        leftSubAssembly.Setup(c => c.GetChildren()).Returns(new object[] { child1.Object });
+
+        var rightSubAssembly = new Mock<Component2>();
+        rightSubAssembly.Setup(c => c.Name2).Returns("RightSubAsm-1");
+        rightSubAssembly.Setup(c => c.GetPathName()).Returns(@"C:\RightSubAsm.sldasm");
+        rightSubAssembly.Setup(c => c.GetChildren()).Returns(new object[] { child2.Object });
+
+        assy.Setup(a => a.GetComponents(true)).Returns(new object[] { leftSubAssembly.Object, rightSubAssembly.Object });
+
+        var result = new AssemblyService(manager.Object).ResolveComponentTarget(componentName: "Pulley-1");
+
+        Assert.False(result.IsResolved);
+        Assert.True(result.IsAmbiguous);
+        Assert.Null(result.ResolvedInstance);
+        Assert.Equal(2, result.MatchingInstances.Count);
+        Assert.Contains(result.MatchingInstances, c => c.HierarchyPath == "LeftSubAsm-1/Pulley-1");
+        Assert.Contains(result.MatchingInstances, c => c.HierarchyPath == "RightSubAsm-1/Pulley-1");
+    }
+
+    [Fact]
+    public void ResolveComponentTarget_WhenDirectParentHasNoPath_UsesNearestAncestorAssemblyPath()
+    {
+        var (manager, assy) = ConnectedWithAssy();
+        var doc = assy.As<IModelDoc2>();
+
+        var nestedPart = new Mock<Component2>();
+        nestedPart.Setup(c => c.Name2).Returns("Pulley-1");
+        nestedPart.Setup(c => c.GetPathName()).Returns(@"C:\Pulley.sldprt");
+        nestedPart.Setup(c => c.GetChildren()).Returns(Array.Empty<object>());
+
+        var nestedRoot = new Mock<Component2>();
+        nestedRoot.Setup(c => c.Name2).Returns("SubAsm-1");
+        nestedRoot.Setup(c => c.GetPathName()).Returns(string.Empty);
+        nestedRoot.Setup(c => c.GetChildren()).Returns(new object[] { nestedPart.Object });
+
+        var topLevelSubAssembly = new Mock<Component2>();
+        topLevelSubAssembly.Setup(c => c.Name2).Returns("SubAsm-1");
+        topLevelSubAssembly.Setup(c => c.GetPathName()).Returns(@"C:\SubAsm.sldasm");
+        topLevelSubAssembly.Setup(c => c.GetChildren()).Returns(new object[] { nestedRoot.Object });
+
+        doc.Setup(d => d.GetPathName()).Returns(@"C:\TopLevel.sldasm");
+        assy.Setup(a => a.GetComponents(true)).Returns(new object[] { topLevelSubAssembly.Object });
+
+        var result = new AssemblyService(manager.Object).ResolveComponentTarget(hierarchyPath: "SubAsm-1/SubAsm-1/Pulley-1");
+
+        Assert.True(result.IsResolved);
+        Assert.Equal("SubAsm-1/SubAsm-1", result.OwningAssemblyHierarchyPath);
+        Assert.Equal(@"C:\SubAsm.sldasm", result.OwningAssemblyFilePath);
+    }
+
+    [Fact]
+    public void ResolveComponentTarget_WithoutCriteria_Throws()
+    {
+        var (manager, _) = ConnectedWithAssy();
+
+        Assert.Throws<ArgumentException>(() => new AssemblyService(manager.Object).ResolveComponentTarget());
+    }
+
+    [Fact]
+    public void ResolveComponentTarget_WhenActiveDocumentIsNotAssembly_Throws()
+    {
+        var manager = ConnectedNonAssy();
+
+        Assert.Throws<InvalidOperationException>(() => new AssemblyService(manager.Object).ResolveComponentTarget(hierarchyPath: "Part-1"));
+    }
+
+    [Fact]
+    public void AnalyzeSharedPartEditImpact_ForSingleUsePart_ReturnsSafeDirectEdit()
+    {
+        var (manager, assy) = ConnectedWithAssy();
+        var doc = assy.As<IModelDoc2>();
+
+        var part = new Mock<Component2>();
+        part.Setup(c => c.Name2).Returns("Bracket-1");
+        part.Setup(c => c.GetPathName()).Returns(@"C:\Bracket.sldprt");
+        part.Setup(c => c.GetChildren()).Returns(Array.Empty<object>());
+
+        doc.Setup(d => d.GetPathName()).Returns(@"C:\TopLevel.sldasm");
+        assy.Setup(a => a.GetComponents(true)).Returns(new object[] { part.Object });
+
+        var result = new AssemblyService(manager.Object).AnalyzeSharedPartEditImpact(hierarchyPath: "Bracket-1");
+
+        Assert.True(result.TargetResolution.IsResolved);
+        Assert.True(result.SafeDirectEdit);
+        Assert.Equal("safe_direct_edit", result.RecommendedAction);
+        Assert.Equal(1, result.AffectedInstanceCount);
+        Assert.Single(result.AffectedInstances);
+        doc.Verify(d => d.ClearSelection2(true), Times.Never);
+        assy.Verify(a => a.ReplaceComponents2(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<bool>(), It.IsAny<int>(), It.IsAny<bool>()), Times.Never);
+    }
+
+    [Fact]
+    public void AnalyzeSharedPartEditImpact_ForReusedPart_ReturnsAllAffectedPlacements()
+    {
+        var (manager, assy) = ConnectedWithAssy();
+
+        var child1 = new Mock<Component2>();
+        child1.Setup(c => c.Name2).Returns("Pulley-1");
+        child1.Setup(c => c.GetPathName()).Returns(@"C:\Pulley.sldprt");
+        child1.Setup(c => c.GetChildren()).Returns(Array.Empty<object>());
+
+        var child2 = new Mock<Component2>();
+        child2.Setup(c => c.Name2).Returns("Pulley-2");
+        child2.Setup(c => c.GetPathName()).Returns(@"C:\Pulley.sldprt");
+        child2.Setup(c => c.GetChildren()).Returns(Array.Empty<object>());
+
+        var unrelated = new Mock<Component2>();
+        unrelated.Setup(c => c.Name2).Returns("Bracket-1");
+        unrelated.Setup(c => c.GetPathName()).Returns(@"C:\Bracket.sldprt");
+        unrelated.Setup(c => c.GetChildren()).Returns(Array.Empty<object>());
+
+        var subAssembly = new Mock<Component2>();
+        subAssembly.Setup(c => c.Name2).Returns("SubAsm-1");
+        subAssembly.Setup(c => c.GetPathName()).Returns(@"C:\SubAsm.sldasm");
+        subAssembly.Setup(c => c.GetChildren()).Returns(new object[] { child1.Object, child2.Object, unrelated.Object });
+
+        assy.Setup(a => a.GetComponents(true)).Returns(new object[] { subAssembly.Object });
+
+        var result = new AssemblyService(manager.Object).AnalyzeSharedPartEditImpact(hierarchyPath: "SubAsm-1/Pulley-1");
+
+        Assert.True(result.TargetResolution.IsResolved);
+        Assert.False(result.SafeDirectEdit);
+        Assert.Equal("replace_single_instance_before_edit", result.RecommendedAction);
+        Assert.Equal(2, result.AffectedInstanceCount);
+        Assert.Contains(result.AffectedInstances, c => c.HierarchyPath == "SubAsm-1/Pulley-1");
+        Assert.Contains(result.AffectedInstances, c => c.HierarchyPath == "SubAsm-1/Pulley-2");
+    }
+
+    [Fact]
     public void CheckInterference_ReturnsInterferingInstances()
     {
         var (manager, assy) = ConnectedWithAssy();

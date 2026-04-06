@@ -23,3 +23,6 @@ Thumbs.db
 
 # Package artifacts
 artifacts/
+
+# Local product discovery workspace
+product/

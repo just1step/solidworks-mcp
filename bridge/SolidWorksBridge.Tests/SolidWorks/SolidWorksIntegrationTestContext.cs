@@ -86,4 +86,26 @@ internal sealed class SolidWorksIntegrationTestContext : IDisposable
         model.SaveAs3(path, 0, 0);
         return path;
     }
+
+    public string SaveActiveDocumentAs(string extension)
+    {
+        if (string.IsNullOrWhiteSpace(extension))
+            throw new ArgumentException("extension must not be empty", nameof(extension));
+
+        string normalizedExtension = extension.StartsWith(".", StringComparison.Ordinal)
+            ? extension
+            : $".{extension}";
+
+        var model = (IModelDoc2?)App.IActiveDoc2
+            ?? throw new InvalidOperationException("No active document to save.");
+
+        string path = Path.Combine(Path.GetTempPath(), $"SwTestDoc_{Guid.NewGuid():N}{normalizedExtension}");
+        _ = model.SaveAs3(path, 0, 0);
+        if (!File.Exists(path))
+        {
+            throw new InvalidOperationException($"Failed to save active document to '{path}'.");
+        }
+
+        return path;
+    }
 }
