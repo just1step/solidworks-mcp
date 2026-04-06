@@ -447,6 +447,17 @@ public class AppBootstrapper
             return Task.FromResult<object?>(result);
         });
 
+        _messageHandler.Register("sw.workflow.review_targeted_static_interference", req =>
+        {
+            var p = req.GetParams<ReviewTargetedStaticInterferenceParams>()
+                ?? throw new ArgumentException("params required: {firstHierarchyPath, secondHierarchyPath, treatCoincidenceAsInterference?}");
+            var result = _workflowService.ReviewTargetedStaticInterference(
+                p.FirstHierarchyPath,
+                p.SecondHierarchyPath,
+                p.TreatCoincidenceAsInterference);
+            return Task.FromResult<object?>(result);
+        });
+
     }
 
     // ── Param DTOs ────────────────────────────────────────────────
@@ -761,6 +772,18 @@ public class AppBootstrapper
 
         [System.Text.Json.Serialization.JsonPropertyName("reattachMates")]
         public bool ReattachMates { get; set; } = true;
+    }
+
+    public class ReviewTargetedStaticInterferenceParams
+    {
+        [System.Text.Json.Serialization.JsonPropertyName("firstHierarchyPath")]
+        public string FirstHierarchyPath { get; set; } = string.Empty;
+
+        [System.Text.Json.Serialization.JsonPropertyName("secondHierarchyPath")]
+        public string SecondHierarchyPath { get; set; } = string.Empty;
+
+        [System.Text.Json.Serialization.JsonPropertyName("treatCoincidenceAsInterference")]
+        public bool TreatCoincidenceAsInterference { get; set; }
     }
 
     // ── Helpers ───────────────────────────────────────────────────

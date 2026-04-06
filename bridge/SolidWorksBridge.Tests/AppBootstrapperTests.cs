@@ -118,7 +118,8 @@ public class AppBootstrapperTests
             "sw.assembly.add_mate_distance", "sw.assembly.add_mate_angle",
             "sw.assembly.list_components", "sw.assembly.list_components_recursive",
             "sw.assembly.check_interference", "sw.assembly.replace_component",
-            "sw.workflow.replace_nested_component_and_verify_persistence"
+            "sw.workflow.replace_nested_component_and_verify_persistence",
+            "sw.workflow.review_targeted_static_interference"
         };
 
         foreach (var method in expected)
@@ -397,6 +398,66 @@ public class AppBootstrapperTests
 
         Assert.Null(response.Error);
         workflowSvc.Verify(w => w.ReplaceNestedComponentAndVerifyPersistence(replacementFilePath, null, hierarchyPath, null, "", 0, true), Times.Once);
+    }
+
+    [Fact]
+    public async Task Handler_ReviewTargetedStaticInterference_CallsWorkflowService()
+    {
+        var (bootstrapper, workflowSvc, handler) = BuildWithWorkflow();
+        bootstrapper.RegisterHandlers();
+
+        const string firstHierarchyPath = "SubAsm-1/Pulley-1";
+        const string secondHierarchyPath = "SubAsm-1/Bracket-1";
+        var firstResolution = new AssemblyTargetResolutionResult(
+            RequestedName: null,
+            RequestedHierarchyPath: firstHierarchyPath,
+            RequestedComponentPath: null,
+            IsResolved: true,
+            IsAmbiguous: false,
+            ResolvedInstance: new ComponentInstanceInfo("Pulley-1", @"C:\OldPulley.sldprt", firstHierarchyPath, 1),
+            OwningAssemblyHierarchyPath: "SubAsm-1",
+            OwningAssemblyFilePath: @"C:\SubAsm.sldasm",
+            SourceFileReuseCount: 1,
+            MatchingInstances: new[] { new ComponentInstanceInfo("Pulley-1", @"C:\OldPulley.sldprt", firstHierarchyPath, 1) });
+        var secondResolution = new AssemblyTargetResolutionResult(
+            RequestedName: null,
+            RequestedHierarchyPath: secondHierarchyPath,
+            RequestedComponentPath: null,
+            IsResolved: true,
+            IsAmbiguous: false,
+            ResolvedInstance: new ComponentInstanceInfo("Bracket-1", @"C:\Bracket.sldprt", secondHierarchyPath, 1),
+            OwningAssemblyHierarchyPath: "SubAsm-1",
+            OwningAssemblyFilePath: @"C:\SubAsm.sldasm",
+            SourceFileReuseCount: 1,
+            MatchingInstances: new[] { new ComponentInstanceInfo("Bracket-1", @"C:\Bracket.sldprt", secondHierarchyPath, 1) });
+        var interference = new AssemblyInterferenceCheckResult(
+            true,
+            false,
+            2,
+            2,
+            new[]
+            {
+                new ComponentInstanceInfo("Pulley-1", @"C:\OldPulley.sldprt", firstHierarchyPath, 1),
+                new ComponentInstanceInfo("Bracket-1", @"C:\Bracket.sldprt", secondHierarchyPath, 1),
+            });
+        workflowSvc.Setup(w => w.ReviewTargetedStaticInterference(firstHierarchyPath, secondHierarchyPath, false))
+            .Returns(new TargetedStaticInterferenceReviewResult(
+                new[] { firstHierarchyPath, secondHierarchyPath },
+                false,
+                firstResolution,
+                secondResolution,
+                new[] { firstHierarchyPath, secondHierarchyPath },
+                interference,
+                true,
+                true,
+                true,
+                "completed",
+                null));
+
+        var response = await handler.HandleAsync(Req("sw.workflow.review_targeted_static_interference", new { firstHierarchyPath, secondHierarchyPath }));
+
+        Assert.Null(response.Error);
+        workflowSvc.Verify(w => w.ReviewTargetedStaticInterference(firstHierarchyPath, secondHierarchyPath, false), Times.Once);
     }
 
     [Fact]

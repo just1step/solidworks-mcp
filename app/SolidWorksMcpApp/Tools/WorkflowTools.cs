@@ -59,6 +59,23 @@ public class WorkflowTools(
         return JsonSerializer.Serialize(result);
     }
 
+    [McpServerTool, Description("Validate two exact component hierarchy paths, run static interference on only that pair, and verify the requested scope was actually checked. Use this instead of a generic assembly-wide interference call when the workflow depends on a trustworthy pair result.")]
+    public async Task<string> ReviewTargetedStaticInterference(
+        [Description("Exact hierarchy path of the first component instance.")] string firstHierarchyPath,
+        [Description("Exact hierarchy path of the second component instance.")] string secondHierarchyPath,
+        [Description("When true, coincident or touching faces are treated as interference.")] bool treatCoincidenceAsInterference = false)
+    {
+        var payload = new { firstHierarchyPath, secondHierarchyPath, treatCoincidenceAsInterference };
+        var result = await sta.InvokeLoggedAsync(
+            nameof(ReviewTargetedStaticInterference),
+            payload,
+            () => workflow.ReviewTargetedStaticInterference(
+                firstHierarchyPath,
+                secondHierarchyPath,
+                treatCoincidenceAsInterference));
+        return JsonSerializer.Serialize(result);
+    }
+
     private object CutFaceByProjectedEdgesCore(int faceIndex, double depth, bool flipDirection, bool innerLoops)
     {
         if (depth <= 0)

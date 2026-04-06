@@ -20,8 +20,26 @@ public record NestedComponentReplacementWorkflowResult(
     string Status,
     string? FailureReason);
 
+public record TargetedStaticInterferenceReviewResult(
+    IReadOnlyList<string> RequestedHierarchyPaths,
+    bool TreatCoincidenceAsInterference,
+    AssemblyTargetResolutionResult FirstTargetResolution,
+    AssemblyTargetResolutionResult SecondTargetResolution,
+    IReadOnlyList<string> CheckedHierarchyPaths,
+    AssemblyInterferenceCheckResult? InterferenceCheck,
+    bool ScopeValidated,
+    bool ScopeEvaluatedAsRequested,
+    bool HasInterference,
+    string Status,
+    string? FailureReason);
+
 public interface IWorkflowService
 {
+    TargetedStaticInterferenceReviewResult ReviewTargetedStaticInterference(
+        string firstHierarchyPath,
+        string secondHierarchyPath,
+        bool treatCoincidenceAsInterference = false);
+
     NestedComponentReplacementWorkflowResult ReplaceNestedComponentAndVerifyPersistence(
         string replacementFilePath,
         string? componentName = null,
@@ -41,6 +59,105 @@ public class WorkflowService : IWorkflowService
     {
         _documents = documents ?? throw new ArgumentNullException(nameof(documents));
         _assembly = assembly ?? throw new ArgumentNullException(nameof(assembly));
+    }
+
+    public TargetedStaticInterferenceReviewResult ReviewTargetedStaticInterference(
+        string firstHierarchyPath,
+        string secondHierarchyPath,
+        bool treatCoincidenceAsInterference = false)
+    {
+        if (string.IsNullOrWhiteSpace(firstHierarchyPath))
+        {
+            throw new ArgumentException("firstHierarchyPath must not be empty", nameof(firstHierarchyPath));
+        }
+
+        if (string.IsNullOrWhiteSpace(secondHierarchyPath))
+        {
+            throw new ArgumentException("secondHierarchyPath must not be empty", nameof(secondHierarchyPath));
+        }
+
+        string normalizedFirstHierarchyPath = firstHierarchyPath.Trim();
+        string normalizedSecondHierarchyPath = secondHierarchyPath.Trim();
+        var firstResolution = _assembly.ResolveComponentTarget(hierarchyPath: normalizedFirstHierarchyPath);
+        var secondResolution = _assembly.ResolveComponentTarget(hierarchyPath: normalizedSecondHierarchyPath);
+
+        if (!firstResolution.IsResolved || firstResolution.ResolvedInstance == null)
+        {
+            return CreateTargetedInterferenceFailureResult(
+                normalizedFirstHierarchyPath,
+                normalizedSecondHierarchyPath,
+                treatCoincidenceAsInterference,
+                firstResolution,
+                secondResolution,
+                status: firstResolution.IsAmbiguous ? "first_target_ambiguous" : "first_target_not_resolved",
+                failureReason: firstResolution.IsAmbiguous
+                    ? "The first requested hierarchy path resolved to multiple component instances."
+                    : "The first requested hierarchy path does not resolve to a component in the active assembly.");
+        }
+
+        if (!secondResolution.IsResolved || secondResolution.ResolvedInstance == null)
+        {
+            return CreateTargetedInterferenceFailureResult(
+                normalizedFirstHierarchyPath,
+                normalizedSecondHierarchyPath,
+                treatCoincidenceAsInterference,
+                firstResolution,
+                secondResolution,
+                status: secondResolution.IsAmbiguous ? "second_target_ambiguous" : "second_target_not_resolved",
+                failureReason: secondResolution.IsAmbiguous
+                    ? "The second requested hierarchy path resolved to multiple component instances."
+                    : "The second requested hierarchy path does not resolve to a component in the active assembly.");
+        }
+
+        if (string.Equals(firstResolution.ResolvedInstance.HierarchyPath, secondResolution.ResolvedInstance.HierarchyPath, StringComparison.OrdinalIgnoreCase))
+        {
+            return CreateTargetedInterferenceFailureResult(
+                normalizedFirstHierarchyPath,
+                normalizedSecondHierarchyPath,
+                treatCoincidenceAsInterference,
+                firstResolution,
+                secondResolution,
+                status: "targets_not_distinct",
+                failureReason: "Targeted static interference review requires two distinct component instances.");
+        }
+
+        var checkedHierarchyPaths = new[]
+        {
+            firstResolution.ResolvedInstance.HierarchyPath,
+            secondResolution.ResolvedInstance.HierarchyPath,
+        };
+
+        var interferenceCheck = _assembly.CheckInterference(checkedHierarchyPaths, treatCoincidenceAsInterference);
+        bool scopeEvaluatedAsRequested = interferenceCheck.CheckedComponentCount == checkedHierarchyPaths.Length;
+
+        if (!scopeEvaluatedAsRequested)
+        {
+            return new TargetedStaticInterferenceReviewResult(
+                RequestedHierarchyPaths: new[] { normalizedFirstHierarchyPath, normalizedSecondHierarchyPath },
+                TreatCoincidenceAsInterference: treatCoincidenceAsInterference,
+                FirstTargetResolution: firstResolution,
+                SecondTargetResolution: secondResolution,
+                CheckedHierarchyPaths: checkedHierarchyPaths,
+                InterferenceCheck: interferenceCheck,
+                ScopeValidated: true,
+                ScopeEvaluatedAsRequested: false,
+                HasInterference: false,
+                Status: "scope_not_evaluated_as_requested",
+                FailureReason: $"The interference check reported {interferenceCheck.CheckedComponentCount} checked component(s), expected {checkedHierarchyPaths.Length}.");
+        }
+
+        return new TargetedStaticInterferenceReviewResult(
+            RequestedHierarchyPaths: new[] { normalizedFirstHierarchyPath, normalizedSecondHierarchyPath },
+            TreatCoincidenceAsInterference: treatCoincidenceAsInterference,
+            FirstTargetResolution: firstResolution,
+            SecondTargetResolution: secondResolution,
+            CheckedHierarchyPaths: checkedHierarchyPaths,
+            InterferenceCheck: interferenceCheck,
+            ScopeValidated: true,
+            ScopeEvaluatedAsRequested: true,
+            HasInterference: interferenceCheck.HasInterference,
+            Status: "completed",
+            FailureReason: null);
     }
 
     public NestedComponentReplacementWorkflowResult ReplaceNestedComponentAndVerifyPersistence(
@@ -229,6 +346,29 @@ public class WorkflowService : IWorkflowService
     {
         var activeDocument = _documents.GetActiveDocument();
         return activeDocument != null && PathsEqual(activeDocument.Path, expectedPath);
+    }
+
+    private static TargetedStaticInterferenceReviewResult CreateTargetedInterferenceFailureResult(
+        string firstHierarchyPath,
+        string secondHierarchyPath,
+        bool treatCoincidenceAsInterference,
+        AssemblyTargetResolutionResult firstTargetResolution,
+        AssemblyTargetResolutionResult secondTargetResolution,
+        string status,
+        string failureReason)
+    {
+        return new TargetedStaticInterferenceReviewResult(
+            RequestedHierarchyPaths: new[] { firstHierarchyPath, secondHierarchyPath },
+            TreatCoincidenceAsInterference: treatCoincidenceAsInterference,
+            FirstTargetResolution: firstTargetResolution,
+            SecondTargetResolution: secondTargetResolution,
+            CheckedHierarchyPaths: Array.Empty<string>(),
+            InterferenceCheck: null,
+            ScopeValidated: false,
+            ScopeEvaluatedAsRequested: false,
+            HasInterference: false,
+            Status: status,
+            FailureReason: failureReason);
     }
 
     private AssemblyTargetResolutionResult ResolvePersistedTarget(

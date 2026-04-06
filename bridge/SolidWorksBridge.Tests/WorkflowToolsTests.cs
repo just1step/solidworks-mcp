@@ -178,4 +178,74 @@ public class WorkflowToolsTests
         Assert.True(parsed.RootElement.GetProperty("PersistenceVerified").GetBoolean());
         workflow.Verify(w => w.ReplaceNestedComponentAndVerifyPersistence(replacementFilePath, null, hierarchyPath, null, "", 0, true), Times.Once);
     }
+
+    [Fact]
+    public async Task ReviewTargetedStaticInterference_DelegatesToWorkflowService()
+    {
+        using var sta = new StaDispatcher();
+
+        var connectionManager = new Mock<ISwConnectionManager>();
+        var selection = new Mock<ISelectionService>();
+        var sketch = new Mock<ISketchService>();
+        var feature = new Mock<IFeatureService>();
+        var workflow = new Mock<IWorkflowService>();
+
+        const string firstHierarchyPath = "SubAsm-1/Pulley-1";
+        const string secondHierarchyPath = "SubAsm-1/Bracket-1";
+        var firstResolution = new AssemblyTargetResolutionResult(
+            null,
+            firstHierarchyPath,
+            null,
+            true,
+            false,
+            new ComponentInstanceInfo("Pulley-1", @"C:\OldPulley.sldprt", firstHierarchyPath, 1),
+            "SubAsm-1",
+            @"C:\SubAsm.sldasm",
+            1,
+            new[] { new ComponentInstanceInfo("Pulley-1", @"C:\OldPulley.sldprt", firstHierarchyPath, 1) });
+        var secondResolution = new AssemblyTargetResolutionResult(
+            null,
+            secondHierarchyPath,
+            null,
+            true,
+            false,
+            new ComponentInstanceInfo("Bracket-1", @"C:\Bracket.sldprt", secondHierarchyPath, 1),
+            "SubAsm-1",
+            @"C:\SubAsm.sldasm",
+            1,
+            new[] { new ComponentInstanceInfo("Bracket-1", @"C:\Bracket.sldprt", secondHierarchyPath, 1) });
+        var interference = new AssemblyInterferenceCheckResult(
+            true,
+            false,
+            2,
+            2,
+            new[]
+            {
+                new ComponentInstanceInfo("Pulley-1", @"C:\OldPulley.sldprt", firstHierarchyPath, 1),
+                new ComponentInstanceInfo("Bracket-1", @"C:\Bracket.sldprt", secondHierarchyPath, 1),
+            });
+
+        workflow.Setup(w => w.ReviewTargetedStaticInterference(firstHierarchyPath, secondHierarchyPath, false))
+            .Returns(new TargetedStaticInterferenceReviewResult(
+                new[] { firstHierarchyPath, secondHierarchyPath },
+                false,
+                firstResolution,
+                secondResolution,
+                new[] { firstHierarchyPath, secondHierarchyPath },
+                interference,
+                true,
+                true,
+                true,
+                "completed",
+                null));
+
+        var tool = new WorkflowTools(sta, connectionManager.Object, selection.Object, sketch.Object, feature.Object, workflow.Object);
+
+        string json = await tool.ReviewTargetedStaticInterference(firstHierarchyPath, secondHierarchyPath);
+
+        using var parsed = JsonDocument.Parse(json);
+        Assert.Equal("completed", parsed.RootElement.GetProperty("Status").GetString());
+        Assert.True(parsed.RootElement.GetProperty("HasInterference").GetBoolean());
+        workflow.Verify(w => w.ReviewTargetedStaticInterference(firstHierarchyPath, secondHierarchyPath, false), Times.Once);
+    }
 }

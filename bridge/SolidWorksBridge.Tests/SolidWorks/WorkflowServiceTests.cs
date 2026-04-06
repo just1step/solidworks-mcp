@@ -49,6 +49,133 @@ public class WorkflowServiceTests
     }
 
     [Fact]
+    public void ReviewTargetedStaticInterference_WhenSecondTargetIsMissing_ReturnsFailureWithoutRunningCheck()
+    {
+        var documents = new Mock<IDocumentService>();
+        var assembly = new Mock<IAssemblyService>();
+        var firstResolution = ResolvedTarget(hierarchyPath: "SubAsm-1/Pulley-1", sourcePath: @"C:\Pulley.sldprt", reuseCount: 1);
+        var missingResolution = new AssemblyTargetResolutionResult(
+            RequestedName: null,
+            RequestedHierarchyPath: "SubAsm-1/Missing-1",
+            RequestedComponentPath: null,
+            IsResolved: false,
+            IsAmbiguous: false,
+            ResolvedInstance: null,
+            OwningAssemblyHierarchyPath: null,
+            OwningAssemblyFilePath: null,
+            SourceFileReuseCount: 0,
+            MatchingInstances: Array.Empty<ComponentInstanceInfo>());
+
+        assembly.Setup(a => a.ResolveComponentTarget(null, "SubAsm-1/Pulley-1", null)).Returns(firstResolution);
+        assembly.Setup(a => a.ResolveComponentTarget(null, "SubAsm-1/Missing-1", null)).Returns(missingResolution);
+
+        var service = new WorkflowService(documents.Object, assembly.Object);
+
+        var result = service.ReviewTargetedStaticInterference("SubAsm-1/Pulley-1", "SubAsm-1/Missing-1");
+
+        Assert.Equal("second_target_not_resolved", result.Status);
+        Assert.False(result.ScopeValidated);
+        Assert.False(result.ScopeEvaluatedAsRequested);
+        Assert.False(result.HasInterference);
+        Assert.Null(result.InterferenceCheck);
+        assembly.Verify(a => a.CheckInterference(It.IsAny<IReadOnlyList<string>>(), It.IsAny<bool>()), Times.Never);
+    }
+
+    [Fact]
+    public void ReviewTargetedStaticInterference_WhenCheckScopeIsShort_ReturnsInvalidScope()
+    {
+        var documents = new Mock<IDocumentService>();
+        var assembly = new Mock<IAssemblyService>();
+        var firstResolution = ResolvedTarget(hierarchyPath: "SubAsm-1/Pulley-1", sourcePath: @"C:\Pulley.sldprt", reuseCount: 1);
+        var secondResolution = ResolvedTarget(hierarchyPath: "SubAsm-1/Bracket-1", sourcePath: @"C:\Bracket.sldprt", reuseCount: 1);
+
+        assembly.Setup(a => a.ResolveComponentTarget(null, "SubAsm-1/Pulley-1", null)).Returns(firstResolution);
+        assembly.Setup(a => a.ResolveComponentTarget(null, "SubAsm-1/Bracket-1", null)).Returns(secondResolution);
+        assembly.Setup(a => a.CheckInterference(It.Is<IReadOnlyList<string>>(paths => paths.Count == 2), false))
+            .Returns(new AssemblyInterferenceCheckResult(
+                HasInterference: false,
+                TreatCoincidenceAsInterference: false,
+                CheckedComponentCount: 1,
+                InterferingFaceCount: 0,
+                InterferingComponents: Array.Empty<ComponentInstanceInfo>()));
+
+        var service = new WorkflowService(documents.Object, assembly.Object);
+
+        var result = service.ReviewTargetedStaticInterference("SubAsm-1/Pulley-1", "SubAsm-1/Bracket-1");
+
+        Assert.Equal("scope_not_evaluated_as_requested", result.Status);
+        Assert.True(result.ScopeValidated);
+        Assert.False(result.ScopeEvaluatedAsRequested);
+        Assert.NotNull(result.InterferenceCheck);
+    }
+
+    [Fact]
+    public void ReviewTargetedStaticInterference_CompletesForKnownInterferingPair()
+    {
+        var documents = new Mock<IDocumentService>();
+        var assembly = new Mock<IAssemblyService>();
+        var firstResolution = ResolvedTarget(hierarchyPath: "SubAsm-1/Pulley-1", sourcePath: @"C:\Pulley.sldprt", reuseCount: 1);
+        var secondResolution = ResolvedTarget(hierarchyPath: "SubAsm-1/Bracket-1", sourcePath: @"C:\Bracket.sldprt", reuseCount: 1);
+
+        assembly.Setup(a => a.ResolveComponentTarget(null, "SubAsm-1/Pulley-1", null)).Returns(firstResolution);
+        assembly.Setup(a => a.ResolveComponentTarget(null, "SubAsm-1/Bracket-1", null)).Returns(secondResolution);
+        assembly.Setup(a => a.CheckInterference(It.Is<IReadOnlyList<string>>(paths =>
+                paths.SequenceEqual(new[] { "SubAsm-1/Pulley-1", "SubAsm-1/Bracket-1" })), false))
+            .Returns(new AssemblyInterferenceCheckResult(
+                HasInterference: true,
+                TreatCoincidenceAsInterference: false,
+                CheckedComponentCount: 2,
+                InterferingFaceCount: 2,
+                InterferingComponents: new[]
+                {
+                    new ComponentInstanceInfo("Pulley-1", @"C:\Pulley.sldprt", "SubAsm-1/Pulley-1", 1),
+                    new ComponentInstanceInfo("Bracket-1", @"C:\Bracket.sldprt", "SubAsm-1/Bracket-1", 1),
+                }));
+
+        var service = new WorkflowService(documents.Object, assembly.Object);
+
+        var result = service.ReviewTargetedStaticInterference("SubAsm-1/Pulley-1", "SubAsm-1/Bracket-1");
+
+        Assert.Equal("completed", result.Status);
+        Assert.True(result.ScopeValidated);
+        Assert.True(result.ScopeEvaluatedAsRequested);
+        Assert.True(result.HasInterference);
+        Assert.NotNull(result.InterferenceCheck);
+        Assert.Equal(2, result.InterferenceCheck!.CheckedComponentCount);
+        Assert.Equal(2, result.InterferenceCheck.InterferingComponents.Count);
+    }
+
+    [Fact]
+    public void ReviewTargetedStaticInterference_CompletesForKnownNonInterferingPair()
+    {
+        var documents = new Mock<IDocumentService>();
+        var assembly = new Mock<IAssemblyService>();
+        var firstResolution = ResolvedTarget(hierarchyPath: "SubAsm-1/Pulley-1", sourcePath: @"C:\Pulley.sldprt", reuseCount: 1);
+        var secondResolution = ResolvedTarget(hierarchyPath: "SubAsm-1/Bracket-1", sourcePath: @"C:\Bracket.sldprt", reuseCount: 1);
+
+        assembly.Setup(a => a.ResolveComponentTarget(null, "SubAsm-1/Pulley-1", null)).Returns(firstResolution);
+        assembly.Setup(a => a.ResolveComponentTarget(null, "SubAsm-1/Bracket-1", null)).Returns(secondResolution);
+        assembly.Setup(a => a.CheckInterference(It.IsAny<IReadOnlyList<string>>(), false))
+            .Returns(new AssemblyInterferenceCheckResult(
+                HasInterference: false,
+                TreatCoincidenceAsInterference: false,
+                CheckedComponentCount: 2,
+                InterferingFaceCount: 0,
+                InterferingComponents: Array.Empty<ComponentInstanceInfo>()));
+
+        var service = new WorkflowService(documents.Object, assembly.Object);
+
+        var result = service.ReviewTargetedStaticInterference("SubAsm-1/Pulley-1", "SubAsm-1/Bracket-1");
+
+        Assert.Equal("completed", result.Status);
+        Assert.True(result.ScopeValidated);
+        Assert.True(result.ScopeEvaluatedAsRequested);
+        Assert.False(result.HasInterference);
+        Assert.NotNull(result.InterferenceCheck);
+        Assert.Empty(result.InterferenceCheck!.InterferingComponents);
+    }
+
+    [Fact]
     public void ReplaceNestedComponentAndVerifyPersistence_WhenTargetIsAmbiguous_ReturnsFailureWithoutMutation()
     {
         const string replacementFilePath = @"D:\Temp\NewPulley.sldprt";

@@ -425,11 +425,35 @@ public class HelloWorldVisualIntegrationTests : IDisposable
         Assert.Equal(2, components.Count);
         Assert.NotEqual(first.Name, second.Name);
 
+        var workflow = new WorkflowService(_ctx.Documents, _ctx.Assembly);
+        var interferingReview = workflow.ReviewTargetedStaticInterference(first.Name, second.Name);
+        Assert.Equal("completed", interferingReview.Status);
+        Assert.True(interferingReview.ScopeValidated);
+        Assert.True(interferingReview.ScopeEvaluatedAsRequested);
+        Assert.True(interferingReview.HasInterference);
+        Assert.NotNull(interferingReview.InterferenceCheck);
+        Assert.Equal(2, interferingReview.InterferenceCheck!.CheckedComponentCount);
+        Assert.Contains(interferingReview.InterferenceCheck.InterferingComponents, component =>
+            string.Equals(component.HierarchyPath, first.Name, StringComparison.OrdinalIgnoreCase));
+        Assert.Contains(interferingReview.InterferenceCheck.InterferingComponents, component =>
+            string.Equals(component.HierarchyPath, second.Name, StringComparison.OrdinalIgnoreCase));
+
+        var staleReview = workflow.ReviewTargetedStaticInterference(first.Name, "Missing/Component-1");
+        Assert.Equal("second_target_not_resolved", staleReview.Status);
+        Assert.False(staleReview.ScopeValidated);
+        Assert.Null(staleReview.InterferenceCheck);
+
         var interference = _ctx.Assembly.CheckInterference([first.Name, second.Name]);
         Assert.True(interference.HasInterference);
         Assert.Equal(2, interference.CheckedComponentCount);
 
         AddDistanceMate(first.Name, Axis.X, true, second.Name, Axis.X, false, UnitSize);
+        var separatedReview = workflow.ReviewTargetedStaticInterference(first.Name, second.Name);
+        Assert.Equal("completed", separatedReview.Status);
+        Assert.True(separatedReview.ScopeEvaluatedAsRequested);
+        Assert.False(separatedReview.HasInterference);
+        Assert.NotNull(separatedReview.InterferenceCheck);
+        Assert.Equal(2, separatedReview.InterferenceCheck!.CheckedComponentCount);
         var separated = _ctx.Assembly.CheckInterference([first.Name, second.Name]);
         Assert.False(separated.HasInterference, "Distance mate should separate the scratch components and remove interference.");
     }
