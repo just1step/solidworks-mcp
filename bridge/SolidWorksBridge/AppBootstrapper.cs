@@ -59,7 +59,15 @@ public class AppBootstrapper
         _messageHandler.Register("sw.connect", _ =>
         {
             _connectionManager.Connect();
-            return Task.FromResult<object?>(new { connected = true });
+            SolidWorksCompatibilityInfo? compatibility = null;
+            CompatibilityAdvisory? compatibilityAdvisory = null;
+            if (CompatibilityPolicy.TryGetCompatibilityInfo(_connectionManager, out var compatibilityInfo))
+            {
+                compatibility = compatibilityInfo;
+                compatibilityAdvisory = CompatibilityPolicy.CreateAdvisory(compatibilityInfo);
+            }
+
+            return Task.FromResult<object?>(new { connected = true, compatibility, compatibilityAdvisory });
         });
 
         _messageHandler.Register("sw.disconnect", _ =>

@@ -4,6 +4,7 @@ using SolidWorksBridge.SolidWorks;
 using System.ComponentModel;
 using System.Reflection;
 using System.Text.Json;
+using System.Text.Json.Serialization;
 
 namespace SolidWorksMcpApp.Tools;
 
@@ -16,6 +17,18 @@ public class WorkflowTools(
     IFeatureService feature,
     IWorkflowService workflow)
 {
+    private sealed record CutFaceByProjectedEdgesResult(
+        [property: JsonPropertyName("faceIndex")] int FaceIndex,
+        [property: JsonPropertyName("depth")] double Depth,
+        [property: JsonPropertyName("flipDirection")] bool FlipDirection,
+        [property: JsonPropertyName("innerLoops")] bool InnerLoops,
+        [property: JsonPropertyName("edgeCount")] int? EdgeCount,
+        [property: JsonPropertyName("sketchName")] string? SketchName,
+        [property: JsonPropertyName("feature")] FeatureInfo? Feature,
+        [property: JsonPropertyName("status")] string Status,
+        [property: JsonPropertyName("failureReason")] string? FailureReason,
+        [property: JsonPropertyName("compatibilityAdvisory")] CompatibilityAdvisory? CompatibilityAdvisory);
+
     [McpServerTool, Description("Collect a structured active-document health report by reading native SolidWorks feature diagnostics, rebuild state, and optional save diagnostics. Use this as a verification gate after risky edits instead of inferring health from screenshots or a single API call.")]
     public async Task<string> DiagnoseActiveDocumentHealth(
         [Description("When true, runs ForceRebuild3 before evaluating the final diagnostics state.")] bool forceRebuild = true,
@@ -41,11 +54,34 @@ public class WorkflowTools(
         [Description("True to project inner loops too, such as holes or pockets inside the selected face.")]
         bool innerLoops = true)
     {
+        var compatibilityAdvisory = await sta.InvokeLoggedAsync(
+            nameof(CutFaceByProjectedEdges),
+            new { faceIndex, depth, flipDirection, innerLoops, phase = "compatibility_advisory" },
+            () => CompatibilityPolicy.TryGetAdvisory(connectionManager));
+        var compatibilityGate = await sta.InvokeLoggedAsync(
+            nameof(CutFaceByProjectedEdges),
+            new { faceIndex, depth, flipDirection, innerLoops, phase = "compatibility_gate" },
+            () => CompatibilityPolicy.TryCreateHighRiskWorkflowGate(connectionManager, "cut-face-by-projected-edges workflow"));
+        if (compatibilityGate != null)
+        {
+            return JsonSerializer.Serialize(new CutFaceByProjectedEdgesResult(
+                faceIndex,
+                depth,
+                flipDirection,
+                innerLoops,
+                null,
+                null,
+                null,
+                compatibilityGate.Status,
+                compatibilityGate.FailureReason,
+                compatibilityGate.CompatibilityAdvisory));
+        }
+
         var info = await sta.InvokeLoggedAsync(
             nameof(CutFaceByProjectedEdges),
             new { faceIndex, depth, flipDirection, innerLoops },
             () => CutFaceByProjectedEdgesCore(faceIndex, depth, flipDirection, innerLoops));
-        return JsonSerializer.Serialize(info);
+        return JsonSerializer.Serialize(info with { CompatibilityAdvisory = compatibilityAdvisory });
     }
 
     [McpServerTool, Description("Resolve a nested component in the active parent assembly, open the owning subassembly, replace the direct child there, save, reopen the parent assembly, and verify the replacement persisted. The result also includes pre- and post-replacement shared-part impact analysis so edit-safety state is explicit.")]
@@ -90,7 +126,7 @@ public class WorkflowTools(
         return JsonSerializer.Serialize(result);
     }
 
-    private object CutFaceByProjectedEdgesCore(int faceIndex, double depth, bool flipDirection, bool innerLoops)
+    private CutFaceByProjectedEdgesResult CutFaceByProjectedEdgesCore(int faceIndex, double depth, bool flipDirection, bool innerLoops)
     {
         if (depth <= 0)
         {
@@ -133,16 +169,17 @@ public class WorkflowTools(
         string? sketchName = (doc.IFeatureByPositionReverse(0) as Feature)?.Name;
         var cutFeature = feature.ExtrudeCut(depth, EndCondition.Blind, flipDirection);
 
-        return new
-        {
+        return new CutFaceByProjectedEdgesResult(
             faceIndex,
             depth,
             flipDirection,
             innerLoops,
-            edgeCount = edges.Length,
+            edges.Length,
             sketchName,
-            feature = cutFeature,
-        };
+            cutFeature,
+            "completed",
+            null,
+            null);
     }
 
     private static void SelectComObject(IModelDoc2 doc, object comObject, bool append, int mark)

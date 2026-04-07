@@ -162,6 +162,25 @@ public class AppBootstrapperTests
     }
 
     [Fact]
+    public async Task Handler_SwConnect_IncludesCompatibilityContextWhenAvailable()
+    {
+        var (bootstrapper, manager, _, handler) = Build();
+        bootstrapper.RegisterHandlers();
+        manager.Setup(m => m.GetCompatibilityInfo()).Returns(CompatibilityInfo("planned-next-version"));
+
+        var response = await handler.HandleAsync(Req("sw.connect"));
+
+        Assert.Null(response.Error);
+        manager.Verify(m => m.Connect(), Times.Once);
+        manager.Verify(m => m.GetCompatibilityInfo(), Times.Once);
+
+        string json = JsonSerializer.Serialize(response.Result, PipeMessageSerializer.Options);
+        Assert.Contains("\"connected\":true", json);
+        Assert.Contains("\"compatibilityState\":\"planned-next-version\"", json);
+        Assert.Contains("\"compatibilityAdvisory\"", json);
+    }
+
+    [Fact]
     public async Task Handler_SwDisconnect_CallsDisconnect_ReturnsConnectedFalse()
     {
         var (bootstrapper, manager, _, handler) = Build();

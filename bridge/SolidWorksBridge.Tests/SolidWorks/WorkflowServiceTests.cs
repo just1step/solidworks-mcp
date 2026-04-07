@@ -297,6 +297,45 @@ public class WorkflowServiceTests
         assembly.Verify(a => a.ReplaceComponent(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<bool>(), It.IsAny<int>(), It.IsAny<bool>()), Times.Never);
     }
 
+    [Fact]
+    public void ReplaceNestedComponentAndVerifyPersistence_OnUnsupportedNewerVersion_BlocksBeforeMutation()
+    {
+        const string replacementFilePath = @"D:\Temp\BlockedPulley.sldprt";
+        Directory.CreateDirectory(Path.GetDirectoryName(replacementFilePath)!);
+        File.WriteAllText(replacementFilePath, "placeholder");
+
+        var documents = new Mock<IDocumentService>();
+        var assembly = new Mock<IAssemblyService>();
+        var connectionManager = new Mock<ISwConnectionManager>();
+        var resolution = ResolvedTarget();
+        var impact = Impact(resolution, @"C:\OldPulley.sldprt", 2, false, "SubAsm-1/Pulley-1", "SubAsm-1/Pulley-2");
+
+        connectionManager.Setup(c => c.GetCompatibilityInfo())
+            .Returns(Compatibility(
+                "unsupported-newer-version",
+                "Runtime is newer than the bridge has been validated for.",
+                2026,
+                "34.0.0",
+                "swLicenseType_e.swLicenseStandard",
+                "This runtime is newer than the compiled interop baseline and outside the planned certification window."));
+        documents.Setup(d => d.GetActiveDocument()).Returns(new SwDocumentInfo(@"C:\Top.sldasm", "Top", 2));
+        assembly.Setup(a => a.ResolveComponentTarget(null, "SubAsm-1/Pulley-1", null)).Returns(resolution);
+        assembly.Setup(a => a.AnalyzeSharedPartEditImpact(null, "SubAsm-1/Pulley-1", null)).Returns(impact);
+
+        var service = new WorkflowService(documents.Object, assembly.Object, null, connectionManager.Object);
+
+        var result = service.ReplaceNestedComponentAndVerifyPersistence(replacementFilePath, hierarchyPath: "SubAsm-1/Pulley-1");
+
+        Assert.Equal("compatibility_state_blocks_operation", result.Status);
+        Assert.False(result.PersistenceVerified);
+        Assert.NotNull(result.CompatibilityAdvisory);
+        Assert.Equal("unsupported-newer-version", result.CompatibilityAdvisory!.CompatibilityState);
+        Assert.Contains("not trusted for high-risk mutation workflows", result.FailureReason);
+        documents.Verify(d => d.OpenDocument(It.IsAny<string>()), Times.Never);
+        documents.Verify(d => d.SaveDocument(It.IsAny<string>()), Times.Never);
+        assembly.Verify(a => a.ReplaceComponent(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<bool>(), It.IsAny<int>(), It.IsAny<bool>()), Times.Never);
+    }
+
 
     [Fact]
     public void DiagnoseActiveDocumentHealth_WhenEditing_ReturnsBlockedStatus()

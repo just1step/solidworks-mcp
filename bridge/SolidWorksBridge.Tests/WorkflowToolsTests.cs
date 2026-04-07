@@ -108,6 +108,48 @@ public class WorkflowToolsTests
     }
 
     [Fact]
+    public async Task CutFaceByProjectedEdges_OnUnsupportedVersion_ReturnsCompatibilityBlockedResult()
+    {
+        using var sta = new StaDispatcher();
+
+        var connectionManager = new Mock<ISwConnectionManager>();
+        var selection = new Mock<ISelectionService>();
+        var sketch = new Mock<ISketchService>();
+        var feature = new Mock<IFeatureService>();
+        var workflow = new Mock<IWorkflowService>();
+
+        connectionManager.Setup(m => m.GetCompatibilityInfo()).Returns(new SolidWorksCompatibilityInfo(
+            "unsupported-newer-version",
+            "Runtime is newer than the bridge has been validated for.",
+            "32.1.0",
+            32,
+            2024,
+            new SolidWorksRuntimeVersionInfo(
+                "34.0.0",
+                34,
+                0,
+                0,
+                2026,
+                new SwBuildNumbers("34", "34.0.0", string.Empty),
+                @"C:\Program Files\SOLIDWORKS Corp\SOLIDWORKS\sldworks.exe"),
+            new SolidWorksLicenseInfo(0, "swLicenseType_Full", "Full SolidWorks license."),
+            new[] { "This runtime is newer than the compiled interop baseline and outside the planned certification window." }));
+
+        var tool = new WorkflowTools(sta, connectionManager.Object, selection.Object, sketch.Object, feature.Object, workflow.Object);
+
+        string json = await tool.CutFaceByProjectedEdges(3, 0.002, false, true);
+
+        using var parsed = JsonDocument.Parse(json);
+        Assert.Equal("compatibility_state_blocks_operation", parsed.RootElement.GetProperty("status").GetString());
+        Assert.True(parsed.RootElement.GetProperty("compatibilityAdvisory").TryGetProperty("CompatibilityState", out var compatibilityState));
+        Assert.Equal("unsupported-newer-version", compatibilityState.GetString());
+        selection.Verify(s => s.SelectEntity(It.IsAny<SelectableEntityType>(), It.IsAny<int>(), It.IsAny<bool>(), It.IsAny<int>(), It.IsAny<string?>()), Times.Never);
+        sketch.Verify(s => s.InsertSketch(), Times.Never);
+        feature.Verify(f => f.ExtrudeCut(It.IsAny<double>(), It.IsAny<EndCondition>(), It.IsAny<bool>()), Times.Never);
+        connectionManager.Verify(m => m.EnsureConnected(), Times.Never);
+    }
+
+    [Fact]
     public async Task ReplaceNestedComponentAndVerifyPersistence_DelegatesToWorkflowService()
     {
         using var sta = new StaDispatcher();

@@ -2,15 +2,6 @@ using SolidWorks.Interop.swconst;
 
 namespace SolidWorksBridge.SolidWorks;
 
-public record CompatibilityAdvisory(
-    string CompatibilityState,
-    string AdvisoryLevel,
-    string Summary,
-    string RuntimeRevisionNumber,
-    int? RuntimeMarketingYear,
-    string LicenseName,
-    IReadOnlyList<string> Notices);
-
 public record NestedComponentReplacementWorkflowResult(
     AssemblyTargetResolutionResult InitialTargetResolution,
     SharedPartEditImpactResult PreReplacementImpactAnalysis,
@@ -124,7 +115,7 @@ public class WorkflowService : IWorkflowService
         bool topOnly = false,
         bool saveDocument = false)
     {
-        var compatibilityAdvisory = TryGetCompatibilityAdvisory();
+        var compatibilityAdvisory = CompatibilityPolicy.TryGetAdvisory(_connectionManager);
 
         if (_selection == null)
         {
@@ -226,7 +217,7 @@ public class WorkflowService : IWorkflowService
 
         string normalizedFirstHierarchyPath = firstHierarchyPath.Trim();
         string normalizedSecondHierarchyPath = secondHierarchyPath.Trim();
-        var compatibilityAdvisory = TryGetCompatibilityAdvisory();
+        var compatibilityAdvisory = CompatibilityPolicy.TryGetAdvisory(_connectionManager);
         var firstResolution = _assembly.ResolveComponentTarget(hierarchyPath: normalizedFirstHierarchyPath);
         var secondResolution = _assembly.ResolveComponentTarget(hierarchyPath: normalizedSecondHierarchyPath);
 
@@ -334,14 +325,26 @@ public class WorkflowService : IWorkflowService
             throw new FileNotFoundException($"Replacement component file was not found: {normalizedReplacementFilePath}", normalizedReplacementFilePath);
         }
 
-        var compatibilityAdvisory = TryGetCompatibilityAdvisory();
-
         var activeDocument = _documents.GetActiveDocument()
             ?? throw new InvalidOperationException("No active document.");
         string? parentAssemblyFilePath = NormalizePathOrNull(activeDocument.Path);
 
         var initialResolution = _assembly.ResolveComponentTarget(componentName, hierarchyPath, componentPath);
         var preReplacementImpact = _assembly.AnalyzeSharedPartEditImpact(componentName, hierarchyPath, componentPath);
+        var compatibilityAdvisory = CompatibilityPolicy.TryGetAdvisory(_connectionManager);
+        var compatibilityGate = CompatibilityPolicy.TryCreateHighRiskWorkflowGate(_connectionManager, "nested component replacement");
+
+        if (compatibilityGate != null)
+        {
+            return CreateFailureResult(
+                initialResolution,
+                preReplacementImpact,
+                parentAssemblyFilePath,
+                normalizedReplacementFilePath,
+                status: compatibilityGate.Status,
+                failureReason: compatibilityGate.FailureReason,
+                compatibilityAdvisory: compatibilityGate.CompatibilityAdvisory);
+        }
 
         if (!initialResolution.IsResolved || initialResolution.ResolvedInstance == null)
         {
@@ -716,45 +719,6 @@ public class WorkflowService : IWorkflowService
             Status: status,
             FailureReason: failureReason,
             CompatibilityAdvisory: compatibilityAdvisory);
-    }
-
-    private CompatibilityAdvisory? TryGetCompatibilityAdvisory()
-    {
-        if (_connectionManager == null)
-        {
-            return null;
-        }
-
-        try
-        {
-            var compatibility = _connectionManager.GetCompatibilityInfo();
-            if (string.Equals(compatibility.CompatibilityState, "certified-baseline", StringComparison.OrdinalIgnoreCase))
-            {
-                return null;
-            }
-
-            return CreateCompatibilityAdvisory(compatibility);
-        }
-        catch
-        {
-            return null;
-        }
-    }
-
-    private static CompatibilityAdvisory CreateCompatibilityAdvisory(SolidWorksCompatibilityInfo compatibility)
-    {
-        string advisoryLevel = string.Equals(compatibility.CompatibilityState, "planned-next-version", StringComparison.OrdinalIgnoreCase)
-            ? "info"
-            : "warning";
-
-        return new CompatibilityAdvisory(
-            compatibility.CompatibilityState,
-            advisoryLevel,
-            compatibility.Summary,
-            compatibility.RuntimeVersion.RevisionNumber,
-            compatibility.RuntimeVersion.MarketingYear,
-            compatibility.License.Name,
-            compatibility.Notices);
     }
 
     private static RebuildExecutionResult CreateNoOpRebuildResult(bool topOnly)
