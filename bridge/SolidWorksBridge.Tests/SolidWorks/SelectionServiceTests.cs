@@ -505,8 +505,56 @@ public class SelectionServiceTests
         var result = new SelectionService(manager.Object).SelectEntity(SelectableEntityType.Face, 0, append: true, mark: 7);
 
         Assert.True(result.Success);
+        Assert.Equal(SelectableEntityType.Face, result.EntityType);
+        Assert.Equal(0, result.EntityIndex);
+        Assert.Null(result.ComponentName);
+        Assert.Equal([0d, 0d, 0d, 1d, 1d, 1d], result.Box);
         Assert.Equal(7, selectData.Object.Mark);
         entity.Verify(e => e.Select4(true, It.IsAny<SelectData>()), Times.Once);
+    }
+
+    [Fact]
+    public void SelectEntity_InAssemblyContext_EchoesOwningComponent()
+    {
+        var face = Face([0d, 0.01d, 0d, 0.05d, 0.01d, 0.03d]);
+        var entity = face.As<IEntity>();
+        var selectData = new Mock<SelectData>();
+        var selectionManager = new Mock<SelectionMgr>();
+        selectionManager.Setup(m => m.CreateSelectData()).Returns(selectData.Object);
+
+        object partBodiesInfo = null!;
+        var partComponent = new Mock<Component2>();
+        partComponent.Setup(c => c.Name2).Returns("2020铝板-1");
+        partComponent.Setup(c => c.GetBodies3((int)swBodyType_e.swSolidBody, out partBodiesInfo))
+            .Returns(new object[] { BodyWith(face.Object).Object });
+        partComponent.Setup(c => c.GetChildren()).Returns(Array.Empty<object>());
+
+        var assembly = new Mock<IAssemblyDoc>();
+        var model = assembly.As<IModelDoc2>();
+        assembly.Setup(a => a.GetComponents(true)).Returns(new object[] { partComponent.Object });
+        model.Setup(d => d.ISelectionManager).Returns(selectionManager.Object);
+
+        var swApp = new Mock<ISldWorksApp>();
+        swApp.Setup(s => s.IActiveDoc2).Returns(model.Object);
+
+        var manager = new Mock<ISwConnectionManager>();
+        manager.Setup(m => m.IsConnected).Returns(true);
+        manager.Setup(m => m.SwApp).Returns(swApp.Object);
+        manager.Setup(m => m.EnsureConnected());
+
+        entity.Setup(e => e.Select4(false, It.IsAny<SelectData>())).Returns(true);
+
+        var result = new SelectionService(manager.Object).SelectEntity(
+            SelectableEntityType.Face,
+            0,
+            append: false,
+            componentName: "2020铝板-1");
+
+        Assert.True(result.Success);
+        Assert.Equal(SelectableEntityType.Face, result.EntityType);
+        Assert.Equal(0, result.EntityIndex);
+        Assert.Equal("2020铝板-1", result.ComponentName);
+        Assert.Equal([0d, 0.01d, 0d, 0.05d, 0.01d, 0.03d], result.Box);
     }
 
     [Fact]

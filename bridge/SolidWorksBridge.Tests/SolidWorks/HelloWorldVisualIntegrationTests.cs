@@ -292,6 +292,9 @@ public class HelloWorldVisualIntegrationTests : IDisposable
         var face = GetExtremePartFace(axis, selectMax);
         var selected = _ctx.Selection.SelectEntity(SelectableEntityType.Face, face.Index);
         Assert.True(selected.Success, selected.Message);
+        Assert.Equal(SelectableEntityType.Face, selected.EntityType);
+        Assert.Equal(face.Index, selected.EntityIndex);
+        Assert.Equal(face.Box, selected.Box);
     }
 
     private SelectableEntityInfo GetExtremeComponentFace(string componentName, Axis axis, bool selectMax)
@@ -315,6 +318,10 @@ public class HelloWorldVisualIntegrationTests : IDisposable
             append: append,
             componentName: componentName);
         Assert.True(selection.Success, selection.Message);
+        Assert.Equal(SelectableEntityType.Face, selection.EntityType);
+        Assert.Equal(face.Index, selection.EntityIndex);
+        Assert.Equal(componentName, selection.ComponentName);
+        Assert.Equal(face.Box, selection.Box);
     }
 
     private void AddCoincidentMate(string firstComponentName, Axis firstAxis, bool firstSelectMax, string secondComponentName, Axis secondAxis, bool secondSelectMax)
@@ -430,6 +437,8 @@ public class HelloWorldVisualIntegrationTests : IDisposable
         var firstEdge = _ctx.Selection.ListEntities(SelectableEntityType.Edge).First();
         var edgeSelection = _ctx.Selection.SelectEntity(SelectableEntityType.Edge, firstEdge.Index);
         Assert.True(edgeSelection.Success, edgeSelection.Message);
+        Assert.Equal(SelectableEntityType.Edge, edgeSelection.EntityType);
+        Assert.Equal(firstEdge.Index, edgeSelection.EntityIndex);
         Assert.Equal("Fillet", _ctx.Feature.Fillet(UnitSize * 0.12).Type);
 
         string path = Path.Combine(Path.GetDirectoryName(outputPath)!, Path.GetFileName(outputPath));
@@ -740,8 +749,6 @@ public class HelloWorldVisualIntegrationTests : IDisposable
             return;
         }
 
-        Assert.True(_ctx.Selection.ListReferencePlanes().Count >= 3, "Expected default reference planes to be discoverable for smoke coverage.");
-
         string sketchSheetPath = CreateSketchCapabilitySheet(outputDirectory);
         Assert.True(File.Exists(sketchSheetPath));
 
@@ -749,6 +756,8 @@ public class HelloWorldVisualIntegrationTests : IDisposable
         var activeDocument = _ctx.Documents.GetActiveDocument();
         Assert.NotNull(activeDocument);
         Assert.Equal(sketchSheetPath, activeDocument!.Path, StringComparer.OrdinalIgnoreCase);
+
+        Assert.True(_ctx.Selection.ListReferencePlanes().Count >= 3, "Expected default reference planes to be discoverable for smoke coverage.");
 
         var openDocuments = _ctx.Documents.ListDocuments();
         Assert.Contains(openDocuments, document => string.Equals(document.Path, sketchSheetPath, StringComparison.OrdinalIgnoreCase));

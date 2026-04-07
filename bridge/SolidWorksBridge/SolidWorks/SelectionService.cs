@@ -8,7 +8,13 @@ namespace SolidWorksBridge.SolidWorks;
 /// <summary>
 /// Result of a selection operation.
 /// </summary>
-public record SelectionResult(bool Success, string Message);
+public record SelectionResult(
+    bool Success,
+    string Message,
+    SelectableEntityType? EntityType = null,
+    int? EntityIndex = null,
+    string? ComponentName = null,
+    double[]? Box = null);
 
 /// <summary>
 /// Reference plane metadata discovered from the active document feature tree.
@@ -439,8 +445,20 @@ public class SelectionService : ISelectionService
 
         bool ok = candidate.Entity.Select4(append, selectData);
         return ok
-            ? new SelectionResult(true, $"Selected {entityType} at index {index}")
-            : new SelectionResult(false, $"Failed to select {entityType} at index {index}");
+            ? new SelectionResult(
+                true,
+                $"Selected {entityType} at index {index}",
+                candidate.EntityType,
+                candidate.Index,
+                candidate.ComponentName,
+                candidate.Box)
+            : new SelectionResult(
+                false,
+                $"Failed to select {entityType} at index {index}",
+                candidate.EntityType,
+                candidate.Index,
+                candidate.ComponentName,
+                candidate.Box);
     }
 
     public EntityMeasurementResult MeasureEntities(
