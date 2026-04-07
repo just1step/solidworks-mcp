@@ -791,6 +791,7 @@ public class HelloWorldVisualIntegrationTests : IDisposable
 
         var featureDiagnostics = _ctx.Selection.GetFeatureDiagnostics();
         Assert.Equal(0, featureDiagnostics.ErrorCount);
+        Assert.Empty(featureDiagnostics.CorrelatedIssues ?? Array.Empty<CorrelatedDiagnosticIssueInfo>());
 
         string reportPath = WriteSmokeReport(
             outputDirectory,
@@ -986,8 +987,51 @@ public class HelloWorldVisualIntegrationTests : IDisposable
         Assert.True(healthDiagnostics.SaveHealth.SaveSucceeded);
         Assert.NotNull(healthDiagnostics.SaveHealth.SaveResult);
         Assert.NotNull(healthDiagnostics.FeatureDiagnosticsAfterRebuild);
+        Assert.NotNull(healthDiagnostics.ActionableDiagnostics);
         Assert.Equal(0, healthDiagnostics.FeatureDiagnosticsAfterRebuild!.WarningCount);
         Assert.Empty(healthDiagnostics.FeatureDiagnosticsAfterRebuild.WhatsWrongItems);
+        Assert.Empty(healthDiagnostics.FeatureDiagnosticsAfterRebuild.CorrelatedIssues ?? Array.Empty<CorrelatedDiagnosticIssueInfo>());
+        Assert.Empty(healthDiagnostics.ActionableDiagnostics!.CurrentIssues);
+        Assert.Empty(healthDiagnostics.ActionableDiagnostics.ResolvedByRebuildIssues);
+        Assert.Empty(healthDiagnostics.ActionableDiagnostics.IntroducedByRebuildIssues);
+
+        _ctx.Documents.OpenDocument(setup.OriginalVerticalPartPath);
+        var originalVerticalFeatureTree = _ctx.Selection.ListFeatureTree();
+        var destructiveFeature = originalVerticalFeatureTree
+            .FirstOrDefault(feature =>
+                !feature.IsSketch
+                && (feature.TypeName.Contains("Extrusion", StringComparison.OrdinalIgnoreCase)
+                    || feature.TypeName.Contains("Extrude", StringComparison.OrdinalIgnoreCase)
+                    || feature.TypeName.Contains("Fillet", StringComparison.OrdinalIgnoreCase)))
+            ?? throw new Xunit.Sdk.XunitException("Expected the reusable V7 part to expose at least one deletable solid feature.");
+        var deleteFeatureResult = _ctx.Selection.DeleteFeatureByName(destructiveFeature.Name);
+        Assert.True(deleteFeatureResult.Success, deleteFeatureResult.Message);
+        var brokenPartSave = _ctx.Documents.SaveDocument(setup.OriginalVerticalPartPath);
+        Assert.Equal(setup.OriginalVerticalPartPath, brokenPartSave.OutputPath, StringComparer.OrdinalIgnoreCase);
+
+        _ctx.Documents.OpenDocument(setup.ParentAssemblyPath);
+        var brokenHealthDiagnostics = new WorkflowService(_ctx.Documents, _ctx.Assembly, _ctx.Selection, _ctx.ConnectionManager, workflowLogger)
+            .DiagnoseActiveDocumentHealth(forceRebuild: true, topOnly: false, saveDocument: false);
+
+        Assert.Equal("completed", brokenHealthDiagnostics.Status);
+        Assert.NotNull(brokenHealthDiagnostics.ActiveDocument);
+        Assert.Equal(setup.ParentAssemblyPath, brokenHealthDiagnostics.ActiveDocument!.Path, StringComparer.OrdinalIgnoreCase);
+        Assert.True(
+            brokenHealthDiagnostics.HasBlockingIssues
+            || brokenHealthDiagnostics.HasWarnings
+            || brokenHealthDiagnostics.ActionableDiagnostics?.CurrentIssues.Count > 0);
+        Assert.NotNull(brokenHealthDiagnostics.FeatureDiagnosticsAfterRebuild);
+        Assert.NotEmpty(brokenHealthDiagnostics.FeatureDiagnosticsAfterRebuild!.CorrelatedIssues ?? Array.Empty<CorrelatedDiagnosticIssueInfo>());
+        Assert.NotNull(brokenHealthDiagnostics.ActionableDiagnostics);
+        Assert.NotEmpty(brokenHealthDiagnostics.ActionableDiagnostics!.CurrentIssues);
+        Assert.True(
+            brokenHealthDiagnostics.ActionableDiagnostics.BlockingIssues.Count > 0
+            || brokenHealthDiagnostics.ActionableDiagnostics.WarningIssues.Count > 0);
+        Assert.Contains(brokenHealthDiagnostics.ActionableDiagnostics.CurrentIssues, issue =>
+            string.Equals(issue.TargetContext.ScopeType, "component_instance", StringComparison.OrdinalIgnoreCase)
+            && string.Equals(issue.TargetContext.DocumentPath, setup.ParentAssemblyPath, StringComparison.OrdinalIgnoreCase)
+            && !string.IsNullOrWhiteSpace(issue.TargetContext.HierarchyPath)
+            && !string.IsNullOrWhiteSpace(issue.TargetContext.ComponentName));
 
         Assert.Equal(4, beforeExports.Count);
         Assert.Equal(4, afterExports.Count);
@@ -1001,6 +1045,7 @@ public class HelloWorldVisualIntegrationTests : IDisposable
         AssertWorkflowLogEntry(workflowEntries, nameof(WorkflowService.ReplaceNestedComponentAndVerifyPersistence), "mutation.replace_component", "completed");
         AssertWorkflowLogEntry(workflowEntries, nameof(WorkflowService.ReplaceNestedComponentAndVerifyPersistence), "verification.persistence_resolution", "completed", "resolved=true");
         AssertWorkflowLogEntry(workflowEntries, nameof(WorkflowService.DiagnoseActiveDocumentHealth), "verification.save_document", "completed");
+        AssertWorkflowLogEntry(workflowEntries, nameof(WorkflowService.DiagnoseActiveDocumentHealth), "verification.feature_diagnostics_after_rebuild", "completed", "correlatedIssues=");
         AssertWorkflowLogEntry(workflowEntries, nameof(WorkflowService.DiagnoseActiveDocumentHealth), "final", "completed", "status=completed");
 
         string reportPath = WriteSmokeReport(
@@ -1011,12 +1056,14 @@ public class HelloWorldVisualIntegrationTests : IDisposable
             new CrossVersionSmokeAreaReport(
                 "replacement-and-diagnostics-surface",
                 "completed",
-                "Validated the nested replacement workflow, persistence verification, shared-part impact analysis, viewport exports, and post-edit health diagnostics.",
+                "Validated the nested replacement workflow, persistence verification, shared-part impact analysis, viewport exports, healthy post-edit diagnostics, and a deliberately damaged shared HELLO WORLD source part that returned actionable native diagnostics.",
                 new[]
                 {
                     "AnalyzeSharedPartEditImpact",
                     "ResolveComponentTarget",
                     "ReplaceNestedComponentAndVerifyPersistence",
+                    "DeleteFeatureByName",
+                    "SaveDocument",
                     "ListComponentsRecursive",
                     "CheckInterference",
                     "ExportCurrentViewPng",
@@ -1025,6 +1072,7 @@ public class HelloWorldVisualIntegrationTests : IDisposable
                 beforeExports
                     .Concat(afterExports)
                     .Append(setup.ParentAssemblyPath)
+                    .Append(setup.OriginalVerticalPartPath)
                     .ToArray()));
 
         Assert.True(File.Exists(reportPath));

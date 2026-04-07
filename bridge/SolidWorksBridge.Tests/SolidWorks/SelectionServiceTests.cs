@@ -67,6 +67,37 @@ public class SelectionServiceTests
         return (manager, swApp, part, model);
     }
 
+    private static (Mock<ISwConnectionManager> manager,
+                    Mock<ISldWorksApp> swApp,
+                    Mock<IAssemblyDoc> assembly,
+                    Mock<IModelDoc2> model)
+        ConnectedWithAssemblyDoc(params Mock<Component2>[] components)
+    {
+        var assembly = new Mock<IAssemblyDoc>();
+        var model = assembly.As<IModelDoc2>();
+        assembly.Setup(a => a.GetComponents(true))
+            .Returns(components.Select(component => (object)component.Object).ToArray());
+
+        var swApp = new Mock<ISldWorksApp>();
+        swApp.Setup(s => s.IActiveDoc2).Returns(model.Object);
+
+        var manager = new Mock<ISwConnectionManager>();
+        manager.Setup(m => m.IsConnected).Returns(true);
+        manager.Setup(m => m.SwApp).Returns(swApp.Object);
+        manager.Setup(m => m.EnsureConnected());
+
+        return (manager, swApp, assembly, model);
+    }
+
+    private static Mock<Component2> Component(string name, string path, params Mock<Component2>[] children)
+    {
+        var component = new Mock<Component2>();
+        component.Setup(c => c.Name2).Returns(name);
+        component.Setup(c => c.GetPathName()).Returns(path);
+        component.Setup(c => c.GetChildren()).Returns(children.Select(child => (object)child.Object).ToArray());
+        return component;
+    }
+
     private static Mock<IBody2> BodyWith(params object[] entities)
     {
         var body = new Mock<IBody2>();
@@ -120,7 +151,15 @@ public class SelectionServiceTests
         return feature.Object;
     }
 
-    private static Feature FeatureNode(string name, string typeName, object[]? children = null, Feature? next = null, bool canSelect = true, int errorCode = 0, bool isWarning = false)
+    private static Feature FeatureNode(
+        string name,
+        string typeName,
+        object[]? children = null,
+        Feature? next = null,
+        bool canSelect = true,
+        int errorCode = 0,
+        bool isWarning = false,
+        object? specificFeature = null)
     {
         var feature = new Mock<Feature>();
         feature.Setup(f => f.Name).Returns(name);
@@ -128,6 +167,7 @@ public class SelectionServiceTests
         feature.Setup(f => f.GetNextFeature()).Returns(next);
         feature.Setup(f => f.GetChildren()).Returns(children ?? Array.Empty<object>());
         feature.Setup(f => f.Select2(false, -1)).Returns(canSelect);
+        feature.Setup(f => f.GetSpecificFeature2()).Returns(specificFeature);
         var warningOut = isWarning;
         feature.Setup(f => f.GetErrorCode2(out warningOut)).Returns(errorCode);
         return feature.Object;
@@ -458,6 +498,102 @@ public class SelectionServiceTests
                 Assert.True(item.IsWarning);
                 Assert.Equal(48, item.ErrorCode);
             });
+    }
+
+    [Fact]
+    public void GetFeatureDiagnostics_InAssembly_CorrelatesMateIssueToAssemblyLevelContext()
+    {
+        var mateFeature = FeatureNode("MateCoincident1", "MateCoincident", errorCode: 46, isWarning: false);
+        var extension = new Mock<ModelDocExtension>();
+        object whatsWrongFeatures = new object[] { mateFeature };
+        object whatsWrongCodes = new object[] { 46 };
+        object whatsWrongWarnings = new object[] { false };
+
+        var (manager, _, _, model) = ConnectedWithAssemblyDoc();
+        model.Setup(d => d.FirstFeature()).Returns(mateFeature);
+        model.Setup(d => d.GetActiveSketch2()).Returns((object?)null);
+        model.Setup(d => d.GetPathName()).Returns(@"C:\Assemblies\Top.sldasm");
+        model.SetupGet(d => d.Extension).Returns(extension.Object);
+        extension.Setup(e => e.GetWhatsWrong(out whatsWrongFeatures, out whatsWrongCodes, out whatsWrongWarnings)).Returns(true);
+
+        var result = new SelectionService(manager.Object).GetFeatureDiagnostics();
+
+        var issue = Assert.Single(result.CorrelatedIssues!);
+        Assert.Equal("assembly_level", issue.TargetContext.ScopeType);
+        Assert.True(issue.TargetContext.IsExact);
+        Assert.False(issue.TargetContext.IsAmbiguous);
+        Assert.Equal(Path.GetFullPath(@"C:\Assemblies\Top.sldasm"), issue.TargetContext.DocumentPath);
+        Assert.Equal(Path.GetFullPath(@"C:\Assemblies\Top.sldasm"), issue.TargetContext.OwningAssemblyFilePath);
+        Assert.Empty(issue.TargetContext.MatchingInstances);
+    }
+
+    [Fact]
+    public void GetFeatureDiagnostics_InAssembly_CorrelatesComponentIssueToExactHierarchyPath()
+    {
+        var bracket = Component("Bracket-1", @"C:\Parts\Bracket.sldprt");
+        var componentFeature = FeatureNode(
+            "Bracket-1",
+            "Reference",
+            errorCode: 46,
+            isWarning: false,
+            specificFeature: bracket.Object);
+        var extension = new Mock<ModelDocExtension>();
+        object whatsWrongFeatures = new object[] { componentFeature };
+        object whatsWrongCodes = new object[] { 46 };
+        object whatsWrongWarnings = new object[] { false };
+
+        var (manager, _, _, model) = ConnectedWithAssemblyDoc(bracket);
+        model.Setup(d => d.FirstFeature()).Returns(componentFeature);
+        model.Setup(d => d.GetActiveSketch2()).Returns((object?)null);
+        model.Setup(d => d.GetPathName()).Returns(@"C:\Assemblies\Top.sldasm");
+        model.SetupGet(d => d.Extension).Returns(extension.Object);
+        extension.Setup(e => e.GetWhatsWrong(out whatsWrongFeatures, out whatsWrongCodes, out whatsWrongWarnings)).Returns(true);
+
+        var result = new SelectionService(manager.Object).GetFeatureDiagnostics();
+
+        var issue = Assert.Single(result.CorrelatedIssues!);
+        Assert.Equal("component_instance", issue.TargetContext.ScopeType);
+        Assert.True(issue.TargetContext.IsExact);
+        Assert.False(issue.TargetContext.IsAmbiguous);
+        Assert.Equal("Bracket-1", issue.TargetContext.ComponentName);
+        Assert.Equal("Bracket-1", issue.TargetContext.HierarchyPath);
+        Assert.Equal(Path.GetFullPath(@"C:\Parts\Bracket.sldprt"), issue.TargetContext.SourceFilePath);
+        Assert.Equal(Path.GetFullPath(@"C:\Assemblies\Top.sldasm"), issue.TargetContext.OwningAssemblyFilePath);
+        Assert.Equal(1, issue.TargetContext.SourceFileReuseCount);
+        var match = Assert.Single(issue.TargetContext.MatchingInstances);
+        Assert.Equal("Bracket-1", match.HierarchyPath);
+    }
+
+    [Fact]
+    public void GetFeatureDiagnostics_InAssembly_FlagsAmbiguousSharedSourceScope()
+    {
+        var pulley1 = Component("Pulley-1", @"C:\Parts\Pulley.sldprt");
+        var pulley2 = Component("Pulley-2", @"C:\Parts\Pulley.sldprt");
+        var ambiguousFeature = FeatureNode("Pulley", "Reference", errorCode: 46, isWarning: false);
+        var extension = new Mock<ModelDocExtension>();
+        object whatsWrongFeatures = new object[] { ambiguousFeature };
+        object whatsWrongCodes = new object[] { 46 };
+        object whatsWrongWarnings = new object[] { false };
+
+        var (manager, _, _, model) = ConnectedWithAssemblyDoc(pulley1, pulley2);
+        model.Setup(d => d.FirstFeature()).Returns(ambiguousFeature);
+        model.Setup(d => d.GetActiveSketch2()).Returns((object?)null);
+        model.Setup(d => d.GetPathName()).Returns(@"C:\Assemblies\Top.sldasm");
+        model.SetupGet(d => d.Extension).Returns(extension.Object);
+        extension.Setup(e => e.GetWhatsWrong(out whatsWrongFeatures, out whatsWrongCodes, out whatsWrongWarnings)).Returns(true);
+
+        var result = new SelectionService(manager.Object).GetFeatureDiagnostics();
+
+        var issue = Assert.Single(result.CorrelatedIssues!);
+        Assert.Equal("shared_source_scope", issue.TargetContext.ScopeType);
+        Assert.False(issue.TargetContext.IsExact);
+        Assert.True(issue.TargetContext.IsAmbiguous);
+        Assert.Null(issue.TargetContext.HierarchyPath);
+        Assert.Equal(Path.GetFullPath(@"C:\Parts\Pulley.sldprt"), issue.TargetContext.SourceFilePath);
+        Assert.Equal(2, issue.TargetContext.SourceFileReuseCount);
+        Assert.Equal(2, issue.TargetContext.MatchingInstances.Count);
+        Assert.Contains(issue.TargetContext.MatchingInstances, item => item.HierarchyPath == "Pulley-1");
+        Assert.Contains(issue.TargetContext.MatchingInstances, item => item.HierarchyPath == "Pulley-2");
     }
 
     [Fact]

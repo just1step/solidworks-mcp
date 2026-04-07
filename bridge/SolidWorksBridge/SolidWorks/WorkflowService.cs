@@ -45,6 +45,13 @@ public record SaveHealthInfo(
     bool HasWarnings,
     string? FailureReason);
 
+public record DocumentHealthActionableDiagnosticsInfo(
+    IReadOnlyList<CorrelatedDiagnosticIssueInfo> CurrentIssues,
+    IReadOnlyList<CorrelatedDiagnosticIssueInfo> BlockingIssues,
+    IReadOnlyList<CorrelatedDiagnosticIssueInfo> WarningIssues,
+    IReadOnlyList<CorrelatedDiagnosticIssueInfo> ResolvedByRebuildIssues,
+    IReadOnlyList<CorrelatedDiagnosticIssueInfo> IntroducedByRebuildIssues);
+
 public record ActiveDocumentHealthDiagnosticsResult(
     SwDocumentInfo? ActiveDocument,
     EditStateInfo? EditState,
@@ -57,7 +64,8 @@ public record ActiveDocumentHealthDiagnosticsResult(
     bool ReadyForVerificationGate,
     string Status,
     string? FailureReason,
-    CompatibilityAdvisory? CompatibilityAdvisory = null);
+    CompatibilityAdvisory? CompatibilityAdvisory = null,
+    DocumentHealthActionableDiagnosticsInfo? ActionableDiagnostics = null);
 
 public interface IWorkflowService
 {
@@ -186,7 +194,10 @@ public class WorkflowService : IWorkflowService
                 workflowName,
                 "verification.feature_diagnostics_before_rebuild",
                 () => _selection.GetFeatureDiagnostics(),
-                diagnostics => ComposeDetail($"errors={diagnostics.ErrorCount}", $"warnings={diagnostics.WarningCount}"));
+                diagnostics => ComposeDetail(
+                    $"errors={diagnostics.ErrorCount}",
+                    $"warnings={diagnostics.WarningCount}",
+                    $"correlatedIssues={GetCorrelatedIssueCount(diagnostics)}"));
 
             RebuildExecutionResult rebuild;
             if (forceRebuild)
@@ -217,7 +228,13 @@ public class WorkflowService : IWorkflowService
                 workflowName,
                 "verification.feature_diagnostics_after_rebuild",
                 () => _selection.GetFeatureDiagnostics(),
-                diagnostics => ComposeDetail($"errors={diagnostics.ErrorCount}", $"warnings={diagnostics.WarningCount}"));
+                diagnostics => ComposeDetail(
+                    $"errors={diagnostics.ErrorCount}",
+                    $"warnings={diagnostics.WarningCount}",
+                    $"correlatedIssues={GetCorrelatedIssueCount(diagnostics)}"));
+            var actionableDiagnostics = CreateActionableDiagnostics(
+                featureDiagnosticsBeforeRebuild,
+                featureDiagnosticsAfterRebuild);
 
             SaveHealthInfo saveHealth;
             if (saveDocument)
@@ -272,7 +289,8 @@ public class WorkflowService : IWorkflowService
                     ReadyForVerificationGate: readyForVerificationGate,
                     Status: status,
                     FailureReason: failureReason,
-                    CompatibilityAdvisory: compatibilityAdvisory));
+                    CompatibilityAdvisory: compatibilityAdvisory,
+                    ActionableDiagnostics: actionableDiagnostics));
         }
         catch (Exception ex)
         {
@@ -875,7 +893,11 @@ public class WorkflowService : IWorkflowService
             workflowName,
             "final",
             string.Equals(result.Status, "completed", StringComparison.OrdinalIgnoreCase) ? "completed" : "failed",
-            ComposeDetail($"status={result.Status}", result.FailureReason));
+            ComposeDetail(
+                $"status={result.Status}",
+                result.ActionableDiagnostics == null ? null : $"actionableIssues={result.ActionableDiagnostics.CurrentIssues.Count}",
+                result.ActionableDiagnostics == null ? null : $"resolvedByRebuild={result.ActionableDiagnostics.ResolvedByRebuildIssues.Count}",
+                result.FailureReason));
         return result;
     }
 
@@ -926,6 +948,118 @@ public class WorkflowService : IWorkflowService
     }
 
     private static string ToToken(bool value) => value ? "true" : "false";
+
+    private static int GetCorrelatedIssueCount(FeatureDiagnosticsResult diagnostics) =>
+        diagnostics.CorrelatedIssues?.Count ?? 0;
+
+    private static DocumentHealthActionableDiagnosticsInfo? CreateActionableDiagnostics(
+        FeatureDiagnosticsResult? featureDiagnosticsBeforeRebuild,
+        FeatureDiagnosticsResult? featureDiagnosticsAfterRebuild)
+    {
+        if (featureDiagnosticsBeforeRebuild == null && featureDiagnosticsAfterRebuild == null)
+        {
+            return null;
+        }
+
+        var beforeIssues = GetCorrelatedIssues(featureDiagnosticsBeforeRebuild);
+        var afterIssues = GetCorrelatedIssues(featureDiagnosticsAfterRebuild);
+
+        return new DocumentHealthActionableDiagnosticsInfo(
+            CurrentIssues: afterIssues,
+            BlockingIssues: afterIssues.Where(static issue => !issue.IsWarning).ToArray(),
+            WarningIssues: afterIssues.Where(static issue => issue.IsWarning).ToArray(),
+            ResolvedByRebuildIssues: FindDiagnosticIssueDelta(beforeIssues, afterIssues),
+            IntroducedByRebuildIssues: FindDiagnosticIssueDelta(afterIssues, beforeIssues));
+    }
+
+    private static IReadOnlyList<CorrelatedDiagnosticIssueInfo> GetCorrelatedIssues(FeatureDiagnosticsResult? diagnostics) =>
+        diagnostics?.CorrelatedIssues?.ToArray() ?? Array.Empty<CorrelatedDiagnosticIssueInfo>();
+
+    private static IReadOnlyList<CorrelatedDiagnosticIssueInfo> FindDiagnosticIssueDelta(
+        IReadOnlyList<CorrelatedDiagnosticIssueInfo> baseline,
+        IReadOnlyList<CorrelatedDiagnosticIssueInfo> comparison)
+    {
+        if (baseline.Count == 0)
+        {
+            return Array.Empty<CorrelatedDiagnosticIssueInfo>();
+        }
+
+        if (comparison.Count == 0)
+        {
+            return baseline.ToArray();
+        }
+
+        var remaining = comparison
+            .Select(CreateDiagnosticCorrelationKey)
+            .ToList();
+        var delta = new List<CorrelatedDiagnosticIssueInfo>();
+
+        foreach (var issue in baseline)
+        {
+            var key = CreateDiagnosticCorrelationKey(issue);
+            int matchingIndex = remaining.FindIndex(existing => existing == key);
+            if (matchingIndex >= 0)
+            {
+                remaining.RemoveAt(matchingIndex);
+                continue;
+            }
+
+            delta.Add(issue);
+        }
+
+        return delta.Count == 0
+            ? Array.Empty<CorrelatedDiagnosticIssueInfo>()
+            : delta.ToArray();
+    }
+
+    private static DiagnosticCorrelationKey CreateDiagnosticCorrelationKey(CorrelatedDiagnosticIssueInfo issue)
+    {
+        string matchingInstancesKey = string.Join(
+            "|",
+            issue.TargetContext.MatchingInstances
+                .OrderBy(instance => instance.HierarchyPath, StringComparer.OrdinalIgnoreCase)
+                .Select(instance => $"{instance.HierarchyPath}>{instance.Name}>{NormalizePathOrNull(instance.Path) ?? string.Empty}"));
+
+        return new DiagnosticCorrelationKey(
+            Name: issue.Name,
+            TypeName: issue.TypeName,
+            ErrorCode: issue.ErrorCode,
+            IsWarning: issue.IsWarning,
+            ErrorName: issue.ErrorName,
+            ErrorDescription: issue.ErrorDescription,
+            ScopeType: issue.TargetContext.ScopeType,
+            IsExact: issue.TargetContext.IsExact,
+            IsAmbiguous: issue.TargetContext.IsAmbiguous,
+            DocumentPath: NormalizePathOrNull(issue.TargetContext.DocumentPath),
+            HierarchyPath: issue.TargetContext.HierarchyPath,
+            ComponentName: issue.TargetContext.ComponentName,
+            SourceFilePath: NormalizePathOrNull(issue.TargetContext.SourceFilePath),
+            OwningAssemblyHierarchyPath: issue.TargetContext.OwningAssemblyHierarchyPath,
+            OwningAssemblyFilePath: NormalizePathOrNull(issue.TargetContext.OwningAssemblyFilePath),
+            SourceFileReuseCount: issue.TargetContext.SourceFileReuseCount,
+            Reason: issue.TargetContext.Reason,
+            MatchingInstancesKey: matchingInstancesKey);
+    }
+
+    private sealed record DiagnosticCorrelationKey(
+        string Name,
+        string TypeName,
+        int ErrorCode,
+        bool IsWarning,
+        string ErrorName,
+        string ErrorDescription,
+        string ScopeType,
+        bool IsExact,
+        bool IsAmbiguous,
+        string? DocumentPath,
+        string? HierarchyPath,
+        string? ComponentName,
+        string? SourceFilePath,
+        string? OwningAssemblyHierarchyPath,
+        string? OwningAssemblyFilePath,
+        int SourceFileReuseCount,
+        string? Reason,
+        string MatchingInstancesKey);
 
     private static NestedComponentReplacementWorkflowResult CreateFailureResult(
         AssemblyTargetResolutionResult initialResolution,
@@ -1047,7 +1181,8 @@ public class WorkflowService : IWorkflowService
             ReadyForVerificationGate: false,
             Status: status,
             FailureReason: failureReason,
-            CompatibilityAdvisory: compatibilityAdvisory);
+            CompatibilityAdvisory: compatibilityAdvisory,
+            ActionableDiagnostics: CreateActionableDiagnostics(featureDiagnosticsBeforeRebuild, featureDiagnosticsAfterRebuild));
     }
 
     private static RebuildExecutionResult CreateNoOpRebuildResult(bool topOnly)

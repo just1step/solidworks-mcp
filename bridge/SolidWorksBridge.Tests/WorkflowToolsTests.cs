@@ -316,7 +316,14 @@ public class WorkflowToolsTests
                 false,
                 true,
                 "completed",
-                null));
+                null,
+                null,
+                new DocumentHealthActionableDiagnosticsInfo(
+                    CurrentIssues: Array.Empty<CorrelatedDiagnosticIssueInfo>(),
+                    BlockingIssues: Array.Empty<CorrelatedDiagnosticIssueInfo>(),
+                    WarningIssues: Array.Empty<CorrelatedDiagnosticIssueInfo>(),
+                    ResolvedByRebuildIssues: Array.Empty<CorrelatedDiagnosticIssueInfo>(),
+                    IntroducedByRebuildIssues: Array.Empty<CorrelatedDiagnosticIssueInfo>())));
 
         var tool = new WorkflowTools(sta, connectionManager.Object, selection.Object, sketch.Object, feature.Object, workflow.Object);
 
@@ -325,6 +332,7 @@ public class WorkflowToolsTests
         using var parsed = JsonDocument.Parse(json);
         Assert.Equal("completed", parsed.RootElement.GetProperty("Status").GetString());
         Assert.True(parsed.RootElement.GetProperty("ReadyForVerificationGate").GetBoolean());
+        Assert.Equal(0, parsed.RootElement.GetProperty("ActionableDiagnostics").GetProperty("CurrentIssues").GetArrayLength());
         workflow.Verify(w => w.DiagnoseActiveDocumentHealth(true, false, true), Times.Once);
     }
 }

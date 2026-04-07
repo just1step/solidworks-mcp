@@ -28,6 +28,61 @@ public class WorkflowServiceTests
             errors,
             warnings);
 
+    private static FeatureDiagnosticsResult FeatureDiagnosticsWithCorrelatedIssues(params CorrelatedDiagnosticIssueInfo[] issues) =>
+        new(
+            Array.Empty<FeatureDiagnosticInfo>(),
+            Array.Empty<WhatsWrongItemInfo>(),
+            issues.Count(static issue => !issue.IsWarning),
+            issues.Count(static issue => issue.IsWarning),
+            issues);
+
+    private static DiagnosticTargetContextInfo DiagnosticTargetContext(
+        string scopeType,
+        string? hierarchyPath = null,
+        string? componentName = null,
+        string? sourceFilePath = null,
+        string? documentPath = @"C:\Asm.sldasm",
+        string? owningAssemblyHierarchyPath = null,
+        string? owningAssemblyFilePath = @"C:\Asm.sldasm",
+        bool isExact = true,
+        bool isAmbiguous = false,
+        int sourceFileReuseCount = 1,
+        string? reason = null,
+        params ComponentInstanceInfo[] matchingInstances) =>
+        new(
+            ScopeType: scopeType,
+            IsExact: isExact,
+            IsAmbiguous: isAmbiguous,
+            DocumentPath: documentPath,
+            HierarchyPath: hierarchyPath,
+            ComponentName: componentName,
+            SourceFilePath: sourceFilePath,
+            OwningAssemblyHierarchyPath: owningAssemblyHierarchyPath,
+            OwningAssemblyFilePath: owningAssemblyFilePath,
+            SourceFileReuseCount: sourceFileReuseCount,
+            Reason: reason,
+            MatchingInstances: matchingInstances);
+
+    private static CorrelatedDiagnosticIssueInfo CorrelatedIssue(
+        string name,
+        string typeName,
+        int errorCode,
+        bool isWarning,
+        DiagnosticTargetContextInfo targetContext,
+        string errorName = "diagnostic_code",
+        string errorDescription = "diagnostic description") =>
+        new(
+            Source: "feature_tree",
+            Index: null,
+            Name: name,
+            TypeName: typeName,
+            ErrorCode: errorCode,
+            IsWarning: isWarning,
+            ErrorName: errorName,
+            ErrorDescription: errorDescription,
+            AppearsInWhatsWrong: true,
+            TargetContext: targetContext);
+
     private static RebuildStateInfo RebuildState(int rawStatus) =>
         new(
             rawStatus,
@@ -411,8 +466,90 @@ public class WorkflowServiceTests
         Assert.True(result.SaveHealth.SaveAttempted);
         Assert.True(result.SaveHealth.SaveSucceeded);
         Assert.True(result.SaveHealth.HasWarnings);
+        Assert.NotNull(result.ActionableDiagnostics);
+        Assert.Empty(result.ActionableDiagnostics!.CurrentIssues);
+        Assert.Empty(result.ActionableDiagnostics.ResolvedByRebuildIssues);
         documents.Verify(d => d.ForceRebuildActiveDocument(false), Times.Once);
         documents.Verify(d => d.SaveDocument(active.Path), Times.Once);
+    }
+
+    [Fact]
+    public void DiagnoseActiveDocumentHealth_ProjectsCorrelatedDiagnosticsIntoActionableSummary()
+    {
+        var documents = new Mock<IDocumentService>();
+        var assembly = new Mock<IAssemblyService>();
+        var selection = new Mock<ISelectionService>();
+        var logger = new RecordingWorkflowStageLogger();
+        var active = new SwDocumentInfo(@"C:\Asm.sldasm", "Asm", 2);
+        var persistentAssemblyIssue = CorrelatedIssue(
+            "MateCoincident1",
+            "MateCoincident",
+            46,
+            isWarning: false,
+            DiagnosticTargetContext(
+                scopeType: "assembly_level",
+                documentPath: active.Path,
+                reason: "mate_feature"));
+        var resolvedSharedScopeIssue = CorrelatedIssue(
+            "CutListFolder1",
+            "CutListFolder",
+            99,
+            isWarning: false,
+            DiagnosticTargetContext(
+                scopeType: "shared_source_scope",
+                componentName: "Plate-1",
+                sourceFilePath: @"C:\Plate.sldprt",
+                documentPath: active.Path,
+                isExact: false,
+                isAmbiguous: true,
+                sourceFileReuseCount: 2,
+                reason: "shared source ambiguity",
+                matchingInstances:
+                [
+                    new ComponentInstanceInfo("Plate-1", @"C:\Plate.sldprt", "SubAsm-1/Plate-1", 1),
+                    new ComponentInstanceInfo("Plate-2", @"C:\Plate.sldprt", "SubAsm-2/Plate-2", 1),
+                ]));
+        var introducedComponentWarning = CorrelatedIssue(
+            "Boss-Extrude2",
+            "Boss",
+            12,
+            isWarning: true,
+            DiagnosticTargetContext(
+                scopeType: "component_instance",
+                hierarchyPath: "SubAsm-1/Bracket-1",
+                componentName: "Bracket-1",
+                sourceFilePath: @"C:\Bracket.sldprt",
+                documentPath: active.Path,
+                owningAssemblyHierarchyPath: "SubAsm-1",
+                owningAssemblyFilePath: @"C:\SubAsm.sldasm"));
+
+        documents.Setup(d => d.GetActiveDocument()).Returns(active);
+        selection.Setup(s => s.GetEditState()).Returns(new EditStateInfo(false, "None", true, true));
+        selection.SetupSequence(s => s.GetFeatureDiagnostics())
+            .Returns(FeatureDiagnosticsWithCorrelatedIssues(persistentAssemblyIssue, resolvedSharedScopeIssue))
+            .Returns(FeatureDiagnosticsWithCorrelatedIssues(persistentAssemblyIssue, introducedComponentWarning));
+        documents.Setup(d => d.ForceRebuildActiveDocument(false)).Returns(new RebuildExecutionResult(true, true, false, RebuildState(1), RebuildState(0)));
+
+        var service = new WorkflowService(documents.Object, assembly.Object, selection.Object, null, logger);
+
+        var result = service.DiagnoseActiveDocumentHealth(forceRebuild: true, topOnly: false, saveDocument: false);
+
+        Assert.Equal("completed", result.Status);
+        Assert.True(result.HasBlockingIssues);
+        Assert.True(result.HasWarnings);
+        Assert.NotNull(result.ActionableDiagnostics);
+        Assert.Equal(2, result.ActionableDiagnostics!.CurrentIssues.Count);
+        Assert.Single(result.ActionableDiagnostics.BlockingIssues);
+        Assert.Single(result.ActionableDiagnostics.WarningIssues);
+        Assert.Single(result.ActionableDiagnostics.ResolvedByRebuildIssues);
+        Assert.Single(result.ActionableDiagnostics.IntroducedByRebuildIssues);
+        Assert.Equal("assembly_level", result.ActionableDiagnostics.CurrentIssues[0].TargetContext.ScopeType);
+        Assert.Equal("component_instance", result.ActionableDiagnostics.CurrentIssues[1].TargetContext.ScopeType);
+        Assert.Equal("SubAsm-1/Bracket-1", result.ActionableDiagnostics.WarningIssues[0].TargetContext.HierarchyPath);
+        Assert.Equal("shared_source_scope", result.ActionableDiagnostics.ResolvedByRebuildIssues[0].TargetContext.ScopeType);
+        AssertStageLogged(logger, nameof(WorkflowService.DiagnoseActiveDocumentHealth), "verification.feature_diagnostics_before_rebuild", "completed", "correlatedIssues=2");
+        AssertStageLogged(logger, nameof(WorkflowService.DiagnoseActiveDocumentHealth), "verification.feature_diagnostics_after_rebuild", "completed", "correlatedIssues=2");
+        AssertStageLogged(logger, nameof(WorkflowService.DiagnoseActiveDocumentHealth), "final", "completed", "actionableIssues=2");
     }
 
     [Fact]
