@@ -13,6 +13,7 @@ internal sealed class SolidWorksIntegrationTestContext : IDisposable
     public SketchService Sketch { get; }
     public FeatureService Feature { get; }
     public AssemblyService Assembly { get; }
+    public SwConnectionManager ConnectionManager => _manager;
     public ISldWorksApp App => _manager.SwApp!;
 
     public SolidWorksIntegrationTestContext()

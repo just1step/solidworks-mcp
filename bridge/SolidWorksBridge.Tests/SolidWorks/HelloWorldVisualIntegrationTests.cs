@@ -134,6 +134,32 @@ public class HelloWorldVisualIntegrationTests : IDisposable
         return Path.Combine(outputDirectory, $"{ArtifactRunId}-{fileName}");
     }
 
+    private static string ExpectedAdvisoryLevel(string compatibilityState)
+    {
+        return string.Equals(compatibilityState, "planned-next-version", StringComparison.OrdinalIgnoreCase)
+            ? "info"
+            : "warning";
+    }
+
+    private void AssertCompatibilityAdvisoryMatchesRuntime(CompatibilityAdvisory? advisory)
+    {
+        var compatibility = _ctx.ConnectionManager.GetCompatibilityInfo();
+        if (string.Equals(compatibility.CompatibilityState, "certified-baseline", StringComparison.OrdinalIgnoreCase))
+        {
+            Assert.Null(advisory);
+            return;
+        }
+
+        Assert.NotNull(advisory);
+        Assert.Equal(compatibility.CompatibilityState, advisory!.CompatibilityState);
+        Assert.Equal(ExpectedAdvisoryLevel(compatibility.CompatibilityState), advisory.AdvisoryLevel);
+        Assert.Equal(compatibility.Summary, advisory.Summary);
+        Assert.Equal(compatibility.RuntimeVersion.RevisionNumber, advisory.RuntimeRevisionNumber);
+        Assert.Equal(compatibility.RuntimeVersion.MarketingYear, advisory.RuntimeMarketingYear);
+        Assert.Equal(compatibility.License.Name, advisory.LicenseName);
+        Assert.Equal(compatibility.Notices, advisory.Notices);
+    }
+
     private enum PrimitivePartShape
     {
         BarPlain,
@@ -430,9 +456,10 @@ public class HelloWorldVisualIntegrationTests : IDisposable
         Assert.Equal(2, components.Count);
         Assert.NotEqual(first.Name, second.Name);
 
-        var workflow = new WorkflowService(_ctx.Documents, _ctx.Assembly);
+        var workflow = new WorkflowService(_ctx.Documents, _ctx.Assembly, null, _ctx.ConnectionManager);
         var interferingReview = workflow.ReviewTargetedStaticInterference(first.Name, second.Name);
         Assert.Equal("completed", interferingReview.Status);
+        AssertCompatibilityAdvisoryMatchesRuntime(interferingReview.CompatibilityAdvisory);
         Assert.True(interferingReview.ScopeValidated);
         Assert.True(interferingReview.ScopeEvaluatedAsRequested);
         Assert.True(interferingReview.HasInterference);
@@ -445,6 +472,7 @@ public class HelloWorldVisualIntegrationTests : IDisposable
 
         var staleReview = workflow.ReviewTargetedStaticInterference(first.Name, "Missing/Component-1");
         Assert.Equal("second_target_not_resolved", staleReview.Status);
+        AssertCompatibilityAdvisoryMatchesRuntime(staleReview.CompatibilityAdvisory);
         Assert.False(staleReview.ScopeValidated);
         Assert.Null(staleReview.InterferenceCheck);
 
@@ -456,6 +484,7 @@ public class HelloWorldVisualIntegrationTests : IDisposable
         AddDistanceMate(first.Name, Axis.X, true, second.Name, Axis.X, false, UnitSize);
         var separatedReview = workflow.ReviewTargetedStaticInterference(first.Name, second.Name);
         Assert.Equal("completed", separatedReview.Status);
+        AssertCompatibilityAdvisoryMatchesRuntime(separatedReview.CompatibilityAdvisory);
         Assert.True(separatedReview.ScopeEvaluatedAsRequested);
         Assert.False(separatedReview.HasInterference);
         Assert.NotNull(separatedReview.InterferenceCheck);
@@ -470,12 +499,13 @@ public class HelloWorldVisualIntegrationTests : IDisposable
         var insertedH = _ctx.Assembly.InsertComponent(letterHAssemblyPath, 0, 0, 0);
         string nestedTarget = insertedH.Name + "/" + insertedH.Name + "/" + nestedTargetLeafName;
 
-        var workflow = new WorkflowService(_ctx.Documents, _ctx.Assembly);
+        var workflow = new WorkflowService(_ctx.Documents, _ctx.Assembly, null, _ctx.ConnectionManager);
         var result = workflow.ReplaceNestedComponentAndVerifyPersistence(
             replacementVerticalPath,
             hierarchyPath: nestedTarget);
 
         Assert.Equal("parent_assembly_not_saved", result.Status);
+        AssertCompatibilityAdvisoryMatchesRuntime(result.CompatibilityAdvisory);
         Assert.False(result.PersistenceVerified);
         Assert.Null(result.ParentAssemblyFilePath);
     }
@@ -534,11 +564,12 @@ public class HelloWorldVisualIntegrationTests : IDisposable
 
         _ctx.Documents.OpenDocument(parentAssemblyPath);
 
-        var topLevelFailureWorkflow = new WorkflowService(_ctx.Documents, _ctx.Assembly);
+        var topLevelFailureWorkflow = new WorkflowService(_ctx.Documents, _ctx.Assembly, null, _ctx.ConnectionManager);
         var topLevelFailure = topLevelFailureWorkflow.ReplaceNestedComponentAndVerifyPersistence(
             primitiveParts["V7R"],
             hierarchyPath: insertedTopLevelOName!);
         Assert.Equal("target_not_nested", topLevelFailure.Status);
+        AssertCompatibilityAdvisoryMatchesRuntime(topLevelFailure.CompatibilityAdvisory);
 
         var recursiveComponents = _ctx.Assembly.ListComponentsRecursive();
         var hVerticalTargets = recursiveComponents
@@ -613,15 +644,16 @@ public class HelloWorldVisualIntegrationTests : IDisposable
         var beforeInterference = _ctx.Assembly.CheckInterference(treatCoincidenceAsInterference: false);
         Assert.False(beforeInterference.HasInterference, "HELLO WORLD engineering assembly should be interference-free before replacement.");
 
-        var sameFileWorkflow = new WorkflowService(_ctx.Documents, _ctx.Assembly);
+        var sameFileWorkflow = new WorkflowService(_ctx.Documents, _ctx.Assembly, null, _ctx.ConnectionManager);
         var noOpResult = sameFileWorkflow.ReplaceNestedComponentAndVerifyPersistence(
             setup.OriginalVerticalPartPath,
             hierarchyPath: setup.TargetHierarchyPath);
         Assert.Equal("replacement_matches_source_file", noOpResult.Status);
+        AssertCompatibilityAdvisoryMatchesRuntime(noOpResult.CompatibilityAdvisory);
 
         var beforeExports = ExportVerificationViews(setup.ParentAssemblyPath, outputDirectory, "hello-world-engineering-before");
 
-        var workflow = new WorkflowService(_ctx.Documents, _ctx.Assembly);
+        var workflow = new WorkflowService(_ctx.Documents, _ctx.Assembly, null, _ctx.ConnectionManager);
         var result = workflow.ReplaceNestedComponentAndVerifyPersistence(
             setup.ReplacementVerticalPartPath,
             hierarchyPath: setup.TargetHierarchyPath);
@@ -630,7 +662,7 @@ public class HelloWorldVisualIntegrationTests : IDisposable
         var recursiveComponents = _ctx.Assembly.ListComponentsRecursive();
         var postInterference = _ctx.Assembly.CheckInterference(treatCoincidenceAsInterference: false);
         var postReplacementImpact = _ctx.Assembly.AnalyzeSharedPartEditImpact(hierarchyPath: result.PersistenceResolution!.ResolvedInstance!.HierarchyPath);
-        var healthDiagnostics = new WorkflowService(_ctx.Documents, _ctx.Assembly, _ctx.Selection)
+        var healthDiagnostics = new WorkflowService(_ctx.Documents, _ctx.Assembly, _ctx.Selection, _ctx.ConnectionManager)
             .DiagnoseActiveDocumentHealth(forceRebuild: true, topOnly: false, saveDocument: true);
 
         Assert.Equal("completed", result.Status);
@@ -646,6 +678,8 @@ public class HelloWorldVisualIntegrationTests : IDisposable
         Assert.Equal("safe_direct_edit", postReplacementImpact.RecommendedAction);
         Assert.False(postInterference.HasInterference, "Replacement should preserve a non-interfering HELLO WORLD engineering assembly.");
         Assert.Equal("completed", healthDiagnostics.Status);
+        AssertCompatibilityAdvisoryMatchesRuntime(result.CompatibilityAdvisory);
+        AssertCompatibilityAdvisoryMatchesRuntime(healthDiagnostics.CompatibilityAdvisory);
         Assert.NotNull(healthDiagnostics.ActiveDocument);
         Assert.Equal(setup.ParentAssemblyPath, healthDiagnostics.ActiveDocument!.Path, StringComparer.OrdinalIgnoreCase);
         Assert.True(healthDiagnostics.Rebuild.RebuildAttempted);

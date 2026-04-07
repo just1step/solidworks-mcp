@@ -64,6 +64,36 @@ public class WorkflowServiceTests
             safeDirectEdit ? "safe_direct_edit" : "replace_single_instance_before_edit");
     }
 
+    private static SolidWorksCompatibilityInfo Compatibility(
+        string compatibilityState,
+        string summary,
+        int? runtimeMarketingYear = 2025,
+        string runtimeRevisionNumber = "33.1.0",
+        string licenseName = "swLicenseType_e.swLicenseStandard",
+        params string[] notices)
+    {
+        int? revisionMajor = runtimeMarketingYear.HasValue
+            ? runtimeMarketingYear.Value - 1992
+            : null;
+
+        return new SolidWorksCompatibilityInfo(
+            compatibilityState,
+            summary,
+            "32.0.0.76",
+            32,
+            2024,
+            new SolidWorksRuntimeVersionInfo(
+                runtimeRevisionNumber,
+                revisionMajor,
+                1,
+                0,
+                runtimeMarketingYear,
+                new SwBuildNumbers("32.1.0", runtimeRevisionNumber, "0"),
+                @"C:\Program Files\SOLIDWORKS Corp\SOLIDWORKS\sldworks.exe"),
+            new SolidWorksLicenseInfo(1, licenseName, "Test license"),
+            notices.Length == 0 ? new[] { "Compatibility notice." } : notices);
+    }
+
     [Fact]
     public void ReviewTargetedStaticInterference_WhenSecondTargetIsMissing_ReturnsFailureWithoutRunningCheck()
     {
@@ -192,6 +222,35 @@ public class WorkflowServiceTests
     }
 
     [Fact]
+    public void ReviewTargetedStaticInterference_OnCertifiedBaseline_DoesNotAttachAdvisory()
+    {
+        var documents = new Mock<IDocumentService>();
+        var assembly = new Mock<IAssemblyService>();
+        var connectionManager = new Mock<ISwConnectionManager>();
+        var firstResolution = ResolvedTarget(hierarchyPath: "SubAsm-1/Pulley-1", sourcePath: @"C:\Pulley.sldprt", reuseCount: 1);
+        var secondResolution = ResolvedTarget(hierarchyPath: "SubAsm-1/Bracket-1", sourcePath: @"C:\Bracket.sldprt", reuseCount: 1);
+
+        connectionManager.Setup(c => c.GetCompatibilityInfo())
+            .Returns(Compatibility("certified-baseline", "Certified on the interop baseline."));
+        assembly.Setup(a => a.ResolveComponentTarget(null, "SubAsm-1/Pulley-1", null)).Returns(firstResolution);
+        assembly.Setup(a => a.ResolveComponentTarget(null, "SubAsm-1/Bracket-1", null)).Returns(secondResolution);
+        assembly.Setup(a => a.CheckInterference(It.IsAny<IReadOnlyList<string>>(), false))
+            .Returns(new AssemblyInterferenceCheckResult(
+                HasInterference: false,
+                TreatCoincidenceAsInterference: false,
+                CheckedComponentCount: 2,
+                InterferingFaceCount: 0,
+                InterferingComponents: Array.Empty<ComponentInstanceInfo>()));
+
+        var service = new WorkflowService(documents.Object, assembly.Object, null, connectionManager.Object);
+
+        var result = service.ReviewTargetedStaticInterference("SubAsm-1/Pulley-1", "SubAsm-1/Bracket-1");
+
+        Assert.Equal("completed", result.Status);
+        Assert.Null(result.CompatibilityAdvisory);
+    }
+
+    [Fact]
     public void ReplaceNestedComponentAndVerifyPersistence_WhenTargetIsAmbiguous_ReturnsFailureWithoutMutation()
     {
         const string replacementFilePath = @"D:\Temp\NewPulley.sldprt";
@@ -288,6 +347,68 @@ public class WorkflowServiceTests
         Assert.True(result.SaveHealth.HasWarnings);
         documents.Verify(d => d.ForceRebuildActiveDocument(false), Times.Once);
         documents.Verify(d => d.SaveDocument(active.Path), Times.Once);
+    }
+
+    [Fact]
+    public void DiagnoseActiveDocumentHealth_OnPlannedNextVersion_AttachesCompatibilityAdvisory()
+    {
+        var documents = new Mock<IDocumentService>();
+        var assembly = new Mock<IAssemblyService>();
+        var selection = new Mock<ISelectionService>();
+        var connectionManager = new Mock<ISwConnectionManager>();
+        var active = new SwDocumentInfo(@"C:\Asm.sldasm", "Asm", 2);
+
+        connectionManager.Setup(c => c.GetCompatibilityInfo())
+            .Returns(Compatibility(
+                "planned-next-version",
+                "SolidWorks 2025 is within the planned certification window.",
+                2025,
+                "33.1.0",
+                "swLicenseType_e.swLicenseStandard",
+                "Runtime is newer than the compiled interop baseline but within the planned certification window."));
+        documents.Setup(d => d.GetActiveDocument()).Returns(active);
+        selection.Setup(s => s.GetEditState()).Returns(new EditStateInfo(false, "None", true, true));
+        selection.SetupSequence(s => s.GetFeatureDiagnostics())
+            .Returns(FeatureDiagnostics())
+            .Returns(FeatureDiagnostics());
+        documents.Setup(d => d.GetActiveDocumentRebuildState()).Returns(RebuildState(0));
+
+        var service = new WorkflowService(documents.Object, assembly.Object, selection.Object, connectionManager.Object);
+
+        var result = service.DiagnoseActiveDocumentHealth(forceRebuild: false, saveDocument: false);
+
+        Assert.Equal("completed", result.Status);
+        Assert.NotNull(result.CompatibilityAdvisory);
+        Assert.Equal("planned-next-version", result.CompatibilityAdvisory!.CompatibilityState);
+        Assert.Equal("info", result.CompatibilityAdvisory.AdvisoryLevel);
+        Assert.Equal("33.1.0", result.CompatibilityAdvisory.RuntimeRevisionNumber);
+        Assert.Equal("swLicenseType_e.swLicenseStandard", result.CompatibilityAdvisory.LicenseName);
+    }
+
+    [Fact]
+    public void DiagnoseActiveDocumentHealth_WhenCompatibilityProbeFails_StillReturnsWorkflowResult()
+    {
+        var documents = new Mock<IDocumentService>();
+        var assembly = new Mock<IAssemblyService>();
+        var selection = new Mock<ISelectionService>();
+        var connectionManager = new Mock<ISwConnectionManager>();
+        var active = new SwDocumentInfo(@"C:\Asm.sldasm", "Asm", 2);
+
+        connectionManager.Setup(c => c.GetCompatibilityInfo()).Throws(new InvalidOperationException("probe failed"));
+        documents.Setup(d => d.GetActiveDocument()).Returns(active);
+        selection.Setup(s => s.GetEditState()).Returns(new EditStateInfo(false, "None", true, true));
+        selection.SetupSequence(s => s.GetFeatureDiagnostics())
+            .Returns(FeatureDiagnostics())
+            .Returns(FeatureDiagnostics(warnings: 1));
+        documents.Setup(d => d.GetActiveDocumentRebuildState()).Returns(RebuildState(0));
+
+        var service = new WorkflowService(documents.Object, assembly.Object, selection.Object, connectionManager.Object);
+
+        var result = service.DiagnoseActiveDocumentHealth(forceRebuild: false, saveDocument: false);
+
+        Assert.Equal("completed", result.Status);
+        Assert.True(result.HasWarnings);
+        Assert.Null(result.CompatibilityAdvisory);
     }
 
     [Fact]

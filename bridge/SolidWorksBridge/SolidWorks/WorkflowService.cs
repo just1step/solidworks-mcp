@@ -2,6 +2,15 @@ using SolidWorks.Interop.swconst;
 
 namespace SolidWorksBridge.SolidWorks;
 
+public record CompatibilityAdvisory(
+    string CompatibilityState,
+    string AdvisoryLevel,
+    string Summary,
+    string RuntimeRevisionNumber,
+    int? RuntimeMarketingYear,
+    string LicenseName,
+    IReadOnlyList<string> Notices);
+
 public record NestedComponentReplacementWorkflowResult(
     AssemblyTargetResolutionResult InitialTargetResolution,
     SharedPartEditImpactResult PreReplacementImpactAnalysis,
@@ -18,7 +27,8 @@ public record NestedComponentReplacementWorkflowResult(
     SharedPartEditImpactResult? PostReplacementImpactAnalysis,
     bool PersistenceVerified,
     string Status,
-    string? FailureReason);
+    string? FailureReason,
+    CompatibilityAdvisory? CompatibilityAdvisory = null);
 
 public record TargetedStaticInterferenceReviewResult(
     IReadOnlyList<string> RequestedHierarchyPaths,
@@ -31,7 +41,8 @@ public record TargetedStaticInterferenceReviewResult(
     bool ScopeEvaluatedAsRequested,
     bool HasInterference,
     string Status,
-    string? FailureReason);
+    string? FailureReason,
+    CompatibilityAdvisory? CompatibilityAdvisory = null);
 
 public record SaveHealthInfo(
     bool SaveAttempted,
@@ -54,7 +65,8 @@ public record ActiveDocumentHealthDiagnosticsResult(
     bool HasWarnings,
     bool ReadyForVerificationGate,
     string Status,
-    string? FailureReason);
+    string? FailureReason,
+    CompatibilityAdvisory? CompatibilityAdvisory = null);
 
 public interface IWorkflowService
 {
@@ -83,17 +95,28 @@ public class WorkflowService : IWorkflowService
     private readonly IDocumentService _documents;
     private readonly IAssemblyService _assembly;
     private readonly ISelectionService? _selection;
+    private readonly ISwConnectionManager? _connectionManager;
 
     public WorkflowService(IDocumentService documents, IAssemblyService assembly)
-        : this(documents, assembly, null)
+        : this(documents, assembly, null, null)
     {
     }
 
     public WorkflowService(IDocumentService documents, IAssemblyService assembly, ISelectionService? selection)
+        : this(documents, assembly, selection, null)
+    {
+    }
+
+    public WorkflowService(
+        IDocumentService documents,
+        IAssemblyService assembly,
+        ISelectionService? selection,
+        ISwConnectionManager? connectionManager)
     {
         _documents = documents ?? throw new ArgumentNullException(nameof(documents));
         _assembly = assembly ?? throw new ArgumentNullException(nameof(assembly));
         _selection = selection;
+        _connectionManager = connectionManager;
     }
 
     public ActiveDocumentHealthDiagnosticsResult DiagnoseActiveDocumentHealth(
@@ -101,6 +124,8 @@ public class WorkflowService : IWorkflowService
         bool topOnly = false,
         bool saveDocument = false)
     {
+        var compatibilityAdvisory = TryGetCompatibilityAdvisory();
+
         if (_selection == null)
         {
             throw new InvalidOperationException("Active document health diagnostics require an ISelectionService instance.");
@@ -117,7 +142,8 @@ public class WorkflowService : IWorkflowService
                 featureDiagnosticsAfterRebuild: null,
                 saveHealth: new SaveHealthInfo(false, false, null, null, null, false, false, null),
                 status: "no_active_document",
-                failureReason: "No active document.");
+                failureReason: "No active document.",
+                compatibilityAdvisory: compatibilityAdvisory);
         }
 
         var editState = _selection.GetEditState();
@@ -131,7 +157,8 @@ public class WorkflowService : IWorkflowService
                 featureDiagnosticsAfterRebuild: null,
                 saveHealth: new SaveHealthInfo(false, false, activeDocument.Path, null, null, false, false, null),
                 status: "editing_state_blocks_diagnostics",
-                failureReason: "Finish the active sketch or edit mode before running document health diagnostics.");
+                failureReason: "Finish the active sketch or edit mode before running document health diagnostics.",
+                compatibilityAdvisory: compatibilityAdvisory);
         }
 
         var featureDiagnosticsBeforeRebuild = _selection.GetFeatureDiagnostics();
@@ -178,7 +205,8 @@ public class WorkflowService : IWorkflowService
             HasWarnings: hasWarnings,
             ReadyForVerificationGate: readyForVerificationGate,
             Status: status,
-            FailureReason: failureReason);
+            FailureReason: failureReason,
+            CompatibilityAdvisory: compatibilityAdvisory);
     }
 
     public TargetedStaticInterferenceReviewResult ReviewTargetedStaticInterference(
@@ -198,6 +226,7 @@ public class WorkflowService : IWorkflowService
 
         string normalizedFirstHierarchyPath = firstHierarchyPath.Trim();
         string normalizedSecondHierarchyPath = secondHierarchyPath.Trim();
+        var compatibilityAdvisory = TryGetCompatibilityAdvisory();
         var firstResolution = _assembly.ResolveComponentTarget(hierarchyPath: normalizedFirstHierarchyPath);
         var secondResolution = _assembly.ResolveComponentTarget(hierarchyPath: normalizedSecondHierarchyPath);
 
@@ -212,7 +241,8 @@ public class WorkflowService : IWorkflowService
                 status: firstResolution.IsAmbiguous ? "first_target_ambiguous" : "first_target_not_resolved",
                 failureReason: firstResolution.IsAmbiguous
                     ? "The first requested hierarchy path resolved to multiple component instances."
-                    : "The first requested hierarchy path does not resolve to a component in the active assembly.");
+                    : "The first requested hierarchy path does not resolve to a component in the active assembly.",
+                compatibilityAdvisory: compatibilityAdvisory);
         }
 
         if (!secondResolution.IsResolved || secondResolution.ResolvedInstance == null)
@@ -226,7 +256,8 @@ public class WorkflowService : IWorkflowService
                 status: secondResolution.IsAmbiguous ? "second_target_ambiguous" : "second_target_not_resolved",
                 failureReason: secondResolution.IsAmbiguous
                     ? "The second requested hierarchy path resolved to multiple component instances."
-                    : "The second requested hierarchy path does not resolve to a component in the active assembly.");
+                    : "The second requested hierarchy path does not resolve to a component in the active assembly.",
+                compatibilityAdvisory: compatibilityAdvisory);
         }
 
         if (string.Equals(firstResolution.ResolvedInstance.HierarchyPath, secondResolution.ResolvedInstance.HierarchyPath, StringComparison.OrdinalIgnoreCase))
@@ -238,7 +269,8 @@ public class WorkflowService : IWorkflowService
                 firstResolution,
                 secondResolution,
                 status: "targets_not_distinct",
-                failureReason: "Targeted static interference review requires two distinct component instances.");
+                failureReason: "Targeted static interference review requires two distinct component instances.",
+                compatibilityAdvisory: compatibilityAdvisory);
         }
 
         var checkedHierarchyPaths = new[]
@@ -263,7 +295,8 @@ public class WorkflowService : IWorkflowService
                 ScopeEvaluatedAsRequested: false,
                 HasInterference: false,
                 Status: "scope_not_evaluated_as_requested",
-                FailureReason: $"The interference check reported {interferenceCheck.CheckedComponentCount} checked component(s), expected {checkedHierarchyPaths.Length}.");
+                FailureReason: $"The interference check reported {interferenceCheck.CheckedComponentCount} checked component(s), expected {checkedHierarchyPaths.Length}.",
+                CompatibilityAdvisory: compatibilityAdvisory);
         }
 
         return new TargetedStaticInterferenceReviewResult(
@@ -277,7 +310,8 @@ public class WorkflowService : IWorkflowService
             ScopeEvaluatedAsRequested: true,
             HasInterference: interferenceCheck.HasInterference,
             Status: "completed",
-            FailureReason: null);
+            FailureReason: null,
+            CompatibilityAdvisory: compatibilityAdvisory);
     }
 
     public NestedComponentReplacementWorkflowResult ReplaceNestedComponentAndVerifyPersistence(
@@ -300,6 +334,8 @@ public class WorkflowService : IWorkflowService
             throw new FileNotFoundException($"Replacement component file was not found: {normalizedReplacementFilePath}", normalizedReplacementFilePath);
         }
 
+        var compatibilityAdvisory = TryGetCompatibilityAdvisory();
+
         var activeDocument = _documents.GetActiveDocument()
             ?? throw new InvalidOperationException("No active document.");
         string? parentAssemblyFilePath = NormalizePathOrNull(activeDocument.Path);
@@ -317,7 +353,8 @@ public class WorkflowService : IWorkflowService
                 status: initialResolution.IsAmbiguous ? "target_ambiguous" : "target_not_resolved",
                 failureReason: initialResolution.IsAmbiguous
                     ? "The requested target matched multiple component instances."
-                    : "The requested target could not be resolved to a single component instance.");
+                    : "The requested target could not be resolved to a single component instance.",
+                compatibilityAdvisory: compatibilityAdvisory);
         }
 
         if (initialResolution.ResolvedInstance.Depth == 0 || string.IsNullOrWhiteSpace(initialResolution.OwningAssemblyHierarchyPath))
@@ -328,7 +365,8 @@ public class WorkflowService : IWorkflowService
                 parentAssemblyFilePath,
                 normalizedReplacementFilePath,
                 status: "target_not_nested",
-                failureReason: "The resolved component is already top-level in the active assembly. Use the direct replace workflow instead.");
+                failureReason: "The resolved component is already top-level in the active assembly. Use the direct replace workflow instead.",
+                compatibilityAdvisory: compatibilityAdvisory);
         }
 
         if (string.IsNullOrWhiteSpace(parentAssemblyFilePath))
@@ -339,7 +377,8 @@ public class WorkflowService : IWorkflowService
                 parentAssemblyFilePath,
                 normalizedReplacementFilePath,
                 status: "parent_assembly_not_saved",
-                failureReason: "The active parent assembly must be saved before persistence can be verified by reopening it.");
+                failureReason: "The active parent assembly must be saved before persistence can be verified by reopening it.",
+                compatibilityAdvisory: compatibilityAdvisory);
         }
 
         string? owningAssemblyFilePath = NormalizePathOrNull(initialResolution.OwningAssemblyFilePath);
@@ -351,7 +390,8 @@ public class WorkflowService : IWorkflowService
                 parentAssemblyFilePath,
                 normalizedReplacementFilePath,
                 status: "owning_assembly_not_saved",
-                failureReason: "The owning subassembly must be saved before nested replacement can be verified." );
+                failureReason: "The owning subassembly must be saved before nested replacement can be verified.",
+                compatibilityAdvisory: compatibilityAdvisory);
         }
 
         string? sourceFilePath = NormalizePathOrNull(initialResolution.ResolvedInstance.Path);
@@ -363,7 +403,8 @@ public class WorkflowService : IWorkflowService
                 parentAssemblyFilePath,
                 normalizedReplacementFilePath,
                 status: "replacement_matches_source_file",
-                failureReason: "The replacement file matches the currently resolved component source file, so the workflow would be a no-op.");
+                failureReason: "The replacement file matches the currently resolved component source file, so the workflow would be a no-op.",
+                compatibilityAdvisory: compatibilityAdvisory);
         }
 
         string replacementTargetHierarchyPath = GetReplacementTargetHierarchyPath(
@@ -381,7 +422,8 @@ public class WorkflowService : IWorkflowService
                 failureReason: "The resolved target is not a direct child of the owning assembly context.",
                 owningAssemblyHierarchyPath: initialResolution.OwningAssemblyHierarchyPath,
                 owningAssemblyFilePath: owningAssemblyFilePath,
-                replacementTargetHierarchyPath: replacementTargetHierarchyPath);
+                replacementTargetHierarchyPath: replacementTargetHierarchyPath,
+                compatibilityAdvisory: compatibilityAdvisory);
         }
 
         _documents.OpenDocument(owningAssemblyFilePath);
@@ -398,7 +440,8 @@ public class WorkflowService : IWorkflowService
                 owningAssemblyHierarchyPath: initialResolution.OwningAssemblyHierarchyPath,
                 owningAssemblyFilePath: owningAssemblyFilePath,
                 replacementTargetHierarchyPath: replacementTargetHierarchyPath,
-                owningAssemblyActivated: false);
+                owningAssemblyActivated: false,
+                compatibilityAdvisory: compatibilityAdvisory);
         }
 
         var replacementResult = _assembly.ReplaceComponent(
@@ -431,7 +474,8 @@ public class WorkflowService : IWorkflowService
                 owningAssemblyActivated: true,
                 replacementResult: replacementResult,
                 saveResult: saveResult,
-                parentAssemblyReloaded: false);
+                parentAssemblyReloaded: false,
+                compatibilityAdvisory: compatibilityAdvisory);
         }
 
         var persistenceResolution = ResolvePersistedTarget(initialResolution, normalizedReplacementFilePath);
@@ -459,7 +503,8 @@ public class WorkflowService : IWorkflowService
             postReplacementImpact,
             persistenceVerified,
             persistenceVerified ? "completed" : "persistence_verification_failed",
-            persistenceVerified ? null : "The parent assembly reopened successfully, but the target still did not resolve to the replacement file.");
+            persistenceVerified ? null : "The parent assembly reopened successfully, but the target still did not resolve to the replacement file.",
+            compatibilityAdvisory);
     }
 
     private bool IsActiveDocument(string expectedPath)
@@ -475,7 +520,8 @@ public class WorkflowService : IWorkflowService
         AssemblyTargetResolutionResult firstTargetResolution,
         AssemblyTargetResolutionResult secondTargetResolution,
         string status,
-        string failureReason)
+        string failureReason,
+        CompatibilityAdvisory? compatibilityAdvisory)
     {
         return new TargetedStaticInterferenceReviewResult(
             RequestedHierarchyPaths: new[] { firstHierarchyPath, secondHierarchyPath },
@@ -488,7 +534,8 @@ public class WorkflowService : IWorkflowService
             ScopeEvaluatedAsRequested: false,
             HasInterference: false,
             Status: status,
-            FailureReason: failureReason);
+            FailureReason: failureReason,
+            CompatibilityAdvisory: compatibilityAdvisory);
     }
 
     private AssemblyTargetResolutionResult ResolvePersistedTarget(
@@ -563,7 +610,8 @@ public class WorkflowService : IWorkflowService
         SwSaveResult? saveResult = null,
         bool parentAssemblyReloaded = false,
         AssemblyTargetResolutionResult? persistenceResolution = null,
-        SharedPartEditImpactResult? postReplacementImpactAnalysis = null)
+        SharedPartEditImpactResult? postReplacementImpactAnalysis = null,
+        CompatibilityAdvisory? compatibilityAdvisory = null)
     {
         return new NestedComponentReplacementWorkflowResult(
             initialResolution,
@@ -581,7 +629,8 @@ public class WorkflowService : IWorkflowService
             postReplacementImpactAnalysis,
             false,
             status,
-            failureReason);
+            failureReason,
+            compatibilityAdvisory);
     }
 
     private SaveHealthInfo EvaluateSaveHealth(SwDocumentInfo activeDocument, bool saveDocument)
@@ -651,7 +700,8 @@ public class WorkflowService : IWorkflowService
         FeatureDiagnosticsResult? featureDiagnosticsAfterRebuild,
         SaveHealthInfo saveHealth,
         string status,
-        string failureReason)
+        string failureReason,
+        CompatibilityAdvisory? compatibilityAdvisory)
     {
         return new ActiveDocumentHealthDiagnosticsResult(
             ActiveDocument: activeDocument,
@@ -664,7 +714,47 @@ public class WorkflowService : IWorkflowService
             HasWarnings: false,
             ReadyForVerificationGate: false,
             Status: status,
-            FailureReason: failureReason);
+            FailureReason: failureReason,
+            CompatibilityAdvisory: compatibilityAdvisory);
+    }
+
+    private CompatibilityAdvisory? TryGetCompatibilityAdvisory()
+    {
+        if (_connectionManager == null)
+        {
+            return null;
+        }
+
+        try
+        {
+            var compatibility = _connectionManager.GetCompatibilityInfo();
+            if (string.Equals(compatibility.CompatibilityState, "certified-baseline", StringComparison.OrdinalIgnoreCase))
+            {
+                return null;
+            }
+
+            return CreateCompatibilityAdvisory(compatibility);
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    private static CompatibilityAdvisory CreateCompatibilityAdvisory(SolidWorksCompatibilityInfo compatibility)
+    {
+        string advisoryLevel = string.Equals(compatibility.CompatibilityState, "planned-next-version", StringComparison.OrdinalIgnoreCase)
+            ? "info"
+            : "warning";
+
+        return new CompatibilityAdvisory(
+            compatibility.CompatibilityState,
+            advisoryLevel,
+            compatibility.Summary,
+            compatibility.RuntimeVersion.RevisionNumber,
+            compatibility.RuntimeVersion.MarketingYear,
+            compatibility.License.Name,
+            compatibility.Notices);
     }
 
     private static RebuildExecutionResult CreateNoOpRebuildResult(bool topOnly)

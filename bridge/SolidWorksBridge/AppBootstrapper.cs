@@ -855,7 +855,7 @@ public class AppBootstrapper
         var sketchService = new SketchService(connectionManager);
         var featureService = new FeatureService(connectionManager);
         var assemblyService = new AssemblyService(connectionManager);
-        var workflowService = new WorkflowService(documentService, assemblyService, selectionService);
+        var workflowService = new WorkflowService(documentService, assemblyService, selectionService, connectionManager);
         var messageHandler = new MessageHandler();
 
         return new AppBootstrapper(
