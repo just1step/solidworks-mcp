@@ -108,6 +108,13 @@ public class WorkflowServiceTests
             notices.Length == 0 ? new[] { "Compatibility notice." } : notices);
     }
 
+    private static string TempFilePath(string fileName)
+    {
+        var dir = Path.Combine(Path.GetTempPath(), "solidworks-mcp-tests");
+        Directory.CreateDirectory(dir);
+        return Path.Combine(dir, fileName);
+    }
+
     [Fact]
     public void ReviewTargetedStaticInterference_WhenSecondTargetIsMissing_ReturnsFailureWithoutRunningCheck()
     {
@@ -271,8 +278,7 @@ public class WorkflowServiceTests
     [Fact]
     public void ReplaceNestedComponentAndVerifyPersistence_WhenTargetIsAmbiguous_ReturnsFailureWithoutMutation()
     {
-        const string replacementFilePath = @"D:\Temp\NewPulley.sldprt";
-        Directory.CreateDirectory(Path.GetDirectoryName(replacementFilePath)!);
+        var replacementFilePath = TempFilePath("NewPulley.sldprt");
         File.WriteAllText(replacementFilePath, "placeholder");
 
         var documents = new Mock<IDocumentService>();
@@ -318,8 +324,7 @@ public class WorkflowServiceTests
     [Fact]
     public void ReplaceNestedComponentAndVerifyPersistence_OnUnsupportedNewerVersion_BlocksBeforeMutation()
     {
-        const string replacementFilePath = @"D:\Temp\BlockedPulley.sldprt";
-        Directory.CreateDirectory(Path.GetDirectoryName(replacementFilePath)!);
+        var replacementFilePath = TempFilePath("BlockedPulley.sldprt");
         File.WriteAllText(replacementFilePath, "placeholder");
 
         var documents = new Mock<IDocumentService>();
@@ -504,8 +509,7 @@ public class WorkflowServiceTests
     [Fact]
     public void ReplaceNestedComponentAndVerifyPersistence_WhenTargetIsTopLevel_ReturnsFailureWithoutMutation()
     {
-        const string replacementFilePath = @"D:\Temp\BracketNew.sldprt";
-        Directory.CreateDirectory(Path.GetDirectoryName(replacementFilePath)!);
+        var replacementFilePath = TempFilePath("BracketNew.sldprt");
         File.WriteAllText(replacementFilePath, "placeholder");
 
         var documents = new Mock<IDocumentService>();
@@ -537,8 +541,7 @@ public class WorkflowServiceTests
     [Fact]
     public void ReplaceNestedComponentAndVerifyPersistence_CompletesAndVerifiesPersistence()
     {
-        const string replacementFilePath = @"D:\Temp\ReplacementPulley.sldprt";
-        Directory.CreateDirectory(Path.GetDirectoryName(replacementFilePath)!);
+        var replacementFilePath = TempFilePath("ReplacementPulley.sldprt");
         File.WriteAllText(replacementFilePath, "placeholder");
 
         var documents = new Mock<IDocumentService>();

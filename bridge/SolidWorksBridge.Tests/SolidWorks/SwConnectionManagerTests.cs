@@ -280,7 +280,7 @@ public class SwConnectionManagerTests
 
         Assert.Equal("planned-next-version", result.CompatibilityState);
         Assert.NotNull(result.ConnectionVersionCheck);
-        Assert.Equal("under-development-2025-and-newer", result.ConnectionVersionCheck!.Status);
+        Assert.Equal("targeted-2025", result.ConnectionVersionCheck!.Status);
         Assert.False(result.ConnectionVersionCheck.IsSupportedBaseline);
         Assert.Equal(33, result.RuntimeVersion.RevisionMajor);
         Assert.Equal(2025, result.RuntimeVersion.MarketingYear);
@@ -305,7 +305,7 @@ public class SwConnectionManagerTests
 
         Assert.Equal("unsupported-newer-version", result.CompatibilityState);
         Assert.NotNull(result.ConnectionVersionCheck);
-        Assert.Equal("under-development-2025-and-newer", result.ConnectionVersionCheck!.Status);
+        Assert.Equal("experimental-2026", result.ConnectionVersionCheck!.Status);
         Assert.Equal(34, result.RuntimeVersion.RevisionMajor);
         Assert.Equal(2026, result.RuntimeVersion.MarketingYear);
         Assert.Equal("experimental", result.RuntimeSupport.ProductSupportLevel);

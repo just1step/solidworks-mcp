@@ -640,7 +640,10 @@ public class SldWorksAppWrapper : ISldWorksApp
             SwDocType.Drawing => 10,
             _ => throw new ArgumentOutOfRangeException(nameof(docType))
         };
-        return _swApp.GetUserPreferenceStringValue(prefId);
+        return SolidWorksTemplateLocator.ResolveDefaultTemplatePath(
+            _swApp.GetUserPreferenceStringValue(prefId),
+            docType,
+            _swApp.GetExecutablePath());
     }
 
     // ── Helpers ───────────────────────────────────────────────────
@@ -840,7 +843,7 @@ public class SwConnectionManager : ISwConnectionManager
             InteropMarketingYear,
             runtimeVersion,
             compatibilityState);
-        var connectionVersionCheck = CreateConnectionVersionCheck(runtimeVersion, compatibilityState);
+        var connectionVersionCheck = CreateConnectionVersionCheck(runtimeVersion, runtimeSupport);
         notices.Add(connectionVersionCheck.Message);
 
         return new SolidWorksCompatibilityInfo(
@@ -897,38 +900,76 @@ public class SwConnectionManager : ISwConnectionManager
 
     private static SolidWorksConnectionVersionCheck CreateConnectionVersionCheck(
         SolidWorksRuntimeVersionInfo runtimeVersion,
-        string compatibilityState)
+        SolidWorksVersionSupportInfo runtimeSupport)
     {
-        if (runtimeVersion.MarketingYear == 2024)
+        int? runtimeYear = runtimeVersion.MarketingYear;
+        int? baselineYear = InteropMarketingYear;
+        int? targetedYear = baselineYear.HasValue ? baselineYear.Value + 1 : null;
+        int? experimentalYear = baselineYear.HasValue ? baselineYear.Value + 2 : null;
+
+        if (string.Equals(runtimeSupport.ProductSupportLevel, "certified", StringComparison.OrdinalIgnoreCase)
+            && runtimeYear.HasValue)
         {
             return new SolidWorksConnectionVersionCheck(
-                "supported-2024-baseline",
-                "Only SolidWorks 2024 is fully supported for MCP connection in this bridge build.",
+                $"supported-{runtimeYear.Value}-baseline",
+                $"SolidWorks {runtimeYear.Value} is the certified interop baseline for MCP connection in this bridge build.",
                 true);
         }
 
-        if (runtimeVersion.MarketingYear.HasValue && runtimeVersion.MarketingYear.Value < 2024)
+        if (string.Equals(runtimeSupport.ProductSupportLevel, "targeted", StringComparison.OrdinalIgnoreCase)
+            && runtimeYear.HasValue)
         {
             return new SolidWorksConnectionVersionCheck(
-                "unsupported-before-2024",
-                "SolidWorks versions earlier than 2024 are not supported for MCP connection in this bridge build.",
+                $"targeted-{runtimeYear.Value}",
+                $"SolidWorks {runtimeYear.Value} is inside the targeted certification window for this bridge build. Connection and active workflow validation are supported, but this version is not the certified baseline yet.",
                 false);
         }
 
-        if (runtimeVersion.MarketingYear.HasValue && runtimeVersion.MarketingYear.Value > 2024)
+        if (string.Equals(runtimeSupport.ProductSupportLevel, "experimental", StringComparison.OrdinalIgnoreCase)
+            && runtimeYear.HasValue)
         {
             return new SolidWorksConnectionVersionCheck(
-                "under-development-2025-and-newer",
-                "SolidWorks 2025 and newer can be connected for development, but support is still under active development in this bridge build.",
+                $"experimental-{runtimeYear.Value}",
+                $"SolidWorks {runtimeYear.Value} is inside the experimental discovery window for this bridge build. Use connection and read-only workflows for evidence gathering; high-risk mutation workflows remain blocked.",
+                false);
+        }
+
+        if (string.Equals(runtimeSupport.ProductSupportLevel, "unsupported", StringComparison.OrdinalIgnoreCase)
+            && runtimeYear.HasValue
+            && baselineYear.HasValue
+            && runtimeYear.Value < baselineYear.Value)
+        {
+            return new SolidWorksConnectionVersionCheck(
+                $"unsupported-before-{baselineYear.Value}",
+                $"SolidWorks versions earlier than {baselineYear.Value} are not supported for MCP connection in this bridge build.",
+                false);
+        }
+
+        if (string.Equals(runtimeSupport.ProductSupportLevel, "unsupported", StringComparison.OrdinalIgnoreCase)
+            && runtimeYear.HasValue
+            && experimentalYear.HasValue
+            && runtimeYear.Value > experimentalYear.Value)
+        {
+            return new SolidWorksConnectionVersionCheck(
+                $"unsupported-after-{experimentalYear.Value}",
+                $"SolidWorks {runtimeYear.Value} is newer than the current experimental discovery window for this bridge build. Update the support matrix before treating it as a supported connection target.",
                 false);
         }
 
         return new SolidWorksConnectionVersionCheck(
-            string.Equals(compatibilityState, "certified-baseline", StringComparison.OrdinalIgnoreCase)
-                ? "supported-2024-baseline"
-                : "unknown-version",
-            "The running SolidWorks version could not be classified precisely. Only SolidWorks 2024 is fully supported; versions earlier than 2024 are unsupported; 2025 and newer are still under development.",
-            string.Equals(compatibilityState, "certified-baseline", StringComparison.OrdinalIgnoreCase));
+            "unknown-version",
+            CreateUnknownConnectionVersionMessage(baselineYear, targetedYear, experimentalYear),
+            false);
+    }
+
+    private static string CreateUnknownConnectionVersionMessage(int? baselineYear, int? targetedYear, int? experimentalYear)
+    {
+        if (baselineYear.HasValue && targetedYear.HasValue && experimentalYear.HasValue)
+        {
+            return $"The running SolidWorks version could not be classified precisely. SolidWorks {baselineYear.Value} is the certified baseline, {targetedYear.Value} is the targeted next version, and {experimentalYear.Value} is the experimental discovery window for this bridge build.";
+        }
+
+        return "The running SolidWorks version could not be classified precisely, so this bridge cannot determine whether the current connection is baseline, targeted, experimental, or unsupported.";
     }
 
     private static SolidWorksRuntimeVersionInfo CreateRuntimeVersionInfo(ISldWorksApp swApp)

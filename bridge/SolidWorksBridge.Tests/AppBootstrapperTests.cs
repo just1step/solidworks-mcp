@@ -87,29 +87,64 @@ public class AppBootstrapperTests
         new(new SwDocumentInfo(path, Path.GetFileNameWithoutExtension(path), type),
             new SwApiDiagnostics(0, Array.Empty<SwCodeInfo>(), 0, Array.Empty<SwCodeInfo>()));
 
-    private static SolidWorksCompatibilityInfo CompatibilityInfo(string state = "certified-baseline") =>
-        new(
-            state,
-            "compatibility summary",
-            "32.1.0",
-            32,
-            2024,
-            new SolidWorksRuntimeVersionInfo(
+    private static SolidWorksCompatibilityInfo CompatibilityInfo(string state = "certified-baseline")
+    {
+        var runtime = state switch
+        {
+            "planned-next-version" => new SolidWorksRuntimeVersionInfo(
+                "33.0.0",
+                33,
+                0,
+                0,
+                2025,
+                new SwBuildNumbers("33", "33.0.0", string.Empty),
+                @"C:\Program Files\SOLIDWORKS Corp\SOLIDWORKS\sldworks.exe"),
+            "unsupported-older-version" => new SolidWorksRuntimeVersionInfo(
+                "31.0.0",
+                31,
+                0,
+                0,
+                2023,
+                new SwBuildNumbers("31", "31.0.0", string.Empty),
+                @"C:\Program Files\SOLIDWORKS Corp\SOLIDWORKS\sldworks.exe"),
+            "unsupported-newer-version" => new SolidWorksRuntimeVersionInfo(
+                "35.0.0",
+                35,
+                0,
+                0,
+                2027,
+                new SwBuildNumbers("35", "35.0.0", string.Empty),
+                @"C:\Program Files\SOLIDWORKS Corp\SOLIDWORKS\sldworks.exe"),
+            _ => new SolidWorksRuntimeVersionInfo(
                 "32.0.0",
                 32,
                 0,
                 0,
                 2024,
                 new SwBuildNumbers("32", "32.0.0", string.Empty),
-                @"C:\Program Files\SOLIDWORKS Corp\SOLIDWORKS\sldworks.exe"),
+                @"C:\Program Files\SOLIDWORKS Corp\SOLIDWORKS\sldworks.exe")
+        };
+
+        var connectionVersionCheck = state switch
+        {
+            "certified-baseline" => new SolidWorksConnectionVersionCheck("supported-2024-baseline", "SolidWorks 2024 is the certified interop baseline for MCP connection in this bridge build.", true),
+            "planned-next-version" => new SolidWorksConnectionVersionCheck("targeted-2025", "SolidWorks 2025 is inside the targeted certification window for this bridge build. Connection and active workflow validation are supported, but this version is not the certified baseline yet.", false),
+            "unsupported-older-version" => new SolidWorksConnectionVersionCheck("unsupported-before-2024", "SolidWorks versions earlier than 2024 are not supported for MCP connection in this bridge build.", false),
+            "unsupported-newer-version" => new SolidWorksConnectionVersionCheck("unsupported-after-2026", "SolidWorks 2027 is newer than the current experimental discovery window for this bridge build. Update the support matrix before treating it as a supported connection target.", false),
+            _ => new SolidWorksConnectionVersionCheck("unknown-version", "The running SolidWorks version could not be classified precisely. SolidWorks 2024 is the certified baseline, 2025 is the targeted next version, and 2026 is the experimental discovery window for this bridge build.", false),
+        };
+
+        return new SolidWorksCompatibilityInfo(
+            state,
+            "compatibility summary",
+            "32.1.0",
+            32,
+            2024,
+            runtime,
             new SolidWorksLicenseInfo(0, "swLicenseType_Full", "Full SolidWorks license."),
             new[] { "notice" },
-            ConnectionVersionCheck: state switch
-            {
-                "certified-baseline" => new SolidWorksConnectionVersionCheck("supported-2024-baseline", "Only SolidWorks 2024 is fully supported for MCP connection in this bridge build.", true),
-                "unsupported-older-version" => new SolidWorksConnectionVersionCheck("unsupported-before-2024", "SolidWorks versions earlier than 2024 are not supported for MCP connection in this bridge build.", false),
-                _ => new SolidWorksConnectionVersionCheck("under-development-2025-and-newer", "SolidWorks 2025 and newer can be connected for development, but support is still under active development in this bridge build.", false),
-            });
+            ConnectionVersionCheck: connectionVersionCheck);
+    }
 
     // ─────────────────────────────────────────────────────────────
     // Registration
@@ -191,7 +226,7 @@ public class AppBootstrapperTests
         Assert.Contains("\"connectionSource\":\"running-process\"", json);
         Assert.Contains("\"compatibilityState\":\"planned-next-version\"", json);
         Assert.Contains("\"connectionVersionCheck\"", json);
-        Assert.Contains("\"status\":\"under-development-2025-and-newer\"", json);
+        Assert.Contains("\"status\":\"targeted-2025\"", json);
         Assert.Contains("\"compatibilityAdvisory\"", json);
     }
 
