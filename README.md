@@ -198,6 +198,20 @@ For real SolidWorks coverage, run the integration lane on a SolidWorks-capable m
 dotnet test bridge/SolidWorksBridge.sln --configuration Release --filter "Category=Integration" --logger "console;verbosity=detailed"
 ```
 
+The integration lane now exercises the supported runtime path instead of calling bridge services directly:
+
+- the test process launches `SolidWorksMcpApp.exe --proxy`;
+- the Proxy connects to the tray-based Hub through the local named pipe;
+- the Hub executes MCP tools against the shared SolidWorks session.
+
+For a ready-made local entrypoint, use:
+
+```powershell
+scripts/test-integration.bat
+```
+
+If a tray-based `SolidWorksMcpApp` hub is already running from an older build, close and restart it after rebuilding so the latest MCP tool surface is available to the integration harness.
+
 That integration lane is the current cross-version smoke suite. It is split into three areas so compatibility failures localize quickly:
 
 - compatibility and document surface

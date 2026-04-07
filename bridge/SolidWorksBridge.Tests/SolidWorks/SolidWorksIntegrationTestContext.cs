@@ -1,39 +1,38 @@
-using SolidWorks.Interop.sldworks;
 using SolidWorksBridge.SolidWorks;
 
 namespace SolidWorksBridge.Tests.SolidWorks;
 
 internal sealed class SolidWorksIntegrationTestContext : IDisposable
 {
-    private readonly SwConnectionManager _manager;
+    private readonly SolidWorksMcpHubTestClient _hubClient;
     private readonly Dictionary<(string Path, string Title, int Type), int> _baselineDocuments;
 
-    public DocumentService Documents { get; }
-    public SelectionService Selection { get; }
-    public SketchService Sketch { get; }
-    public FeatureService Feature { get; }
-    public AssemblyService Assembly { get; }
-    public SwConnectionManager ConnectionManager => _manager;
-    public ISldWorksApp App => _manager.SwApp!;
+    public IDocumentService Documents { get; }
+    public ISelectionService Selection { get; }
+    public ISketchService Sketch { get; }
+    public IFeatureService Feature { get; }
+    public IAssemblyService Assembly { get; }
+    public ISwConnectionManager ConnectionManager { get; }
 
     public SolidWorksIntegrationTestContext()
     {
-        _manager = new SwConnectionManager(new SwComConnector());
-        _manager.Connect();
+        _hubClient = SolidWorksMcpHubTestClient.Create();
 
-        Documents = new DocumentService(_manager);
-        Selection = new SelectionService(_manager);
-        Sketch = new SketchService(_manager);
-        Feature = new FeatureService(_manager);
-        Assembly = new AssemblyService(_manager);
+        ConnectionManager = new McpSwConnectionManager(_hubClient);
+        Documents = new McpDocumentService(_hubClient);
+        Selection = new McpSelectionService(_hubClient);
+        Sketch = new McpSketchService(_hubClient);
+        Feature = new McpFeatureService(_hubClient);
+        Assembly = new McpAssemblyService(_hubClient);
 
+        ConnectionManager.Connect();
         _baselineDocuments = CaptureDocumentCounts(Documents.ListDocuments());
     }
 
     public void Dispose()
     {
         CleanupCreatedDocuments();
-        _manager.Disconnect();
+        _hubClient.Dispose();
     }
 
     public void CleanupCreatedDocuments()
@@ -57,7 +56,7 @@ internal sealed class SolidWorksIntegrationTestContext : IDisposable
             }
             catch
             {
-                // Best-effort cleanup for real SolidWorks integration tests.
+                // Best-effort cleanup against a real shared SolidWorks hub session.
             }
         }
     }
@@ -77,15 +76,30 @@ internal sealed class SolidWorksIntegrationTestContext : IDisposable
     public string CreateAndSaveBoxPart(double width = 0.01, double height = 0.01, double depth = 0.005)
     {
         Documents.NewDocument(SwDocType.Part);
-        Selection.SelectByName("前视基准面", "PLANE");
+
+        var frontPlane = Selection.ListReferencePlanes()
+            .OrderBy(plane => plane.Index)
+            .FirstOrDefault()
+            ?? throw new InvalidOperationException("No reference plane was available for the test part.");
+
+        var selected = Selection.SelectByName(frontPlane.SelectionName, frontPlane.SelectionType);
+        if (!selected.Success)
+        {
+            throw new InvalidOperationException(selected.Message);
+        }
+
         Sketch.InsertSketch();
         Sketch.AddRectangle(-width, -height, width, height);
         Feature.Extrude(depth);
 
         string path = Path.Combine(Path.GetTempPath(), $"SwTestPart_{Guid.NewGuid():N}.sldprt");
-        var model = (IModelDoc2)App.IActiveDoc2!;
-        model.SaveAs3(path, 0, 0);
-        return path;
+        var save = Documents.SaveDocumentAs(path, sourcePath: null, saveAsCopy: false);
+        if (!File.Exists(path))
+        {
+            throw new InvalidOperationException($"Failed to save the test part to '{path}'.");
+        }
+
+        return save.OutputPath;
     }
 
     public string CreateAndSavePlaneAlignedBlockPart(double width = 0.01, double height = 0.01, double depth = 0.005)
@@ -102,16 +116,16 @@ internal sealed class SolidWorksIntegrationTestContext : IDisposable
             ? extension
             : $".{extension}";
 
-        var model = (IModelDoc2?)App.IActiveDoc2
+        var activeDocument = Documents.GetActiveDocument()
             ?? throw new InvalidOperationException("No active document to save.");
 
         string path = Path.Combine(Path.GetTempPath(), $"SwTestDoc_{Guid.NewGuid():N}{normalizedExtension}");
-        _ = model.SaveAs3(path, 0, 0);
+        var save = Documents.SaveDocumentAs(path, activeDocument.Path, saveAsCopy: false);
         if (!File.Exists(path))
         {
             throw new InvalidOperationException($"Failed to save active document to '{path}'.");
         }
 
-        return path;
+        return save.OutputPath;
     }
 }

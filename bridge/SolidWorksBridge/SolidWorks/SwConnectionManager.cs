@@ -245,12 +245,7 @@ public class SwComConnector : ISwComConnector
     public ISldWorksApp CreateNewInstance()
     {
         LastResolvedProgId = null;
-
-        if (HasRunningProcess())
-        {
-            throw new InvalidOperationException(
-                "Detected a running SolidWorks process but could not attach to it via COM. Refusing to launch another SolidWorks instance.");
-        }
+        bool runningProcessDetected = HasRunningProcess();
 
         List<string> errors = [];
 
@@ -282,6 +277,13 @@ public class SwComConnector : ISwComConnector
         if (errors.Count == 0)
         {
             throw new InvalidOperationException("SolidWorks is not installed or not registered");
+        }
+
+        if (runningProcessDetected)
+        {
+            throw new InvalidOperationException(
+                "Detected a running SolidWorks process but could not reuse it through either ROT lookup or COM activation. " +
+                string.Join(" ; ", errors));
         }
 
         throw new InvalidOperationException(
@@ -789,14 +791,18 @@ public class SwConnectionManager : ISwConnectionManager
 
         try
         {
-            // If no process is alive, launch the newest registered version first.
+            // If ROT lookup failed, fall back to COM activation. On some machines
+            // the version-specific ProgID still reuses the running SolidWorks session
+            // even when the ROT lookup does not resolve successfully.
             _swApp = _connector.CreateNewInstance();
             _swApp.Visible = true;
             LastConnectionAttempt = new SolidWorksConnectionAttemptInfo(
-                "new-instance",
+                runningProcessDetected ? "running-process-activation" : "new-instance",
                 runningProcessDetected,
                 _connector.LastResolvedProgId,
-                "Launched a new SolidWorks instance from the newest registered COM ProgID.");
+                runningProcessDetected
+                    ? "Attached to the running SolidWorks process via version-specific COM activation after ROT lookup failed."
+                    : "Launched a new SolidWorks instance from the newest registered COM ProgID.");
         }
         catch
         {

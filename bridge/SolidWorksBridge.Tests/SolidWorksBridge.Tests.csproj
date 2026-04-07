@@ -12,6 +12,7 @@
   <ItemGroup>
     <PackageReference Include="coverlet.collector" Version="6.0.0" />
     <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.8.0" />
+    <PackageReference Include="ModelContextProtocol" Version="1.2.0" />
     <PackageReference Include="Moq" Version="4.20.72" />
     <PackageReference Include="SolidWorks.Interop.sldworks" Version="32.1.0" />
     <PackageReference Include="SolidWorks.Interop.swconst" Version="32.1.0" />
@@ -25,7 +26,16 @@
 
   <ItemGroup>
     <ProjectReference Include="..\SolidWorksBridge\SolidWorksBridge.csproj" />
-    <ProjectReference Include="..\..\app\SolidWorksMcpApp\SolidWorksMcpApp.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Compile Include="..\..\app\SolidWorksMcpApp\ServerState.cs" Link="AppShared\ServerState.cs" />
+    <Compile Include="..\..\app\SolidWorksMcpApp\Sta\StaDispatcher.cs" Link="AppShared\Sta\StaDispatcher.cs" />
+    <Compile Include="..\..\app\SolidWorksMcpApp\Logging\ConnectionLoggingSwConnectionManager.cs" Link="AppShared\Logging\ConnectionLoggingSwConnectionManager.cs" />
+    <Compile Include="..\..\app\SolidWorksMcpApp\Logging\ServerFileLog.cs" Link="AppShared\Logging\ServerFileLog.cs" />
+    <Compile Include="..\..\app\SolidWorksMcpApp\Logging\ServerLogBuffer.cs" Link="AppShared\Logging\ServerLogBuffer.cs" />
+    <Compile Include="..\..\app\SolidWorksMcpApp\Logging\ServerLogWorkflowStageLogger.cs" Link="AppShared\Logging\ServerLogWorkflowStageLogger.cs" />
+    <Compile Include="..\..\app\SolidWorksMcpApp\Tools\WorkflowTools.cs" Link="AppShared\Tools\WorkflowTools.cs" />
   </ItemGroup>
 
 </Project>

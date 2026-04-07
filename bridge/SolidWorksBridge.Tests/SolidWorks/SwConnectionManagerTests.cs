@@ -85,6 +85,30 @@ public class SwConnectionManagerTests
     }
 
     [Fact]
+    public void Connect_WhenRunningProcessExistsButRotLookupFails_UsesVersionSpecificActivation()
+    {
+        var mockApp = new Mock<ISldWorksApp>();
+        mockApp.Setup(a => a.GetDocumentCount()).Returns(0);
+        var connector = new Mock<ISwComConnector>();
+        connector.Setup(c => c.HasRunningProcess()).Returns(true);
+        connector.SetupGet(c => c.LastResolvedProgId).Returns("SldWorks.Application.32");
+        connector.Setup(c => c.GetActiveInstance()).Returns((ISldWorksApp?)null);
+        connector.Setup(c => c.CreateNewInstance()).Returns(mockApp.Object);
+
+        var manager = new SwConnectionManager(connector.Object);
+        manager.Connect();
+
+        Assert.True(manager.IsConnected);
+        Assert.Same(mockApp.Object, manager.SwApp);
+        Assert.NotNull(manager.LastConnectionAttempt);
+        Assert.Equal("running-process-activation", manager.LastConnectionAttempt!.ConnectionSource);
+        Assert.True(manager.LastConnectionAttempt.RunningProcessDetected);
+        Assert.Contains("version-specific COM activation", manager.LastConnectionAttempt.Summary, StringComparison.OrdinalIgnoreCase);
+        mockApp.VerifySet(a => a.Visible = true, Times.Once);
+        connector.Verify(c => c.CreateNewInstance(), Times.Once);
+    }
+
+    [Fact]
     public void Connect_AlreadyConnected_DoesNotReconnect()
     {
         var mockApp = new Mock<ISldWorksApp>();

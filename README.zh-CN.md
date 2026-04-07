@@ -177,6 +177,26 @@ dotnet test SolidWorksBridge.sln
 dotnet test bridge/SolidWorksBridge.sln --configuration Release --filter "Category!=Integration"
 ```
 
+若要在真实 SolidWorks 环境中运行集成测试，请使用：
+
+```powershell
+dotnet test bridge/SolidWorksBridge.sln --configuration Release --filter "Category=Integration" --logger "console;verbosity=detailed"
+```
+
+这条集成测试链路现在走的是正式运行路径，而不是直接调用 bridge service：
+
+- 测试进程会拉起 `SolidWorksMcpApp.exe --proxy`；
+- Proxy 通过本地 Named Pipe 回连托盘 Hub；
+- Hub 再通过 MCP tool 调用去驱动共享的 SolidWorks 会话。
+
+本地直接执行时，优先使用：
+
+```powershell
+scripts/test-integration.bat
+```
+
+如果你在重建前已经启动过托盘版 `SolidWorksMcpApp` hub，请先关闭并重新启动它，再运行集成测试，这样测试代理才能拿到最新的 MCP 工具集合。
+
 ### 本地打包
 
 生成单文件 Windows 包：

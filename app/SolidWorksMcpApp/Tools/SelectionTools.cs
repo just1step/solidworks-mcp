@@ -50,6 +50,20 @@ public class SelectionTools(StaDispatcher sta, ISelectionService selection)
         return JsonSerializer.Serialize(list);
     }
 
+    [McpServerTool, Description("List reference planes from the active document feature tree. The returned names are localized to the current SolidWorks language.")]
+    public async Task<string> ListReferencePlanes()
+    {
+        var planes = await sta.InvokeLoggedAsync(nameof(ListReferencePlanes), null, selection.ListReferencePlanes);
+        return JsonSerializer.Serialize(planes);
+    }
+
+    [McpServerTool, Description("Get the current SolidWorks UI language plus the active document's localized reference plane snapshot.")]
+    public async Task<string> GetSolidWorksContext()
+    {
+        var context = await sta.InvokeLoggedAsync(nameof(GetSolidWorksContext), null, selection.GetSolidWorksContext);
+        return JsonSerializer.Serialize(context);
+    }
+
     [McpServerTool, Description("Select a topology entity by index (from ListEntities). Needed before sketch or feature operations on a face.")]
     public async Task<string> SelectEntity(
         [Description("Entity type: Face, Edge, or Vertex")] string entityType,

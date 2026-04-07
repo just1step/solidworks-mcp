@@ -42,6 +42,21 @@ public class DocumentTools(StaDispatcher sta, IDocumentService docs)
         return JsonSerializer.Serialize(result);
     }
 
+    [McpServerTool, Description("Read the active SolidWorks document's native rebuild state.")]
+    public async Task<string> GetActiveDocumentRebuildState()
+    {
+        var result = await sta.InvokeLoggedAsync(nameof(GetActiveDocumentRebuildState), null, docs.GetActiveDocumentRebuildState);
+        return JsonSerializer.Serialize(result);
+    }
+
+    [McpServerTool, Description("Force a rebuild of the active SolidWorks document and return the before/after rebuild state.")]
+    public async Task<string> ForceRebuildActiveDocument(
+        [Description("For assemblies, true rebuilds only the top-level assembly; false includes subassemblies.")] bool topOnly = false)
+    {
+        var result = await sta.InvokeLoggedAsync(nameof(ForceRebuildActiveDocument), new { topOnly }, () => docs.ForceRebuildActiveDocument(topOnly));
+        return JsonSerializer.Serialize(result);
+    }
+
     [McpServerTool, Description("Save or export a SolidWorks document to a new file path. The output format is inferred from the extension, so this supports native SolidWorks formats and common exports like STEP or STL. When sourcePath is omitted, the active document is used.")]
     public async Task<string> SaveDocumentAs(
         [Description("Output file path. Extension determines the saved/exported format.")] string outputPath,
