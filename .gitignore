@@ -26,3 +26,6 @@ artifacts/
 
 # Local product discovery workspace
 product/
+
+# Local Copilot memory files
+.github/memory/

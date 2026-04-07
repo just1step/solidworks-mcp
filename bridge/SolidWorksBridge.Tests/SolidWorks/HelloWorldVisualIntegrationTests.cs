@@ -141,6 +141,28 @@ public class HelloWorldVisualIntegrationTests : IDisposable
             : "warning";
     }
 
+    private (SolidWorksCompatibilityInfo Compatibility, CrossVersionSmokeExpectation Expectation) GetSmokeContext()
+    {
+        var compatibility = _ctx.ConnectionManager.GetCompatibilityInfo();
+        CrossVersionSmokeSuite.AssertRuntimeClassificationIsConsistent(compatibility);
+        var expectation = CrossVersionSmokeSuite.DescribeRuntime(compatibility);
+        return (compatibility, expectation);
+    }
+
+    private string WriteSmokeReport(
+        string outputDirectory,
+        string fileName,
+        SolidWorksCompatibilityInfo compatibility,
+        CrossVersionSmokeExpectation expectation,
+        params CrossVersionSmokeAreaReport[] areas)
+    {
+        string reportPath = GetArtifactPath(outputDirectory, fileName);
+        var report = CrossVersionSmokeSuite.CreateReport(compatibility, expectation, areas);
+        CrossVersionSmokeSuite.WriteReport(reportPath, report);
+        Assert.True(File.Exists(reportPath), $"Expected smoke report to exist: {reportPath}");
+        return reportPath;
+    }
+
     private void AssertCompatibilityAdvisoryMatchesRuntime(CompatibilityAdvisory? advisory)
     {
         var compatibility = _ctx.ConnectionManager.GetCompatibilityInfo();
@@ -453,7 +475,9 @@ public class HelloWorldVisualIntegrationTests : IDisposable
         var first = _ctx.Assembly.InsertComponent(reusableVerticalPartPath, 0, 0, 0);
         var second = _ctx.Assembly.InsertComponent(reusableVerticalPartPath, 0, 0, 0);
         var components = _ctx.Assembly.ListComponents();
+        var recursiveComponents = _ctx.Assembly.ListComponentsRecursive();
         Assert.Equal(2, components.Count);
+        Assert.Equal(2, recursiveComponents.Count);
         Assert.NotEqual(first.Name, second.Name);
 
         var workflow = new WorkflowService(_ctx.Documents, _ctx.Assembly, null, _ctx.ConnectionManager);
@@ -629,23 +653,222 @@ public class HelloWorldVisualIntegrationTests : IDisposable
 
     [Fact]
     [Trait("Category", "Integration")]
-    public void Integration_HelloWorldEngineeringWorkflow_ExercisesCoreCapabilities()
+    public void Integration_CrossVersionSmokeSuite_ExercisesCompatibilityAndDocumentSurface()
     {
-        string outputDirectory = GetArtifactDirectory("hello-world-engineering-workflow");
+        string outputDirectory = GetArtifactDirectory("cross-version-smoke-document-surface");
+        var (compatibility, expectation) = GetSmokeContext();
+
+        if (!expectation.ShouldRunDirectMutationSmoke)
+        {
+            var currentOpenDocuments = _ctx.Documents.ListDocuments();
+            var currentActiveDocument = _ctx.Documents.GetActiveDocument();
+
+            string blockedReportPath = WriteSmokeReport(
+                outputDirectory,
+                "cross-version-smoke-document-surface.json",
+                compatibility,
+                expectation,
+                new CrossVersionSmokeAreaReport(
+                    "compatibility-and-document-surface",
+                    "blocked-by-runtime-policy",
+                    "Validated runtime compatibility metadata and current document visibility, then skipped live sketch/export construction because this runtime is outside the direct-mutation smoke window.",
+                    new[]
+                    {
+                        "GetSolidWorksCompatibility",
+                        "ListDocuments",
+                        "GetActiveDocument",
+                    },
+                    currentActiveDocument is null
+                        ? Array.Empty<string>()
+                        : new[] { currentActiveDocument.Path ?? currentActiveDocument.Title }));
+
+            Assert.NotNull(currentOpenDocuments);
+            Assert.True(File.Exists(blockedReportPath));
+            return;
+        }
+
+        Assert.True(_ctx.Selection.ListReferencePlanes().Count >= 3, "Expected default reference planes to be discoverable for smoke coverage.");
 
         string sketchSheetPath = CreateSketchCapabilitySheet(outputDirectory);
         Assert.True(File.Exists(sketchSheetPath));
 
+        _ctx.Documents.OpenDocument(sketchSheetPath);
+        var activeDocument = _ctx.Documents.GetActiveDocument();
+        Assert.NotNull(activeDocument);
+        Assert.Equal(sketchSheetPath, activeDocument!.Path, StringComparer.OrdinalIgnoreCase);
+
+        var openDocuments = _ctx.Documents.ListDocuments();
+        Assert.Contains(openDocuments, document => string.Equals(document.Path, sketchSheetPath, StringComparison.OrdinalIgnoreCase));
+
+        var editState = _ctx.Selection.GetEditState();
+        Assert.False(editState.IsEditing);
+        Assert.True(editState.CanReadFeatureTree);
+
+        _ctx.Documents.RotateView(12, -8, 0);
+        string pngPath = GetArtifactPath(outputDirectory, "cross-version-smoke-document-surface.png");
+        var pngExport = _ctx.Documents.ExportCurrentViewPng(pngPath, 1600, 900, false);
+        Assert.True(File.Exists(pngPath), $"Expected exported image to exist: {pngPath}");
+        Assert.Equal(Path.GetFullPath(pngPath), pngExport.OutputPath, StringComparer.OrdinalIgnoreCase);
+
+        var save = _ctx.Documents.SaveDocument(sketchSheetPath);
+        Assert.Equal(Path.GetFullPath(sketchSheetPath), save.OutputPath, StringComparer.OrdinalIgnoreCase);
+
+        string stepPath = GetArtifactPath(outputDirectory, "cross-version-smoke-document-surface.step");
+        var stepExport = _ctx.Documents.SaveDocumentAs(stepPath, sourcePath: null, saveAsCopy: true);
+        Assert.True(File.Exists(stepPath), $"Expected exported STEP file to exist: {stepPath}");
+        Assert.Equal(Path.GetFullPath(stepPath), stepExport.OutputPath, StringComparer.OrdinalIgnoreCase);
+
+        var featureDiagnostics = _ctx.Selection.GetFeatureDiagnostics();
+        Assert.Equal(0, featureDiagnostics.ErrorCount);
+
+        string reportPath = WriteSmokeReport(
+            outputDirectory,
+            "cross-version-smoke-document-surface.json",
+            compatibility,
+            expectation,
+            new CrossVersionSmokeAreaReport(
+                "compatibility-and-document-surface",
+                "completed",
+                "Validated runtime compatibility metadata plus document, selection, sketch, export, and diagnostics surfaces against a real SolidWorks session.",
+                new[]
+                {
+                    "GetSolidWorksCompatibility",
+                    "ListReferencePlanes",
+                    "SelectByName",
+                    "InsertSketch",
+                    "AddPoint",
+                    "AddLine",
+                    "AddArc",
+                    "AddEllipse",
+                    "AddPolygon",
+                    "AddText",
+                    "AddCircle",
+                    "AddRectangle",
+                    "FinishSketch",
+                    "OpenDocument",
+                    "GetActiveDocument",
+                    "ListDocuments",
+                    "RotateView",
+                    "ExportCurrentViewPng",
+                    "SaveDocument",
+                    "SaveDocumentAs",
+                    "GetEditState",
+                    "GetFeatureDiagnostics",
+                },
+                new[]
+                {
+                    sketchSheetPath,
+                    pngPath,
+                    stepPath,
+                }));
+
+        Assert.True(File.Exists(reportPath));
+    }
+
+    [Fact]
+    [Trait("Category", "Integration")]
+    public void Integration_CrossVersionSmokeSuite_ExercisesAssemblyAndInterferenceSurface()
+    {
+        string outputDirectory = GetArtifactDirectory("cross-version-smoke-assembly-surface");
+        var (compatibility, expectation) = GetSmokeContext();
+
+        if (!expectation.ShouldRunDirectMutationSmoke)
+        {
+            string blockedReportPath = WriteSmokeReport(
+                outputDirectory,
+                "cross-version-smoke-assembly-surface.json",
+                compatibility,
+                expectation,
+                new CrossVersionSmokeAreaReport(
+                    "assembly-and-interference-surface",
+                    "blocked-by-runtime-policy",
+                    "Skipped the live assembly construction sample because this runtime is outside the direct-mutation smoke window.",
+                    new[]
+                    {
+                        "InsertComponent",
+                        "ListComponents",
+                        "ListComponentsRecursive",
+                        "MeasureEntities",
+                        "AddMateCoincident",
+                        "AddMateDistance",
+                        "CheckInterference",
+                        "ReviewTargetedStaticInterference",
+                    },
+                    Array.Empty<string>()));
+
+            Assert.True(File.Exists(blockedReportPath));
+            return;
+        }
+
         var primitiveParts = CreatePrimitivePartLibrary(outputDirectory);
         ValidateScratchAssemblyCapabilities(primitiveParts["V7"]);
 
+        string reportPath = WriteSmokeReport(
+            outputDirectory,
+            "cross-version-smoke-assembly-surface.json",
+            compatibility,
+            expectation,
+            new CrossVersionSmokeAreaReport(
+                "assembly-and-interference-surface",
+                "completed",
+                "Validated reusable-part assembly creation, exact component listing, mate-driven separation, measurement, and targeted static interference review.",
+                new[]
+                {
+                    "NewDocument",
+                    "InsertComponent",
+                    "ListComponents",
+                    "ListComponentsRecursive",
+                    "MeasureEntities",
+                    "AddMateCoincident",
+                    "AddMateDistance",
+                    "CheckInterference",
+                    "ReviewTargetedStaticInterference",
+                },
+                primitiveParts.Values.OrderBy(path => path, StringComparer.OrdinalIgnoreCase).ToArray()));
+
+        Assert.True(File.Exists(reportPath));
+    }
+
+    [Fact]
+    [Trait("Category", "Integration")]
+    public void Integration_CrossVersionSmokeSuite_ExercisesReplacementAndDiagnosticsSurface()
+    {
+        string outputDirectory = GetArtifactDirectory("cross-version-smoke-replacement-surface");
+        var (compatibility, expectation) = GetSmokeContext();
+
+        if (!expectation.ShouldRunHighRiskWorkflowSmoke)
+        {
+            string blockedReportPath = WriteSmokeReport(
+                outputDirectory,
+                "cross-version-smoke-replacement-surface.json",
+                compatibility,
+                expectation,
+                new CrossVersionSmokeAreaReport(
+                    "replacement-and-diagnostics-surface",
+                    "blocked-by-runtime-policy",
+                    "Skipped the nested replacement workflow sample because this runtime is outside the high-risk workflow smoke window.",
+                    new[]
+                    {
+                        "AnalyzeSharedPartEditImpact",
+                        "ReplaceNestedComponentAndVerifyPersistence",
+                        "ListComponentsRecursive",
+                        "CheckInterference",
+                        "DiagnoseActiveDocumentHealth",
+                    },
+                    Array.Empty<string>()));
+
+            Assert.True(File.Exists(blockedReportPath));
+            return;
+        }
+
+        var primitiveParts = CreatePrimitivePartLibrary(outputDirectory);
         var setup = CreateReusableHelloWorldAssemblyScenario(outputDirectory, primitiveParts);
 
         var beforeInterference = _ctx.Assembly.CheckInterference(treatCoincidenceAsInterference: false);
         Assert.False(beforeInterference.HasInterference, "HELLO WORLD engineering assembly should be interference-free before replacement.");
 
-        var sameFileWorkflow = new WorkflowService(_ctx.Documents, _ctx.Assembly, null, _ctx.ConnectionManager);
-        var noOpResult = sameFileWorkflow.ReplaceNestedComponentAndVerifyPersistence(
+        var workflow = new WorkflowService(_ctx.Documents, _ctx.Assembly, null, _ctx.ConnectionManager);
+        var noOpResult = workflow.ReplaceNestedComponentAndVerifyPersistence(
             setup.OriginalVerticalPartPath,
             hierarchyPath: setup.TargetHierarchyPath);
         Assert.Equal("replacement_matches_source_file", noOpResult.Status);
@@ -653,7 +876,6 @@ public class HelloWorldVisualIntegrationTests : IDisposable
 
         var beforeExports = ExportVerificationViews(setup.ParentAssemblyPath, outputDirectory, "hello-world-engineering-before");
 
-        var workflow = new WorkflowService(_ctx.Documents, _ctx.Assembly, null, _ctx.ConnectionManager);
         var result = workflow.ReplaceNestedComponentAndVerifyPersistence(
             setup.ReplacementVerticalPartPath,
             hierarchyPath: setup.TargetHierarchyPath);
@@ -661,14 +883,15 @@ public class HelloWorldVisualIntegrationTests : IDisposable
         var afterExports = ExportVerificationViews(setup.ParentAssemblyPath, outputDirectory, "hello-world-engineering-after");
         var recursiveComponents = _ctx.Assembly.ListComponentsRecursive();
         var postInterference = _ctx.Assembly.CheckInterference(treatCoincidenceAsInterference: false);
-        var postReplacementImpact = _ctx.Assembly.AnalyzeSharedPartEditImpact(hierarchyPath: result.PersistenceResolution!.ResolvedInstance!.HierarchyPath);
         var healthDiagnostics = new WorkflowService(_ctx.Documents, _ctx.Assembly, _ctx.Selection, _ctx.ConnectionManager)
             .DiagnoseActiveDocumentHealth(forceRebuild: true, topOnly: false, saveDocument: true);
 
         Assert.Equal("completed", result.Status);
         Assert.True(result.PersistenceVerified);
         Assert.NotNull(result.PersistenceResolution);
+        Assert.NotNull(result.PersistenceResolution!.ResolvedInstance);
         Assert.Equal(setup.ReplacementVerticalPartPath, result.PersistenceResolution!.ResolvedInstance!.Path, StringComparer.OrdinalIgnoreCase);
+        var postReplacementImpact = _ctx.Assembly.AnalyzeSharedPartEditImpact(hierarchyPath: result.PersistenceResolution.ResolvedInstance!.HierarchyPath);
         Assert.False(result.PreReplacementImpactAnalysis.SafeDirectEdit);
         Assert.True(result.PreReplacementImpactAnalysis.AffectedInstanceCount >= setup.OriginalVerticalReuseCount);
         Assert.NotNull(result.PostReplacementImpactAnalysis);
@@ -699,5 +922,31 @@ public class HelloWorldVisualIntegrationTests : IDisposable
             string.Equals(component.Path, setup.ReplacementVerticalPartPath, StringComparison.OrdinalIgnoreCase)));
         Assert.True(recursiveComponents.Count(component =>
             string.Equals(component.Path, setup.OriginalVerticalPartPath, StringComparison.OrdinalIgnoreCase)) >= setup.OriginalVerticalReuseCount - 1);
+
+        string reportPath = WriteSmokeReport(
+            outputDirectory,
+            "cross-version-smoke-replacement-surface.json",
+            compatibility,
+            expectation,
+            new CrossVersionSmokeAreaReport(
+                "replacement-and-diagnostics-surface",
+                "completed",
+                "Validated the nested replacement workflow, persistence verification, shared-part impact analysis, viewport exports, and post-edit health diagnostics.",
+                new[]
+                {
+                    "AnalyzeSharedPartEditImpact",
+                    "ResolveComponentTarget",
+                    "ReplaceNestedComponentAndVerifyPersistence",
+                    "ListComponentsRecursive",
+                    "CheckInterference",
+                    "ExportCurrentViewPng",
+                    "DiagnoseActiveDocumentHealth",
+                },
+                beforeExports
+                    .Concat(afterExports)
+                    .Append(setup.ParentAssemblyPath)
+                    .ToArray()));
+
+        Assert.True(File.Exists(reportPath));
     }
 }

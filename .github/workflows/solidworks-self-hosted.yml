@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       runIntegration:
-        description: Run bridge integration tests that require local SolidWorks
+        description: Run the cross-version bridge smoke suite that requires local SolidWorks
         required: true
         default: true
         type: boolean
@@ -47,9 +47,17 @@ jobs:
       - name: Run bridge unit tests
         run: dotnet test bridge/SolidWorksBridge.sln --configuration Release --no-restore --filter "Category!=Integration" --nologo
 
-      - name: Run bridge integration tests
+      - name: Run bridge cross-version smoke suite
         if: ${{ inputs.runIntegration }}
         run: dotnet test bridge/SolidWorksBridge.sln --configuration Release --no-restore --filter "Category=Integration" --logger "console;verbosity=detailed" --nologo
+
+      - name: Upload smoke suite artifacts
+        if: ${{ inputs.runIntegration && always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: solidworks-smoke-artifacts-${{ github.run_number }}
+          path: artifacts/integration-visuals
+          if-no-files-found: warn
 
       - name: Publish tray app exe
         if: ${{ inputs.publishArtifact }}
