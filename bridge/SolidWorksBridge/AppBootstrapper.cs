@@ -82,6 +82,12 @@ public class AppBootstrapper
             return Task.FromResult<object?>(result);
         });
 
+        _messageHandler.Register("sw.get_support_matrix", _ =>
+        {
+            var result = SwConnectionManager.GetCompiledSupportMatrix();
+            return Task.FromResult<object?>(result);
+        });
+
         // ── Document lifecycle ────────────────────────────────────
         _messageHandler.Register("sw.new_document", req =>
         {

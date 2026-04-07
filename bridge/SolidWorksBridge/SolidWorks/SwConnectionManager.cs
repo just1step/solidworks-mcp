@@ -32,7 +32,8 @@ public record SolidWorksCompatibilityInfo(
     int? InteropMarketingYear,
     SolidWorksRuntimeVersionInfo RuntimeVersion,
     SolidWorksLicenseInfo License,
-    IReadOnlyList<string> Notices);
+    IReadOnlyList<string> Notices,
+    SolidWorksVersionSupportInfo? RuntimeSupport = null);
 
 /// <summary>
 /// Abstraction over the SolidWorks application COM object.
@@ -594,6 +595,12 @@ public class SwConnectionManager : ISwConnectionManager
     private static readonly int InteropRevisionMajor = InteropAssemblyVersion.Major;
     private static readonly int? InteropMarketingYear = TryGetMarketingYear(InteropRevisionMajor);
 
+    public static string CompiledInteropVersion => InteropVersion;
+    public static int CompiledInteropRevisionMajor => InteropRevisionMajor;
+    public static int? CompiledInteropMarketingYear => InteropMarketingYear;
+    public static SolidWorksSupportMatrixInfo GetCompiledSupportMatrix() =>
+        SolidWorksSupportMatrix.Create(InteropVersion, InteropRevisionMajor, InteropMarketingYear);
+
     public SwConnectionManager(ISwComConnector connector)
     {
         _connector = connector ?? throw new ArgumentNullException(nameof(connector));
@@ -650,6 +657,12 @@ public class SwConnectionManager : ISwConnectionManager
         };
 
         var (compatibilityState, summary) = ClassifyCompatibility(runtimeVersion, notices);
+        var runtimeSupport = SolidWorksSupportMatrix.ResolveRuntimeSupport(
+            InteropVersion,
+            InteropRevisionMajor,
+            InteropMarketingYear,
+            runtimeVersion,
+            compatibilityState);
 
         return new SolidWorksCompatibilityInfo(
             compatibilityState,
@@ -658,8 +671,9 @@ public class SwConnectionManager : ISwConnectionManager
             InteropRevisionMajor,
             InteropMarketingYear,
             runtimeVersion,
-                license,
-            notices);
+            license,
+            notices,
+            runtimeSupport);
     }
 
     private bool TryUseCurrentSession()

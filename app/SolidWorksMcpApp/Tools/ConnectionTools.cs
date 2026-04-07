@@ -28,4 +28,11 @@ public class ConnectionTools(StaDispatcher sta, ISwConnectionManager connection)
         var result = await sta.InvokeLoggedAsync(nameof(GetSolidWorksCompatibility), null, connection.GetCompatibilityInfo);
         return JsonSerializer.Serialize(result);
     }
+
+    [McpServerTool, Description("Report the repository's explicit SolidWorks support matrix, including product-level and capability-level support states for the current target versions.")]
+    public async Task<string> GetSolidWorksSupportMatrix()
+    {
+        var result = await sta.InvokeLoggedAsync(nameof(GetSolidWorksSupportMatrix), null, SwConnectionManager.GetCompiledSupportMatrix);
+        return JsonSerializer.Serialize(result);
+    }
 }

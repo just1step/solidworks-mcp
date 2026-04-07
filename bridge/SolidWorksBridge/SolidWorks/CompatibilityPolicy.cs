@@ -78,7 +78,7 @@ public static class CompatibilityPolicy
 
     public static CompatibilityGateDecision? CreateHighRiskWorkflowGate(SolidWorksCompatibilityInfo compatibility, string operationName)
     {
-        if (!ShouldBlockHighRiskWorkflow(compatibility.CompatibilityState))
+        if (!ShouldBlockHighRiskWorkflow(compatibility))
         {
             return null;
         }
@@ -99,10 +99,20 @@ public static class CompatibilityPolicy
             advisory);
     }
 
-    private static bool ShouldBlockHighRiskWorkflow(string compatibilityState)
+    private static bool ShouldBlockHighRiskWorkflow(SolidWorksCompatibilityInfo compatibility)
     {
-        return string.Equals(compatibilityState, "unsupported-older-version", StringComparison.OrdinalIgnoreCase)
-            || string.Equals(compatibilityState, "unsupported-newer-version", StringComparison.OrdinalIgnoreCase)
-            || string.Equals(compatibilityState, "unknown-version", StringComparison.OrdinalIgnoreCase);
+        if (compatibility.RuntimeSupport == null)
+        {
+            return string.Equals(compatibility.CompatibilityState, "unsupported-older-version", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(compatibility.CompatibilityState, "unsupported-newer-version", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(compatibility.CompatibilityState, "unknown-version", StringComparison.OrdinalIgnoreCase);
+        }
+
+        var runtimeSupport = compatibility.RuntimeSupport;
+        var capability = runtimeSupport.CapabilitySupport.FirstOrDefault(entry =>
+            string.Equals(entry.CapabilityId, SolidWorksSupportMatrix.HighRiskMutationWorkflowsCapability, StringComparison.OrdinalIgnoreCase));
+
+        return capability != null
+            && string.Equals(capability.SupportLevel, "blocked", StringComparison.OrdinalIgnoreCase);
     }
 }

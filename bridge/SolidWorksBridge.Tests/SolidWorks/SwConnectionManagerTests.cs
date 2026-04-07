@@ -250,6 +250,10 @@ public class SwConnectionManagerTests
         Assert.Equal(2024, result.RuntimeVersion.MarketingYear);
         Assert.Equal("swLicenseType_Full", result.License.Name);
         Assert.Equal(0, result.License.Value);
+        Assert.Equal("certified", result.RuntimeSupport.ProductSupportLevel);
+        Assert.Contains(result.RuntimeSupport.CapabilitySupport, entry =>
+            entry.CapabilityId == SolidWorksSupportMatrix.HighRiskMutationWorkflowsCapability
+            && entry.SupportLevel == "certified");
     }
 
     [Fact]
@@ -267,7 +271,34 @@ public class SwConnectionManagerTests
         Assert.Equal(33, result.RuntimeVersion.RevisionMajor);
         Assert.Equal(2025, result.RuntimeVersion.MarketingYear);
         Assert.Equal("swLicenseType_Full", result.License.Name);
+        Assert.Equal("targeted", result.RuntimeSupport.ProductSupportLevel);
+        Assert.Contains(result.RuntimeSupport.CapabilitySupport, entry =>
+            entry.CapabilityId == SolidWorksSupportMatrix.HighRiskMutationWorkflowsCapability
+            && entry.SupportLevel == "targeted");
         Assert.Contains(result.Notices, notice => notice.Contains("planned certification window"));
+    }
+
+    [Fact]
+    public void GetCompatibilityInfo_OnExperimentalDiscoveryVersion_ReturnsExperimentalRuntimeSupport()
+    {
+        var app = VersionedApp("34.0.0");
+        var connector = new Mock<ISwComConnector>();
+        connector.Setup(c => c.GetActiveInstance()).Returns(app.Object);
+
+        var manager = new SwConnectionManager(connector.Object);
+
+        var result = manager.GetCompatibilityInfo();
+
+        Assert.Equal("unsupported-newer-version", result.CompatibilityState);
+        Assert.Equal(34, result.RuntimeVersion.RevisionMajor);
+        Assert.Equal(2026, result.RuntimeVersion.MarketingYear);
+        Assert.Equal("experimental", result.RuntimeSupport.ProductSupportLevel);
+        Assert.Contains(result.RuntimeSupport.CapabilitySupport, entry =>
+            entry.CapabilityId == SolidWorksSupportMatrix.ConnectionAndIntrospectionCapability
+            && entry.SupportLevel == "experimental");
+        Assert.Contains(result.RuntimeSupport.CapabilitySupport, entry =>
+            entry.CapabilityId == SolidWorksSupportMatrix.HighRiskMutationWorkflowsCapability
+            && entry.SupportLevel == "blocked");
     }
 
     [Fact]

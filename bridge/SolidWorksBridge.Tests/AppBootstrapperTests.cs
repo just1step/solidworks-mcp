@@ -117,7 +117,7 @@ public class AppBootstrapperTests
 
         var expected = new[]
         {
-            "sw.connect", "sw.disconnect", "sw.get_runtime_compatibility",
+            "sw.connect", "sw.disconnect", "sw.get_runtime_compatibility", "sw.get_support_matrix",
             "sw.new_document", "sw.open_document",
             "sw.close_document", "sw.save_document", "sw.save_document_as", "sw.undo",
             "sw.list_documents", "sw.get_active_document",
@@ -206,6 +206,23 @@ public class AppBootstrapperTests
 
         string json = JsonSerializer.Serialize(response.Result, PipeMessageSerializer.Options);
         Assert.Contains("\"compatibilityState\":\"certified-baseline\"", json);
+    }
+
+    [Fact]
+    public async Task Handler_SwGetSupportMatrix_ReturnsSupportMatrix()
+    {
+        var (bootstrapper, _, _, handler) = Build();
+        bootstrapper.RegisterHandlers();
+
+        var response = await handler.HandleAsync(Req("sw.get_support_matrix"));
+
+        Assert.Null(response.Error);
+
+        string json = JsonSerializer.Serialize(response.Result, PipeMessageSerializer.Options);
+        Assert.Contains("\"interopMarketingYear\":2024", json);
+        Assert.Contains("\"productSupportLevel\":\"certified\"", json);
+        Assert.Contains("\"productSupportLevel\":\"targeted\"", json);
+        Assert.Contains("\"productSupportLevel\":\"experimental\"", json);
     }
 
     // ─────────────────────────────────────────────────────────────

@@ -182,6 +182,48 @@ public class HelloWorldVisualIntegrationTests : IDisposable
         Assert.Equal(compatibility.Notices, advisory.Notices);
     }
 
+    private static void AssertRuntimeSupportMatchesMatrix(
+        SolidWorksCompatibilityInfo compatibility,
+        SolidWorksSupportMatrixInfo supportMatrix)
+    {
+        Assert.NotNull(compatibility.RuntimeSupport);
+
+        var runtimeSupport = compatibility.RuntimeSupport!;
+        if (compatibility.RuntimeVersion.MarketingYear is int runtimeMarketingYear)
+        {
+            var explicitEntry = supportMatrix.Versions.SingleOrDefault(entry => entry.MarketingYear == runtimeMarketingYear);
+            if (explicitEntry is not null)
+            {
+                Assert.Equal(explicitEntry.ProductSupportLevel, runtimeSupport.ProductSupportLevel);
+                AssertCapabilitySupportMatches(runtimeSupport, explicitEntry, SolidWorksSupportMatrix.ConnectionAndIntrospectionCapability);
+                AssertCapabilitySupportMatches(runtimeSupport, explicitEntry, SolidWorksSupportMatrix.ReadOnlyWorkflowsCapability);
+                AssertCapabilitySupportMatches(runtimeSupport, explicitEntry, SolidWorksSupportMatrix.HighRiskMutationWorkflowsCapability);
+                AssertCapabilitySupportMatches(runtimeSupport, explicitEntry, SolidWorksSupportMatrix.DirectMutationToolsCapability);
+                return;
+            }
+
+            Assert.Equal("unsupported", runtimeSupport.ProductSupportLevel);
+            return;
+        }
+
+        Assert.Equal("unknown", runtimeSupport.ProductSupportLevel);
+    }
+
+    private static void AssertCapabilitySupportMatches(
+        SolidWorksVersionSupportInfo runtimeSupport,
+        SolidWorksVersionSupportInfo expectedSupport,
+        string capabilityId)
+    {
+        string actual = runtimeSupport.CapabilitySupport
+            .Single(entry => string.Equals(entry.CapabilityId, capabilityId, StringComparison.OrdinalIgnoreCase))
+            .SupportLevel;
+        string expected = expectedSupport.CapabilitySupport
+            .Single(entry => string.Equals(entry.CapabilityId, capabilityId, StringComparison.OrdinalIgnoreCase))
+            .SupportLevel;
+
+        Assert.Equal(expected, actual);
+    }
+
     private enum PrimitivePartShape
     {
         BarPlain,
@@ -649,6 +691,17 @@ public class HelloWorldVisualIntegrationTests : IDisposable
         }
 
         return exportedPaths.AsReadOnly();
+    }
+
+    [Fact]
+    [Trait("Category", "Integration")]
+    public void Integration_RuntimeSupportMatchesCompiledSupportMatrix()
+    {
+        var compatibility = _ctx.ConnectionManager.GetCompatibilityInfo();
+        var supportMatrix = SwConnectionManager.GetCompiledSupportMatrix();
+
+        CrossVersionSmokeSuite.AssertRuntimeClassificationIsConsistent(compatibility);
+        AssertRuntimeSupportMatchesMatrix(compatibility, supportMatrix);
     }
 
     [Fact]

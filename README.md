@@ -72,7 +72,18 @@ Startup rule:
 - SolidWorks UI language is separate from Windows language. The app can query the active SolidWorks language through `ISldWorks.GetCurrentLanguage()`.
 - Reference plane names are localized by SolidWorks. To avoid hard-coded plane names, the bridge now enumerates the active document's `RefPlane` features and their selection names directly from the feature tree.
 - After a successful SolidWorks connect, the server automatically captures the current SolidWorks language and the active document's reference plane snapshot and writes that payload into the session log for bug analysis.
-- Older or much newer SolidWorks major versions may work, but they are not yet declared as fully validated in this repository.
+- The repository now maintains an explicit support matrix for the current compatibility line:
+
+| SolidWorks version | Product support | Connection and read-only workflows | High-risk mutation workflows |
+| --- | --- | --- | --- |
+| 2024 | Certified | Certified | Certified |
+| 2025 | Targeted | Targeted | Targeted |
+| 2026 | Experimental | Experimental | Blocked |
+| Older than 2024 | Unsupported | Unsupported | Blocked |
+| Newer than 2026 | Unsupported | Unsupported | Blocked |
+
+- `GetSolidWorksCompatibility` reports the runtime support entry for the attached SolidWorks session.
+- `GetSolidWorksSupportMatrix` reports the full matrix that the bridge uses for current compatibility decisions.
 
 ### Download And Run
 
@@ -180,6 +191,20 @@ For CI and fast local validation, the main non-integration command is:
 ```powershell
 dotnet test bridge/SolidWorksBridge.sln --configuration Release --filter "Category!=Integration"
 ```
+
+For real SolidWorks coverage, run the integration lane on a SolidWorks-capable machine:
+
+```powershell
+dotnet test bridge/SolidWorksBridge.sln --configuration Release --filter "Category=Integration" --logger "console;verbosity=detailed"
+```
+
+That integration lane is the current cross-version smoke suite. It is split into three areas so compatibility failures localize quickly:
+
+- compatibility and document surface
+- assembly and interference surface
+- replacement and diagnostics surface
+
+Each integration run writes version-stamped JSON and visual artifacts under `artifacts/integration-visuals/cross-version-smoke-*/`.
 
 ### Package
 
