@@ -11,6 +11,8 @@ internal sealed class ConnectionLoggingSwConnectionManager(
 
     public ISldWorksApp? SwApp => inner.SwApp;
 
+    public SolidWorksConnectionAttemptInfo? LastConnectionAttempt => inner.LastConnectionAttempt;
+
     public void Connect()
     {
         ServerLogBuffer.Append("INFO", "COM", "Connect requested.");
@@ -117,6 +119,21 @@ internal sealed class ConnectionLoggingSwConnectionManager(
             var compatibility = inner.GetCompatibilityInfo();
             string compatibilityPayload = JsonSerializer.Serialize(compatibility);
             ServerLogBuffer.Append("INFO", "COM", $"SolidWorks connection after connect: {compatibilityPayload}");
+
+            var attempt = inner.LastConnectionAttempt;
+            if (attempt != null)
+            {
+                string attemptPayload = JsonSerializer.Serialize(attempt);
+                ServerLogBuffer.Append("INFO", "COM", $"SolidWorks connect path: {attemptPayload}");
+            }
+
+            if (compatibility.ConnectionVersionCheck != null)
+            {
+                ServerLogBuffer.Append(
+                    compatibility.ConnectionVersionCheck.IsSupportedBaseline ? "INFO" : "WARN",
+                    "COM",
+                    $"SolidWorks connection version check: {compatibility.ConnectionVersionCheck.Status} | {compatibility.ConnectionVersionCheck.Message}");
+            }
 
             var context = selectionServiceFactory().GetSolidWorksContext();
             string payload = JsonSerializer.Serialize(context);

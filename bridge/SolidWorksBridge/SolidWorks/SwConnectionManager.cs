@@ -1,8 +1,11 @@
+using System.Diagnostics;
 using System.Drawing;
 using System.Drawing.Imaging;
 using System.Globalization;
 using System.Linq;
 using System.Runtime.InteropServices;
+using System.Text.RegularExpressions;
+using Microsoft.Win32;
 using SolidWorks.Interop.sldworks;
 using SolidWorks.Interop.swconst;
 
@@ -33,7 +36,19 @@ public record SolidWorksCompatibilityInfo(
     SolidWorksRuntimeVersionInfo RuntimeVersion,
     SolidWorksLicenseInfo License,
     IReadOnlyList<string> Notices,
-    SolidWorksVersionSupportInfo? RuntimeSupport = null);
+    SolidWorksVersionSupportInfo? RuntimeSupport = null,
+    SolidWorksConnectionVersionCheck? ConnectionVersionCheck = null);
+
+public record SolidWorksConnectionVersionCheck(
+    string Status,
+    string Message,
+    bool IsSupportedBaseline);
+
+public record SolidWorksConnectionAttemptInfo(
+    string ConnectionSource,
+    bool RunningProcessDetected,
+    string? ProgId,
+    string Summary);
 
 /// <summary>
 /// Abstraction over the SolidWorks application COM object.
@@ -126,6 +141,10 @@ public interface ISwComConnector
     /// </summary>
     ISldWorksApp? GetActiveInstance();
 
+    bool HasRunningProcess();
+
+    string? LastResolvedProgId { get; }
+
     /// <summary>
     /// Create a new SolidWorks instance via COM activation.
     /// </summary>
@@ -139,6 +158,7 @@ public interface ISwConnectionManager
 {
     bool IsConnected { get; }
     ISldWorksApp? SwApp { get; }
+    SolidWorksConnectionAttemptInfo? LastConnectionAttempt { get; }
     void Connect();
     void Disconnect();
     void EnsureConnected();
@@ -151,16 +171,57 @@ public interface ISwConnectionManager
 /// </summary>
 public class SwComConnector : ISwComConnector
 {
+    public string? LastResolvedProgId { get; private set; }
+
     public ISldWorksApp? GetActiveInstance()
+    {
+        LastResolvedProgId = null;
+
+        if (!HasRunningProcess())
+        {
+            return null;
+        }
+
+        foreach (string progId in GetCandidateProgIds(preferVersionSpecific: true))
+        {
+            try
+            {
+                var obj = GetActiveObject(progId);
+                if (obj != null)
+                {
+                    LastResolvedProgId = progId;
+                    return new SldWorksAppWrapper(obj);
+                }
+            }
+            catch
+            {
+                // Try the next registered ProgID. This handles stale version-independent
+                // mappings left behind after uninstalling another SolidWorks version.
+            }
+        }
+
+        return null;
+    }
+
+    public bool HasRunningProcess()
     {
         try
         {
-            var obj = GetActiveObject("SldWorks.Application");
-            return obj != null ? new SldWorksAppWrapper(obj) : null;
+            return Process.GetProcessesByName("SLDWORKS").Any(static process =>
+            {
+                try
+                {
+                    return !process.HasExited;
+                }
+                catch
+                {
+                    return false;
+                }
+            });
         }
         catch
         {
-            return null;
+            return false;
         }
     }
 
@@ -183,13 +244,95 @@ public class SwComConnector : ISwComConnector
 
     public ISldWorksApp CreateNewInstance()
     {
-        var swType = Type.GetTypeFromProgID("SldWorks.Application")
-            ?? throw new InvalidOperationException("SolidWorks is not installed or not registered");
+        LastResolvedProgId = null;
 
-        var obj = Activator.CreateInstance(swType)
-            ?? throw new InvalidOperationException("Failed to create SolidWorks instance");
+        if (HasRunningProcess())
+        {
+            throw new InvalidOperationException(
+                "Detected a running SolidWorks process but could not attach to it via COM. Refusing to launch another SolidWorks instance.");
+        }
 
-        return new SldWorksAppWrapper(obj);
+        List<string> errors = [];
+
+        foreach (string progId in GetCandidateProgIds(preferVersionSpecific: true))
+        {
+            var swType = Type.GetTypeFromProgID(progId);
+            if (swType == null)
+            {
+                continue;
+            }
+
+            try
+            {
+                var obj = Activator.CreateInstance(swType);
+                if (obj != null)
+                {
+                    LastResolvedProgId = progId;
+                    return new SldWorksAppWrapper(obj);
+                }
+
+                errors.Add($"{progId}: Activator.CreateInstance returned null.");
+            }
+            catch (Exception ex)
+            {
+                errors.Add($"{progId}: {ex.GetType().Name}: {ex.Message}");
+            }
+        }
+
+        if (errors.Count == 0)
+        {
+            throw new InvalidOperationException("SolidWorks is not installed or not registered");
+        }
+
+        throw new InvalidOperationException(
+            "Failed to create a SolidWorks instance from any registered ProgID. " + string.Join(" ; ", errors));
+    }
+
+    private static IReadOnlyList<string> GetCandidateProgIds(bool preferVersionSpecific)
+    {
+        const string genericProgId = "SldWorks.Application";
+        const string prefix = "SldWorks.Application.";
+
+        var candidates = new List<string>();
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+        try
+        {
+            var versionedProgIds = Registry.ClassesRoot
+                .GetSubKeyNames()
+                .Where(name => name.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
+                .Select(name => new
+                {
+                    ProgId = name,
+                    Match = Regex.Match(name, @"^SldWorks\.Application\.(\d+)$", RegexOptions.IgnoreCase)
+                })
+                .Where(entry => entry.Match.Success)
+                .OrderByDescending(entry => int.Parse(entry.Match.Groups[1].Value, CultureInfo.InvariantCulture))
+                .Select(entry => entry.ProgId);
+
+            foreach (string progId in versionedProgIds)
+            {
+                if (seen.Add(progId))
+                {
+                    candidates.Add(progId);
+                }
+            }
+        }
+        catch
+        {
+            // Registry enumeration is best-effort.
+        }
+
+        if (!preferVersionSpecific && seen.Add(genericProgId))
+        {
+            candidates.Insert(0, genericProgId);
+        }
+        else if (seen.Add(genericProgId))
+        {
+            candidates.Add(genericProgId);
+        }
+
+        return candidates;
     }
 }
 
@@ -610,31 +753,65 @@ public class SwConnectionManager : ISwConnectionManager
 
     public ISldWorksApp? SwApp => _swApp;
 
+    public SolidWorksConnectionAttemptInfo? LastConnectionAttempt { get; private set; }
+
     public void Connect()
     {
         if (TryUseCurrentSession())
         {
+            LastConnectionAttempt = new SolidWorksConnectionAttemptInfo(
+                "current-session",
+                _connector.HasRunningProcess(),
+                _connector.LastResolvedProgId,
+                "Reused the existing in-process SolidWorks COM session.");
             return;
         }
 
-        // Try to attach to running instance first
+        bool runningProcessDetected = _connector.HasRunningProcess();
+
+        // Try to attach to a live SolidWorks process first.
         var runningInstance = _connector.GetActiveInstance();
 
         if (runningInstance != null && IsConnectionAlive(runningInstance))
         {
             _swApp = runningInstance;
             _swApp.Visible = true;
+            LastConnectionAttempt = new SolidWorksConnectionAttemptInfo(
+                "running-process",
+                runningProcessDetected,
+                _connector.LastResolvedProgId,
+                "Attached to a running SolidWorks process via COM.");
             return;
         }
 
-        // Fallback: create new instance
-        _swApp = _connector.CreateNewInstance();
-        _swApp.Visible = true;
+        try
+        {
+            // If no process is alive, launch the newest registered version first.
+            _swApp = _connector.CreateNewInstance();
+            _swApp.Visible = true;
+            LastConnectionAttempt = new SolidWorksConnectionAttemptInfo(
+                "new-instance",
+                runningProcessDetected,
+                _connector.LastResolvedProgId,
+                "Launched a new SolidWorks instance from the newest registered COM ProgID.");
+        }
+        catch
+        {
+            LastConnectionAttempt = new SolidWorksConnectionAttemptInfo(
+                "connect-failed",
+                runningProcessDetected,
+                _connector.LastResolvedProgId,
+                runningProcessDetected
+                    ? "A SolidWorks process was running, but the bridge could not attach to it via COM."
+                    : "The bridge could not launch any registered SolidWorks COM server.");
+            throw;
+        }
     }
 
     public void Disconnect()
     {
         _swApp = null;
+        LastConnectionAttempt = null;
     }
 
     public void EnsureConnected()
@@ -663,6 +840,8 @@ public class SwConnectionManager : ISwConnectionManager
             InteropMarketingYear,
             runtimeVersion,
             compatibilityState);
+        var connectionVersionCheck = CreateConnectionVersionCheck(runtimeVersion, compatibilityState);
+        notices.Add(connectionVersionCheck.Message);
 
         return new SolidWorksCompatibilityInfo(
             compatibilityState,
@@ -673,7 +852,8 @@ public class SwConnectionManager : ISwConnectionManager
             runtimeVersion,
             license,
             notices,
-            runtimeSupport);
+                runtimeSupport,
+                connectionVersionCheck);
     }
 
     private bool TryUseCurrentSession()
@@ -714,6 +894,42 @@ public class SwConnectionManager : ISwConnectionManager
         => ex.HResult == RpcServerUnavailable
         || ex.HResult == RpcCallFailed
         || ex.HResult == RpcDisconnected;
+
+    private static SolidWorksConnectionVersionCheck CreateConnectionVersionCheck(
+        SolidWorksRuntimeVersionInfo runtimeVersion,
+        string compatibilityState)
+    {
+        if (runtimeVersion.MarketingYear == 2024)
+        {
+            return new SolidWorksConnectionVersionCheck(
+                "supported-2024-baseline",
+                "Only SolidWorks 2024 is fully supported for MCP connection in this bridge build.",
+                true);
+        }
+
+        if (runtimeVersion.MarketingYear.HasValue && runtimeVersion.MarketingYear.Value < 2024)
+        {
+            return new SolidWorksConnectionVersionCheck(
+                "unsupported-before-2024",
+                "SolidWorks versions earlier than 2024 are not supported for MCP connection in this bridge build.",
+                false);
+        }
+
+        if (runtimeVersion.MarketingYear.HasValue && runtimeVersion.MarketingYear.Value > 2024)
+        {
+            return new SolidWorksConnectionVersionCheck(
+                "under-development-2025-and-newer",
+                "SolidWorks 2025 and newer can be connected for development, but support is still under active development in this bridge build.",
+                false);
+        }
+
+        return new SolidWorksConnectionVersionCheck(
+            string.Equals(compatibilityState, "certified-baseline", StringComparison.OrdinalIgnoreCase)
+                ? "supported-2024-baseline"
+                : "unknown-version",
+            "The running SolidWorks version could not be classified precisely. Only SolidWorks 2024 is fully supported; versions earlier than 2024 are unsupported; 2025 and newer are still under development.",
+            string.Equals(compatibilityState, "certified-baseline", StringComparison.OrdinalIgnoreCase));
+    }
 
     private static SolidWorksRuntimeVersionInfo CreateRuntimeVersionInfo(ISldWorksApp swApp)
     {

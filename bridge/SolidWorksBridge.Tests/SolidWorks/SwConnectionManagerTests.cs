@@ -45,6 +45,8 @@ public class SwConnectionManagerTests
         var mockApp = new Mock<ISldWorksApp>();
         mockApp.Setup(a => a.GetDocumentCount()).Returns(0);
         var connector = new Mock<ISwComConnector>();
+        connector.Setup(c => c.HasRunningProcess()).Returns(true);
+        connector.SetupGet(c => c.LastResolvedProgId).Returns("SldWorks.Application.32");
         connector.Setup(c => c.GetActiveInstance()).Returns(mockApp.Object);
 
         var manager = new SwConnectionManager(connector.Object);
@@ -52,6 +54,8 @@ public class SwConnectionManagerTests
 
         Assert.True(manager.IsConnected);
         Assert.Same(mockApp.Object, manager.SwApp);
+        Assert.NotNull(manager.LastConnectionAttempt);
+        Assert.Equal("running-process", manager.LastConnectionAttempt!.ConnectionSource);
         // Verify Visible = true was actually set on the SW app
         mockApp.VerifySet(a => a.Visible = true, Times.Once);
         // Verify CreateNewInstance was never called
@@ -64,6 +68,8 @@ public class SwConnectionManagerTests
         var mockApp = new Mock<ISldWorksApp>();
         mockApp.Setup(a => a.GetDocumentCount()).Returns(0);
         var connector = new Mock<ISwComConnector>();
+        connector.Setup(c => c.HasRunningProcess()).Returns(false);
+        connector.SetupGet(c => c.LastResolvedProgId).Returns("SldWorks.Application.32");
         connector.Setup(c => c.GetActiveInstance()).Returns((ISldWorksApp?)null);
         connector.Setup(c => c.CreateNewInstance()).Returns(mockApp.Object);
 
@@ -72,6 +78,8 @@ public class SwConnectionManagerTests
 
         Assert.True(manager.IsConnected);
         Assert.Same(mockApp.Object, manager.SwApp);
+        Assert.NotNull(manager.LastConnectionAttempt);
+        Assert.Equal("new-instance", manager.LastConnectionAttempt!.ConnectionSource);
         mockApp.VerifySet(a => a.Visible = true, Times.Once);
         connector.Verify(c => c.CreateNewInstance(), Times.Once);
     }
@@ -242,6 +250,9 @@ public class SwConnectionManagerTests
         var result = manager.GetCompatibilityInfo();
 
         Assert.Equal("certified-baseline", result.CompatibilityState);
+        Assert.NotNull(result.ConnectionVersionCheck);
+        Assert.Equal("supported-2024-baseline", result.ConnectionVersionCheck!.Status);
+        Assert.True(result.ConnectionVersionCheck.IsSupportedBaseline);
         Assert.Equal("32.1.0", result.InteropVersion);
         Assert.Equal(32, result.InteropRevisionMajor);
         Assert.Equal(2024, result.InteropMarketingYear);
@@ -268,6 +279,9 @@ public class SwConnectionManagerTests
         var result = manager.GetCompatibilityInfo();
 
         Assert.Equal("planned-next-version", result.CompatibilityState);
+        Assert.NotNull(result.ConnectionVersionCheck);
+        Assert.Equal("under-development-2025-and-newer", result.ConnectionVersionCheck!.Status);
+        Assert.False(result.ConnectionVersionCheck.IsSupportedBaseline);
         Assert.Equal(33, result.RuntimeVersion.RevisionMajor);
         Assert.Equal(2025, result.RuntimeVersion.MarketingYear);
         Assert.Equal("swLicenseType_Full", result.License.Name);
@@ -290,6 +304,8 @@ public class SwConnectionManagerTests
         var result = manager.GetCompatibilityInfo();
 
         Assert.Equal("unsupported-newer-version", result.CompatibilityState);
+        Assert.NotNull(result.ConnectionVersionCheck);
+        Assert.Equal("under-development-2025-and-newer", result.ConnectionVersionCheck!.Status);
         Assert.Equal(34, result.RuntimeVersion.RevisionMajor);
         Assert.Equal(2026, result.RuntimeVersion.MarketingYear);
         Assert.Equal("experimental", result.RuntimeSupport.ProductSupportLevel);
@@ -313,6 +329,9 @@ public class SwConnectionManagerTests
         var result = manager.GetCompatibilityInfo();
 
         Assert.Equal("unsupported-older-version", result.CompatibilityState);
+        Assert.NotNull(result.ConnectionVersionCheck);
+        Assert.Equal("unsupported-before-2024", result.ConnectionVersionCheck!.Status);
+        Assert.False(result.ConnectionVersionCheck.IsSupportedBaseline);
         Assert.Equal(31, result.RuntimeVersion.RevisionMajor);
         Assert.Equal(2023, result.RuntimeVersion.MarketingYear);
         Assert.Equal("swLicenseType_Full", result.License.Name);

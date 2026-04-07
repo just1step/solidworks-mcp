@@ -164,11 +164,13 @@ internal static class Program
         sc.AddSingleton<ISketchService>(sp    => new SketchService(sp.GetRequiredService<ISwConnectionManager>()));
         sc.AddSingleton<IFeatureService>(sp   => new FeatureService(sp.GetRequiredService<ISwConnectionManager>()));
         sc.AddSingleton<IAssemblyService>(sp  => new AssemblyService(sp.GetRequiredService<ISwConnectionManager>()));
+        sc.AddSingleton<IWorkflowStageLogger, ServerLogWorkflowStageLogger>();
         sc.AddSingleton<IWorkflowService>(sp  => new WorkflowService(
             sp.GetRequiredService<IDocumentService>(),
             sp.GetRequiredService<IAssemblyService>(),
             sp.GetRequiredService<ISelectionService>(),
-            sp.GetRequiredService<ISwConnectionManager>()));
+            sp.GetRequiredService<ISwConnectionManager>(),
+            sp.GetRequiredService<IWorkflowStageLogger>()));
 
         return sc.BuildServiceProvider();
     }

@@ -103,7 +103,13 @@ public class AppBootstrapperTests
                 new SwBuildNumbers("32", "32.0.0", string.Empty),
                 @"C:\Program Files\SOLIDWORKS Corp\SOLIDWORKS\sldworks.exe"),
             new SolidWorksLicenseInfo(0, "swLicenseType_Full", "Full SolidWorks license."),
-            new[] { "notice" });
+            new[] { "notice" },
+            ConnectionVersionCheck: state switch
+            {
+                "certified-baseline" => new SolidWorksConnectionVersionCheck("supported-2024-baseline", "Only SolidWorks 2024 is fully supported for MCP connection in this bridge build.", true),
+                "unsupported-older-version" => new SolidWorksConnectionVersionCheck("unsupported-before-2024", "SolidWorks versions earlier than 2024 are not supported for MCP connection in this bridge build.", false),
+                _ => new SolidWorksConnectionVersionCheck("under-development-2025-and-newer", "SolidWorks 2025 and newer can be connected for development, but support is still under active development in this bridge build.", false),
+            });
 
     // ─────────────────────────────────────────────────────────────
     // Registration
@@ -166,6 +172,11 @@ public class AppBootstrapperTests
     {
         var (bootstrapper, manager, _, handler) = Build();
         bootstrapper.RegisterHandlers();
+        manager.SetupGet(m => m.LastConnectionAttempt).Returns(new SolidWorksConnectionAttemptInfo(
+            "running-process",
+            true,
+            "SldWorks.Application.32",
+            "Attached to a running SolidWorks process via COM."));
         manager.Setup(m => m.GetCompatibilityInfo()).Returns(CompatibilityInfo("planned-next-version"));
 
         var response = await handler.HandleAsync(Req("sw.connect"));
@@ -176,7 +187,11 @@ public class AppBootstrapperTests
 
         string json = JsonSerializer.Serialize(response.Result, PipeMessageSerializer.Options);
         Assert.Contains("\"connected\":true", json);
+        Assert.Contains("\"connectionAttempt\"", json);
+        Assert.Contains("\"connectionSource\":\"running-process\"", json);
         Assert.Contains("\"compatibilityState\":\"planned-next-version\"", json);
+        Assert.Contains("\"connectionVersionCheck\"", json);
+        Assert.Contains("\"status\":\"under-development-2025-and-newer\"", json);
         Assert.Contains("\"compatibilityAdvisory\"", json);
     }
 

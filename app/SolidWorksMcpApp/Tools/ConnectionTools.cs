@@ -8,11 +8,32 @@ namespace SolidWorksMcpApp.Tools;
 [McpServerToolType]
 public class ConnectionTools(StaDispatcher sta, ISwConnectionManager connection)
 {
-    [McpServerTool, Description("Connect to the currently running SolidWorks instance via COM.")]
+    [McpServerTool, Description("Connect to SolidWorks via COM. The bridge first attaches to a live SolidWorks process when one is already running; otherwise it launches the newest registered SolidWorks version. The result includes the connection path plus the 2024-only support policy and newer-version development warning.")]
     public async Task<string> SolidWorksConnect()
     {
-        await sta.InvokeLoggedAsync(nameof(SolidWorksConnect), null, connection.Connect);
-        return "Connected to SolidWorks.";
+        var result = await sta.InvokeLoggedAsync(nameof(SolidWorksConnect), null, () =>
+        {
+            connection.Connect();
+
+            SolidWorksCompatibilityInfo? compatibility = null;
+            CompatibilityAdvisory? compatibilityAdvisory = null;
+            if (CompatibilityPolicy.TryGetCompatibilityInfo(connection, out var compatibilityInfo))
+            {
+                compatibility = compatibilityInfo;
+                compatibilityAdvisory = CompatibilityPolicy.CreateAdvisory(compatibilityInfo);
+            }
+
+            return new
+            {
+                connected = connection.IsConnected,
+                connectionAttempt = connection.LastConnectionAttempt,
+                compatibility,
+                connectionVersionCheck = compatibility?.ConnectionVersionCheck,
+                compatibilityAdvisory,
+            };
+        });
+
+        return JsonSerializer.Serialize(result);
     }
 
     [McpServerTool, Description("Disconnect from SolidWorks and release the COM connection.")]

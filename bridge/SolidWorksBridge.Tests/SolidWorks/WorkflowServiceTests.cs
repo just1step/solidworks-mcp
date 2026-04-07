@@ -7,6 +7,20 @@ public class WorkflowServiceTests
 {
     private static SwApiDiagnostics Diagnostics() => new(0, Array.Empty<SwCodeInfo>(), 0, Array.Empty<SwCodeInfo>());
 
+    private static void AssertStageLogged(
+        RecordingWorkflowStageLogger logger,
+        string workflowName,
+        string stageName,
+        string boundary,
+        string? detailContains = null)
+    {
+        Assert.Contains(logger.Events, entry =>
+            string.Equals(entry.WorkflowName, workflowName, StringComparison.Ordinal)
+            && string.Equals(entry.StageName, stageName, StringComparison.Ordinal)
+            && string.Equals(entry.Boundary, boundary, StringComparison.Ordinal)
+            && (detailContains == null || (entry.Detail?.Contains(detailContains, StringComparison.OrdinalIgnoreCase) ?? false)));
+    }
+
     private static FeatureDiagnosticsResult FeatureDiagnostics(int errors = 0, int warnings = 0) =>
         new(
             Array.Empty<FeatureDiagnosticInfo>(),
@@ -99,6 +113,7 @@ public class WorkflowServiceTests
     {
         var documents = new Mock<IDocumentService>();
         var assembly = new Mock<IAssemblyService>();
+        var logger = new RecordingWorkflowStageLogger();
         var firstResolution = ResolvedTarget(hierarchyPath: "SubAsm-1/Pulley-1", sourcePath: @"C:\Pulley.sldprt", reuseCount: 1);
         var missingResolution = new AssemblyTargetResolutionResult(
             RequestedName: null,
@@ -115,7 +130,7 @@ public class WorkflowServiceTests
         assembly.Setup(a => a.ResolveComponentTarget(null, "SubAsm-1/Pulley-1", null)).Returns(firstResolution);
         assembly.Setup(a => a.ResolveComponentTarget(null, "SubAsm-1/Missing-1", null)).Returns(missingResolution);
 
-        var service = new WorkflowService(documents.Object, assembly.Object);
+        var service = new WorkflowService(documents.Object, assembly.Object, null, null, logger);
 
         var result = service.ReviewTargetedStaticInterference("SubAsm-1/Pulley-1", "SubAsm-1/Missing-1");
 
@@ -124,6 +139,9 @@ public class WorkflowServiceTests
         Assert.False(result.ScopeEvaluatedAsRequested);
         Assert.False(result.HasInterference);
         Assert.Null(result.InterferenceCheck);
+        AssertStageLogged(logger, nameof(WorkflowService.ReviewTargetedStaticInterference), "preconditions.first_target_resolution", "completed", "SubAsm-1/Pulley-1");
+        AssertStageLogged(logger, nameof(WorkflowService.ReviewTargetedStaticInterference), "preconditions.second_target_resolution", "failed", "second_target_not_resolved");
+        AssertStageLogged(logger, nameof(WorkflowService.ReviewTargetedStaticInterference), "final", "failed", "status=second_target_not_resolved");
         assembly.Verify(a => a.CheckInterference(It.IsAny<IReadOnlyList<string>>(), It.IsAny<bool>()), Times.Never);
     }
 
@@ -343,16 +361,20 @@ public class WorkflowServiceTests
         var documents = new Mock<IDocumentService>();
         var assembly = new Mock<IAssemblyService>();
         var selection = new Mock<ISelectionService>();
+        var logger = new RecordingWorkflowStageLogger();
         documents.Setup(d => d.GetActiveDocument()).Returns(new SwDocumentInfo(@"C:\Part.sldprt", "Part", 1));
         selection.Setup(s => s.GetEditState()).Returns(new EditStateInfo(true, "Sketch", false, false));
 
-        var service = new WorkflowService(documents.Object, assembly.Object, selection.Object);
+        var service = new WorkflowService(documents.Object, assembly.Object, selection.Object, null, logger);
 
         var result = service.DiagnoseActiveDocumentHealth();
 
         Assert.Equal("editing_state_blocks_diagnostics", result.Status);
         Assert.False(result.ReadyForVerificationGate);
         Assert.True(result.HasBlockingIssues);
+        AssertStageLogged(logger, nameof(WorkflowService.DiagnoseActiveDocumentHealth), "preconditions.active_document", "completed", "C:\\Part.sldprt");
+        AssertStageLogged(logger, nameof(WorkflowService.DiagnoseActiveDocumentHealth), "preconditions.edit_state", "failed", "editing_state_blocks_diagnostics");
+        AssertStageLogged(logger, nameof(WorkflowService.DiagnoseActiveDocumentHealth), "final", "failed", "status=editing_state_blocks_diagnostics");
         selection.Verify(s => s.GetFeatureDiagnostics(), Times.Never);
         documents.Verify(d => d.ForceRebuildActiveDocument(It.IsAny<bool>()), Times.Never);
     }
@@ -488,6 +510,7 @@ public class WorkflowServiceTests
 
         var documents = new Mock<IDocumentService>();
         var assembly = new Mock<IAssemblyService>();
+        var logger = new RecordingWorkflowStageLogger();
         documents.Setup(d => d.GetActiveDocument()).Returns(new SwDocumentInfo(@"C:\Top.sldasm", "Top", 2));
 
         var resolution = ResolvedTarget(hierarchyPath: "Bracket-1", sourcePath: @"C:\Bracket.sldprt", owningHierarchyPath: null!, owningAssemblyFilePath: null!, depth: 0, reuseCount: 1) with
@@ -498,12 +521,15 @@ public class WorkflowServiceTests
         assembly.Setup(a => a.ResolveComponentTarget(null, "Bracket-1", null)).Returns(resolution);
         assembly.Setup(a => a.AnalyzeSharedPartEditImpact(null, "Bracket-1", null)).Returns(Impact(resolution, @"C:\Bracket.sldprt", 1, true, "Bracket-1"));
 
-        var service = new WorkflowService(documents.Object, assembly.Object);
+        var service = new WorkflowService(documents.Object, assembly.Object, null, null, logger);
 
         var result = service.ReplaceNestedComponentAndVerifyPersistence(replacementFilePath, hierarchyPath: "Bracket-1");
 
         Assert.Equal("target_not_nested", result.Status);
         Assert.False(result.PersistenceVerified);
+        AssertStageLogged(logger, nameof(WorkflowService.ReplaceNestedComponentAndVerifyPersistence), "preconditions.replacement_file", "completed", replacementFilePath);
+        AssertStageLogged(logger, nameof(WorkflowService.ReplaceNestedComponentAndVerifyPersistence), "preconditions.target_validation", "failed", "target_not_nested");
+        AssertStageLogged(logger, nameof(WorkflowService.ReplaceNestedComponentAndVerifyPersistence), "final", "failed", "status=target_not_nested");
         documents.Verify(d => d.OpenDocument(It.IsAny<string>()), Times.Never);
         assembly.Verify(a => a.ReplaceComponent(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<bool>(), It.IsAny<int>(), It.IsAny<bool>()), Times.Never);
     }
@@ -517,6 +543,7 @@ public class WorkflowServiceTests
 
         var documents = new Mock<IDocumentService>();
         var assembly = new Mock<IAssemblyService>();
+        var logger = new RecordingWorkflowStageLogger();
         var initialResolution = ResolvedTarget();
         var persistedResolution = initialResolution with
         {
@@ -547,7 +574,7 @@ public class WorkflowServiceTests
             new ComponentInstanceInfo("Pulley-2", @"C:\OldPulley.sldprt", "SubAsm-1/Pulley-2", 1),
         });
 
-        var service = new WorkflowService(documents.Object, assembly.Object);
+        var service = new WorkflowService(documents.Object, assembly.Object, null, null, logger);
 
         var result = service.ReplaceNestedComponentAndVerifyPersistence(replacementFilePath, hierarchyPath: "SubAsm-1/Pulley-1");
 
@@ -561,6 +588,10 @@ public class WorkflowServiceTests
         Assert.True(result.PostReplacementImpactAnalysis!.SafeDirectEdit);
         Assert.Equal(1, result.PostReplacementImpactAnalysis.AffectedInstanceCount);
         Assert.Equal("SubAsm-1/ReplacementPulley-1", result.PersistenceResolution!.ResolvedInstance!.HierarchyPath);
+        AssertStageLogged(logger, nameof(WorkflowService.ReplaceNestedComponentAndVerifyPersistence), "mutation.replace_component", "completed", "Pulley-1");
+        AssertStageLogged(logger, nameof(WorkflowService.ReplaceNestedComponentAndVerifyPersistence), "verification.persistence_resolution", "completed", "resolved=true");
+        AssertStageLogged(logger, nameof(WorkflowService.ReplaceNestedComponentAndVerifyPersistence), "verification.post_replacement_shared_part_impact", "completed", "affectedInstanceCount=1");
+        AssertStageLogged(logger, nameof(WorkflowService.ReplaceNestedComponentAndVerifyPersistence), "final", "completed", "status=completed");
         documents.Verify(d => d.CloseDocument(@"C:\Top.sldasm"), Times.Once);
         documents.Verify(d => d.CloseDocument(@"C:\SubAsm.sldasm"), Times.Once);
         assembly.Verify(a => a.ReplaceComponent("Pulley-1", replacementFilePath, "", false, 0, true), Times.Once);

@@ -67,7 +67,14 @@ public class AppBootstrapper
                 compatibilityAdvisory = CompatibilityPolicy.CreateAdvisory(compatibilityInfo);
             }
 
-            return Task.FromResult<object?>(new { connected = true, compatibility, compatibilityAdvisory });
+            return Task.FromResult<object?>(new
+            {
+                connected = true,
+                connectionAttempt = _connectionManager.LastConnectionAttempt,
+                compatibility,
+                connectionVersionCheck = compatibility?.ConnectionVersionCheck,
+                compatibilityAdvisory,
+            });
         });
 
         _messageHandler.Register("sw.disconnect", _ =>

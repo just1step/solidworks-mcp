@@ -1,4 +1,5 @@
 using SolidWorksBridge.SolidWorks;
+using SolidWorksMcpApp.Logging;
 
 namespace SolidWorksBridge.Tests.SolidWorks;
 
@@ -531,7 +532,9 @@ public class HelloWorldVisualIntegrationTests : IDisposable
         Assert.Equal(2, recursiveComponents.Count);
         Assert.NotEqual(first.Name, second.Name);
 
-        var workflow = new WorkflowService(_ctx.Documents, _ctx.Assembly, null, _ctx.ConnectionManager);
+        int initialLogCount = ServerLogBuffer.GetSnapshot().Count;
+        var workflowLogger = new ServerLogWorkflowStageLogger();
+        var workflow = new WorkflowService(_ctx.Documents, _ctx.Assembly, null, _ctx.ConnectionManager, workflowLogger);
         var interferingReview = workflow.ReviewTargetedStaticInterference(first.Name, second.Name);
         Assert.Equal("completed", interferingReview.Status);
         AssertCompatibilityAdvisoryMatchesRuntime(interferingReview.CompatibilityAdvisory);
@@ -566,6 +569,12 @@ public class HelloWorldVisualIntegrationTests : IDisposable
         Assert.Equal(2, separatedReview.InterferenceCheck!.CheckedComponentCount);
         var separated = _ctx.Assembly.CheckInterference([first.Name, second.Name]);
         Assert.False(separated.HasInterference, "Distance mate should separate the scratch components and remove interference.");
+
+        var workflowEntries = ServerLogBuffer.GetSnapshot().Skip(initialLogCount).ToArray();
+        AssertWorkflowLogEntry(workflowEntries, nameof(WorkflowService.ReviewTargetedStaticInterference), "preconditions.first_target_resolution", "completed");
+        AssertWorkflowLogEntry(workflowEntries, nameof(WorkflowService.ReviewTargetedStaticInterference), "preconditions.second_target_resolution", "failed", "second_target_not_resolved");
+        AssertWorkflowLogEntry(workflowEntries, nameof(WorkflowService.ReviewTargetedStaticInterference), "verification.scope_check", "completed");
+        AssertWorkflowLogEntry(workflowEntries, nameof(WorkflowService.ReviewTargetedStaticInterference), "final", "completed", "status=completed");
     }
 
     private void ValidateUnsavedParentFailure(string letterHAssemblyPath, string replacementVerticalPath, string nestedTargetLeafName)
@@ -929,7 +938,9 @@ public class HelloWorldVisualIntegrationTests : IDisposable
         var beforeInterference = _ctx.Assembly.CheckInterference(treatCoincidenceAsInterference: false);
         Assert.False(beforeInterference.HasInterference, "HELLO WORLD engineering assembly should be interference-free before replacement.");
 
-        var workflow = new WorkflowService(_ctx.Documents, _ctx.Assembly, null, _ctx.ConnectionManager);
+        int initialWorkflowLogCount = ServerLogBuffer.GetSnapshot().Count;
+        var workflowLogger = new ServerLogWorkflowStageLogger();
+        var workflow = new WorkflowService(_ctx.Documents, _ctx.Assembly, null, _ctx.ConnectionManager, workflowLogger);
         var noOpResult = workflow.ReplaceNestedComponentAndVerifyPersistence(
             setup.OriginalVerticalPartPath,
             hierarchyPath: setup.TargetHierarchyPath);
@@ -945,7 +956,7 @@ public class HelloWorldVisualIntegrationTests : IDisposable
         var afterExports = ExportVerificationViews(setup.ParentAssemblyPath, outputDirectory, "hello-world-engineering-after");
         var recursiveComponents = _ctx.Assembly.ListComponentsRecursive();
         var postInterference = _ctx.Assembly.CheckInterference(treatCoincidenceAsInterference: false);
-        var healthDiagnostics = new WorkflowService(_ctx.Documents, _ctx.Assembly, _ctx.Selection, _ctx.ConnectionManager)
+        var healthDiagnostics = new WorkflowService(_ctx.Documents, _ctx.Assembly, _ctx.Selection, _ctx.ConnectionManager, workflowLogger)
             .DiagnoseActiveDocumentHealth(forceRebuild: true, topOnly: false, saveDocument: true);
 
         Assert.Equal("completed", result.Status);
@@ -985,6 +996,13 @@ public class HelloWorldVisualIntegrationTests : IDisposable
         Assert.True(recursiveComponents.Count(component =>
             string.Equals(component.Path, setup.OriginalVerticalPartPath, StringComparison.OrdinalIgnoreCase)) >= setup.OriginalVerticalReuseCount - 1);
 
+        var workflowEntries = ServerLogBuffer.GetSnapshot().Skip(initialWorkflowLogCount).ToArray();
+        AssertWorkflowLogEntry(workflowEntries, nameof(WorkflowService.ReplaceNestedComponentAndVerifyPersistence), "preconditions.target_validation", "failed", "replacement_matches_source_file");
+        AssertWorkflowLogEntry(workflowEntries, nameof(WorkflowService.ReplaceNestedComponentAndVerifyPersistence), "mutation.replace_component", "completed");
+        AssertWorkflowLogEntry(workflowEntries, nameof(WorkflowService.ReplaceNestedComponentAndVerifyPersistence), "verification.persistence_resolution", "completed", "resolved=true");
+        AssertWorkflowLogEntry(workflowEntries, nameof(WorkflowService.DiagnoseActiveDocumentHealth), "verification.save_document", "completed");
+        AssertWorkflowLogEntry(workflowEntries, nameof(WorkflowService.DiagnoseActiveDocumentHealth), "final", "completed", "status=completed");
+
         string reportPath = WriteSmokeReport(
             outputDirectory,
             "cross-version-smoke-replacement-surface.json",
@@ -1010,5 +1028,18 @@ public class HelloWorldVisualIntegrationTests : IDisposable
                     .ToArray()));
 
         Assert.True(File.Exists(reportPath));
+    }
+
+    private static void AssertWorkflowLogEntry(
+        IReadOnlyList<ServerLogEntry> entries,
+        string workflowName,
+        string stageName,
+        string boundary,
+        string? detailContains = null)
+    {
+        Assert.Contains(entries, entry =>
+            string.Equals(entry.Source, "Workflow", StringComparison.Ordinal)
+            && entry.Message.Contains($"{workflowName} | stage={stageName} | boundary={boundary}", StringComparison.Ordinal)
+            && (detailContains == null || entry.Message.Contains(detailContains, StringComparison.OrdinalIgnoreCase)));
     }
 }
