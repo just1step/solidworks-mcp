@@ -72,7 +72,19 @@ SolidWorks MCP Server 是面向 Windows 的 SolidWorks MCP 桌面自动化服务
 - SolidWorks 自身的 UI 语言与 Windows 语言是两个维度。程序可以通过 `ISldWorks.GetCurrentLanguage()` 获取当前 SolidWorks 使用语言。
 - 基准面名称会随 SolidWorks 语言本地化变化。为避免硬编码中英文名称，bridge 现已通过当前文档特征树枚举 `RefPlane` 特征及其可用于选择的名称。
 - 在成功连接 SolidWorks 之后，服务会自动采集当前 SolidWorks 语言和活动文档中的基准面快照，并写入当前会话日志，便于后续排查问题。
-- 对更旧或明显更新的 SolidWorks 主版本，目前还没有在仓库中声明为“完全验证通过”。
+- 仓库当前维护了一条显式的 SolidWorks 支持矩阵：
+
+| SolidWorks 版本 | 产品支持级别 | 连接与只读工作流 | 高风险修改工作流 |
+| --- | --- | --- | --- |
+| 2024 | Certified | Certified | Certified |
+| 2025 | Targeted | Targeted | Targeted |
+| 2026 | Experimental | Experimental | Blocked |
+| 早于 2024 | Unsupported | Unsupported | Blocked |
+| 晚于 2026 | Unsupported | Unsupported | Blocked |
+
+- `GetSolidWorksCompatibility` 会返回当前连接到的 SolidWorks 运行时兼容性结论。
+- `GetSolidWorksSupportMatrix` 会返回服务当前内置的完整支持矩阵。
+- 如果运行时版本无法映射到明确的 SolidWorks 主版本，则兼容性会被标记为 `unknown`，并自动阻止高风险修改工作流。
 
 ### 直接运行
 
