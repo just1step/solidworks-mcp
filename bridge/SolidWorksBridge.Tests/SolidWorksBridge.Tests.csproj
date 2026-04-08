@@ -35,6 +35,12 @@
     <Compile Include="..\..\app\SolidWorksMcpApp\Logging\ServerFileLog.cs" Link="AppShared\Logging\ServerFileLog.cs" />
     <Compile Include="..\..\app\SolidWorksMcpApp\Logging\ServerLogBuffer.cs" Link="AppShared\Logging\ServerLogBuffer.cs" />
     <Compile Include="..\..\app\SolidWorksMcpApp\Logging\ServerLogWorkflowStageLogger.cs" Link="AppShared\Logging\ServerLogWorkflowStageLogger.cs" />
+    <Compile Include="..\..\app\SolidWorksMcpApp\Tools\AssemblyTools.cs" Link="AppShared\Tools\AssemblyTools.cs" />
+    <Compile Include="..\..\app\SolidWorksMcpApp\Tools\DocumentTools.cs" Link="AppShared\Tools\DocumentTools.cs" />
+    <Compile Include="..\..\app\SolidWorksMcpApp\Tools\FeatureTools.cs" Link="AppShared\Tools\FeatureTools.cs" />
+    <Compile Include="..\..\app\SolidWorksMcpApp\Tools\SelectionTools.cs" Link="AppShared\Tools\SelectionTools.cs" />
+    <Compile Include="..\..\app\SolidWorksMcpApp\Tools\SketchTools.cs" Link="AppShared\Tools\SketchTools.cs" />
+    <Compile Include="..\..\app\SolidWorksMcpApp\Tools\ToolArgumentParsing.cs" Link="AppShared\Tools\ToolArgumentParsing.cs" />
     <Compile Include="..\..\app\SolidWorksMcpApp\Tools\WorkflowTools.cs" Link="AppShared\Tools\WorkflowTools.cs" />
   </ItemGroup>
 

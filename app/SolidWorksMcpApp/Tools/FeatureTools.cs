@@ -14,7 +14,14 @@ public class FeatureTools(StaDispatcher sta, IFeatureService feature)
         [Description("End condition: Blind=0, ThroughAll=1, MidPlane=6")] int endCondition = 0,
         [Description("Flip the extrusion direction")] bool flipDirection = false)
     {
-        var info = await sta.InvokeLoggedAsync(nameof(Extrude), new { depth, endCondition, flipDirection }, () => feature.Extrude(depth, (EndCondition)endCondition, flipDirection));
+        var info = await sta.InvokeLoggedAsync(
+            nameof(Extrude),
+            new { depth, endCondition, flipDirection },
+            () =>
+            {
+                var parsedEndCondition = ToolArgumentParsing.ParseEndCondition(endCondition);
+                return feature.Extrude(depth, parsedEndCondition, flipDirection);
+            });
         return JsonSerializer.Serialize(info);
     }
 
@@ -24,7 +31,14 @@ public class FeatureTools(StaDispatcher sta, IFeatureService feature)
         [Description("End condition: Blind=0, ThroughAll=1, MidPlane=6")] int endCondition = 0,
         [Description("Flip the cut direction")] bool flipDirection = false)
     {
-        var info = await sta.InvokeLoggedAsync(nameof(ExtrudeCut), new { depth, endCondition, flipDirection }, () => feature.ExtrudeCut(depth, (EndCondition)endCondition, flipDirection));
+        var info = await sta.InvokeLoggedAsync(
+            nameof(ExtrudeCut),
+            new { depth, endCondition, flipDirection },
+            () =>
+            {
+                var parsedEndCondition = ToolArgumentParsing.ParseEndCondition(endCondition);
+                return feature.ExtrudeCut(depth, parsedEndCondition, flipDirection);
+            });
         return JsonSerializer.Serialize(info);
     }
 

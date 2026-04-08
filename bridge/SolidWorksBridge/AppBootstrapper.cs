@@ -287,7 +287,24 @@ public class AppBootstrapper
         {
             var p = req.GetParams<AddTextParams>()
                 ?? throw new ArgumentException("params required: {x,y,text}");
-            var info = _sketchService.AddText(p.X, p.Y, p.Text);
+            var info = _sketchService.AddText(
+                p.X,
+                p.Y,
+                p.Text,
+                new SketchTextOptions
+                {
+                    Justification = ParseSketchTextJustification(p.Justification),
+                    FlipDirection = p.FlipDirection,
+                    HorizontalMirror = p.HorizontalMirror,
+                    Height = p.Height,
+                    FontName = p.FontName,
+                    Bold = p.Bold,
+                    Italic = p.Italic,
+                    Underline = p.Underline,
+                    WidthFactor = p.WidthFactor,
+                    CharSpacingFactor = p.CharSpacingFactor,
+                    RotationDegrees = p.RotationDegrees,
+                });
             return Task.FromResult<object?>(info);
         });
 
@@ -667,6 +684,17 @@ public class AppBootstrapper
         [System.Text.Json.Serialization.JsonPropertyName("x")] public double X { get; set; }
         [System.Text.Json.Serialization.JsonPropertyName("y")] public double Y { get; set; }
         [System.Text.Json.Serialization.JsonPropertyName("text")] public string Text { get; set; } = string.Empty;
+        [System.Text.Json.Serialization.JsonPropertyName("justification")] public string? Justification { get; set; }
+        [System.Text.Json.Serialization.JsonPropertyName("flipDirection")] public bool FlipDirection { get; set; }
+        [System.Text.Json.Serialization.JsonPropertyName("horizontalMirror")] public bool HorizontalMirror { get; set; }
+        [System.Text.Json.Serialization.JsonPropertyName("height")] public double? Height { get; set; }
+        [System.Text.Json.Serialization.JsonPropertyName("fontName")] public string? FontName { get; set; }
+        [System.Text.Json.Serialization.JsonPropertyName("bold")] public bool? Bold { get; set; }
+        [System.Text.Json.Serialization.JsonPropertyName("italic")] public bool? Italic { get; set; }
+        [System.Text.Json.Serialization.JsonPropertyName("underline")] public bool? Underline { get; set; }
+        [System.Text.Json.Serialization.JsonPropertyName("widthFactor")] public double? WidthFactor { get; set; }
+        [System.Text.Json.Serialization.JsonPropertyName("charSpacingFactor")] public double? CharSpacingFactor { get; set; }
+        [System.Text.Json.Serialization.JsonPropertyName("rotationDegrees")] public double? RotationDegrees { get; set; }
     }
 
     public class AddCircleParams
@@ -863,6 +891,23 @@ public class AppBootstrapper
             "dimetric" => SwStandardView.Dimetric,
             _ => throw new ArgumentException($"Unknown standard view: '{view}'.")
         };
+
+    private static SketchTextJustification ParseSketchTextJustification(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            return SketchTextJustification.Left;
+        }
+
+        return value.Trim().ToLowerInvariant() switch
+        {
+            "left" or "0" => SketchTextJustification.Left,
+            "center" or "centre" or "1" => SketchTextJustification.Center,
+            "right" or "2" => SketchTextJustification.Right,
+            "full" or "fullyjustified" or "fully_justified" or "justified" or "3" => SketchTextJustification.FullyJustified,
+            _ => throw new ArgumentException($"Unknown sketch text justification: '{value}'. Use left, center, right, or fullyJustified.")
+        };
+    }
 
     /// <summary>
     /// Factory: create a production AppBootstrapper with real implementations.

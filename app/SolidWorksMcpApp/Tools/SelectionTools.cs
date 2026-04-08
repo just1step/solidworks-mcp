@@ -43,10 +43,16 @@ public class SelectionTools(StaDispatcher sta, ISelectionService selection)
         [Description("Filter by entity type: Face, Edge, or Vertex. Leave null for all.")] string? entityType = null,
         [Description("Filter by component name in assembly context. Leave null for top-level.")] string? componentName = null)
     {
-        var type = entityType is null
-            ? (SelectableEntityType?)null
-            : Enum.Parse<SelectableEntityType>(entityType, ignoreCase: true);
-        var list = await sta.InvokeLoggedAsync(nameof(ListEntities), new { entityType = type?.ToString(), componentName }, () => selection.ListEntities(type, componentName));
+        var list = await sta.InvokeLoggedAsync(
+            nameof(ListEntities),
+            new { entityType, componentName },
+            () =>
+            {
+                var type = entityType is null
+                    ? (SelectableEntityType?)null
+                    : ToolArgumentParsing.ParseSelectableEntityType(entityType, nameof(entityType));
+                return selection.ListEntities(type, componentName);
+            });
         return JsonSerializer.Serialize(list);
     }
 
@@ -72,8 +78,14 @@ public class SelectionTools(StaDispatcher sta, ISelectionService selection)
         [Description("Selection mark value (default 0)")] int mark = 0,
         [Description("Component name for assembly context. Leave null for top-level.")] string? componentName = null)
     {
-        var type = Enum.Parse<SelectableEntityType>(entityType, ignoreCase: true);
-        var result = await sta.InvokeLoggedAsync(nameof(SelectEntity), new { entityType = type.ToString(), index, append, mark, componentName }, () => selection.SelectEntity(type, index, append, mark, componentName));
+        var result = await sta.InvokeLoggedAsync(
+            nameof(SelectEntity),
+            new { entityType, index, append, mark, componentName },
+            () =>
+            {
+                var type = ToolArgumentParsing.ParseSelectableEntityType(entityType, nameof(entityType));
+                return selection.SelectEntity(type, index, append, mark, componentName);
+            });
         return JsonSerializer.Serialize(result);
     }
 
@@ -87,22 +99,24 @@ public class SelectionTools(StaDispatcher sta, ISelectionService selection)
         [Description("Optional component name for the second entity in assembly context. Leave null for part context or top-level.")] string? secondComponentName = null,
         [Description("Arc/circle measurement mode: 0=center, 1=minimum distance, 2=maximum distance.")] int arcOption = 1)
     {
-        var firstType = Enum.Parse<SelectableEntityType>(firstEntityType, ignoreCase: true);
-        var secondType = Enum.Parse<SelectableEntityType>(secondEntityType, ignoreCase: true);
-        var payload = new
-        {
-            firstEntityType = firstType.ToString(),
-            firstIndex,
-            secondEntityType = secondType.ToString(),
-            secondIndex,
-            firstComponentName,
-            secondComponentName,
-            arcOption,
-        };
         var result = await sta.InvokeLoggedAsync(
             nameof(MeasureEntities),
-            payload,
-            () => selection.MeasureEntities(firstType, firstIndex, secondType, secondIndex, firstComponentName, secondComponentName, arcOption));
+            new
+            {
+                firstEntityType,
+                firstIndex,
+                secondEntityType,
+                secondIndex,
+                firstComponentName,
+                secondComponentName,
+                arcOption,
+            },
+            () =>
+            {
+                var firstType = ToolArgumentParsing.ParseSelectableEntityType(firstEntityType, nameof(firstEntityType));
+                var secondType = ToolArgumentParsing.ParseSelectableEntityType(secondEntityType, nameof(secondEntityType));
+                return selection.MeasureEntities(firstType, firstIndex, secondType, secondIndex, firstComponentName, secondComponentName, arcOption);
+            });
         return JsonSerializer.Serialize(result);
     }
 

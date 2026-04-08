@@ -150,6 +150,20 @@ internal sealed class SolidWorksMcpHubTestClient : IDisposable
         return JsonSerializer.Deserialize<T>(text, JsonOptions);
     }
 
+    public string CallToolErrorText(string toolName, IReadOnlyDictionary<string, object?>? arguments = null)
+    {
+        string resolvedToolName = ToMcpToolName(toolName);
+        var result = _client.CallToolAsync(resolvedToolName, arguments).GetAwaiter().GetResult();
+        string text = GetResultText(result);
+        if (result.IsError.GetValueOrDefault())
+        {
+            return text;
+        }
+
+        throw new InvalidOperationException(
+            $"Tool '{resolvedToolName}' completed successfully when an MCP error result was expected. Payload: {text}");
+    }
+
     public static IReadOnlyDictionary<string, object?> Args(params (string Key, object? Value)[] values)
     {
         var dictionary = new Dictionary<string, object?>(StringComparer.Ordinal);
@@ -227,6 +241,18 @@ internal sealed class SolidWorksMcpHubTestClient : IDisposable
 
     private static string ExtractText(string toolName, CallToolResult result)
     {
+        string text = GetResultText(result);
+        if (!result.IsError.GetValueOrDefault())
+        {
+            return text;
+        }
+
+        throw new InvalidOperationException(
+            $"Tool '{toolName}' returned an MCP error result: {text}");
+    }
+
+    private static string GetResultText(CallToolResult result)
+    {
         string[] textBlocks = result.Content
             .OfType<TextContentBlock>()
             .Select(block => block.Text)
@@ -236,14 +262,7 @@ internal sealed class SolidWorksMcpHubTestClient : IDisposable
         string text = textBlocks.Length == 0
             ? string.Empty
             : string.Join(Environment.NewLine, textBlocks);
-
-        if (!result.IsError.GetValueOrDefault())
-        {
-            return text;
-        }
-
-        throw new InvalidOperationException(
-            $"Tool '{toolName}' returned an MCP error result: {text}");
+        return text;
     }
 
     private static string ResolveAppExecutablePath()
@@ -511,8 +530,24 @@ internal sealed class McpSketchService : ISketchService
             ("sides", sides),
             ("inscribed", inscribed)));
 
-    public SketchEntityInfo AddText(double x, double y, string text)
-        => _client.CallTool<SketchEntityInfo>("AddText", SolidWorksMcpHubTestClient.Args(("x", x), ("y", y), ("text", text)));
+    public SketchEntityInfo AddText(double x, double y, string text, SketchTextOptions? options = null)
+        => _client.CallTool<SketchEntityInfo>(
+            "AddText",
+            SolidWorksMcpHubTestClient.Args(
+                ("x", x),
+                ("y", y),
+                ("text", text),
+                ("justification", options?.Justification.ToString()),
+                ("flipDirection", options?.FlipDirection),
+                ("horizontalMirror", options?.HorizontalMirror),
+                ("height", options?.Height),
+                ("fontName", options?.FontName),
+                ("bold", options?.Bold),
+                ("italic", options?.Italic),
+                ("underline", options?.Underline),
+                ("widthFactor", options?.WidthFactor),
+                ("charSpacingFactor", options?.CharSpacingFactor),
+                ("rotationDegrees", options?.RotationDegrees)));
 
     public SketchEntityInfo AddLine(double x1, double y1, double x2, double y2)
         => _client.CallTool<SketchEntityInfo>("AddLine", SolidWorksMcpHubTestClient.Args(

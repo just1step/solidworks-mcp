@@ -112,6 +112,45 @@ public class HelloWorldVisualIntegrationTests : IDisposable
 
     public void Dispose() => _ctx.Dispose();
 
+    [Fact]
+    [Trait("Category", "Integration")]
+    public void Integration_InvalidToolArguments_SurfaceReadableMcpErrorsThroughHub()
+    {
+        string standardViewError = _ctx.CallToolErrorText(
+            "ShowStandardView",
+            SolidWorksIntegrationTestContext.Args(("view", "diagonal")));
+        Assert.Contains("Unknown standard view 'diagonal'", standardViewError);
+        Assert.Contains("isometric", standardViewError);
+
+        string entityTypeError = _ctx.CallToolErrorText(
+            "ListEntities",
+            SolidWorksIntegrationTestContext.Args(("entityType", "Loop")));
+        Assert.Contains("Unknown selectable entity type 'Loop'", entityTypeError);
+        Assert.Contains("Face, Edge, or Vertex", entityTypeError);
+
+        string justificationError = _ctx.CallToolErrorText(
+            "AddText",
+            SolidWorksIntegrationTestContext.Args(
+                ("x", 0.0),
+                ("y", 0.0),
+                ("text", "HELLO"),
+                ("justification", "offcenter")));
+        Assert.Contains("Unknown sketch text justification 'offcenter'", justificationError);
+        Assert.Contains("fullyJustified", justificationError);
+
+        string endConditionError = _ctx.CallToolErrorText(
+            "Extrude",
+            SolidWorksIntegrationTestContext.Args(
+                ("depth", 0.001),
+                ("endCondition", 5)));
+        Assert.Contains("endCondition must be 0 (Blind), 1 (ThroughAll), or 6 (MidPlane).", endConditionError);
+
+        string mateAlignError = _ctx.CallToolErrorText(
+            "AddMateCoincident",
+            SolidWorksIntegrationTestContext.Args(("align", 7)));
+        Assert.Contains("align must be 0 (None), 1 (AntiAligned), or 2 (Closest).", mateAlignError);
+    }
+
     private static string RepositoryRoot => Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", "..", ".."));
 
     private static string? GetParentHierarchyPath(string hierarchyPath)

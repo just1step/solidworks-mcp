@@ -107,6 +107,12 @@ internal sealed class SolidWorksIntegrationTestContext : IDisposable
         return CreateAndSaveBoxPart(width, height, depth);
     }
 
+    public string CallToolErrorText(string toolName, IReadOnlyDictionary<string, object?>? arguments = null)
+        => _hubClient.CallToolErrorText(toolName, arguments);
+
+    public static IReadOnlyDictionary<string, object?> Args(params (string Key, object? Value)[] values)
+        => SolidWorksMcpHubTestClient.Args(values);
+
     public string SaveActiveDocumentAs(string extension)
     {
         if (string.IsNullOrWhiteSpace(extension))

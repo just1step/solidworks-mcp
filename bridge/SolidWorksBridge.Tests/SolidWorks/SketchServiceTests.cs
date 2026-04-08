@@ -314,8 +314,8 @@ public class SketchServiceTests
         var (manager, swApp, _) = ConnectedWithSketchMgr();
         var doc = new Mock<IModelDoc2>();
         swApp.Setup(s => s.IActiveDoc2).Returns(doc.Object);
-        doc.Setup(d => d.InsertSketchText(0.01, 0.02, 0, "HELLO", 0, 0, 0, 100, 100))
-            .Returns(new object());
+        doc.Setup(d => d.IInsertSketchText(0.01, 0.02, 0, "HELLO", 0, 0, 0, 100, 100))
+            .Returns(new Mock<SketchText>().Object);
 
         var info = new SketchService(manager.Object).AddText(0.01, 0.02, "HELLO");
 
@@ -340,12 +340,76 @@ public class SketchServiceTests
         var (manager, swApp, _) = ConnectedWithSketchMgr();
         var doc = new Mock<IModelDoc2>();
         swApp.Setup(s => s.IActiveDoc2).Returns(doc.Object);
-        doc.Setup(d => d.InsertSketchText(
+        doc.Setup(d => d.IInsertSketchText(
                 It.IsAny<double>(), It.IsAny<double>(), It.IsAny<double>(), It.IsAny<string>(),
                 It.IsAny<int>(), It.IsAny<int>(), It.IsAny<int>(), It.IsAny<int>(), It.IsAny<int>()))
-            .Returns((object?)null!);
+            .Returns((SketchText?)null!);
 
         Assert.Throws<SolidWorksApiException>(() => new SketchService(manager.Object).AddText(0, 0, "HELLO"));
+    }
+
+    [Fact]
+    public void AddText_WithFormattingOptions_AppliesRequestedOverrides()
+    {
+        var (manager, swApp, _) = ConnectedWithSketchMgr();
+        var doc = new Mock<IModelDoc2>();
+        var sketchText = new Mock<SketchText>();
+        var textFormat = new Mock<TextFormat>();
+        textFormat.SetupAllProperties();
+
+        swApp.Setup(s => s.IActiveDoc2).Returns(doc.Object);
+        doc.Setup(d => d.IInsertSketchText(0.01, 0.02, 0, "HELLO", 1, 1, 1, 90, 110))
+            .Returns(sketchText.Object);
+        sketchText.Setup(t => t.IGetTextFormat()).Returns(textFormat.Object);
+        sketchText.Setup(t => t.ISetTextFormat(false, textFormat.Object)).Returns(true);
+
+        var info = new SketchService(manager.Object).AddText(
+            0.01,
+            0.02,
+            "HELLO",
+            new SketchTextOptions
+            {
+                Justification = SketchTextJustification.Center,
+                FlipDirection = true,
+                HorizontalMirror = true,
+                Height = 0.004,
+                FontName = "Century Gothic",
+                Bold = true,
+                Italic = true,
+                Underline = true,
+                WidthFactor = 0.9,
+                CharSpacingFactor = 1.1,
+                RotationDegrees = 15,
+            });
+
+        Assert.Equal("Text", info.Type);
+        Assert.Equal(0.004, textFormat.Object.CharHeight);
+        Assert.Equal("Century Gothic", textFormat.Object.TypeFaceName);
+        Assert.True(textFormat.Object.Bold);
+        Assert.True(textFormat.Object.Italic);
+        Assert.True(textFormat.Object.Underline);
+        Assert.Equal(0.9, textFormat.Object.WidthFactor);
+        Assert.Equal(1.1, textFormat.Object.CharSpacingFactor);
+        Assert.Equal(Math.PI / 12d, textFormat.Object.Escapement, precision: 10);
+        sketchText.Verify(t => t.ISetTextFormat(false, textFormat.Object), Times.Once);
+    }
+
+    [Fact]
+    public void AddText_WhenWritableFormatUnavailable_ThrowsDetailedError()
+    {
+        var (manager, swApp, _) = ConnectedWithSketchMgr();
+        var doc = new Mock<IModelDoc2>();
+        var sketchText = new Mock<SketchText>();
+        swApp.Setup(s => s.IActiveDoc2).Returns(doc.Object);
+        doc.Setup(d => d.IInsertSketchText(It.IsAny<double>(), It.IsAny<double>(), It.IsAny<double>(), It.IsAny<string>(), It.IsAny<int>(), It.IsAny<int>(), It.IsAny<int>(), It.IsAny<int>(), It.IsAny<int>()))
+            .Returns(sketchText.Object);
+        sketchText.Setup(t => t.IGetTextFormat()).Returns((TextFormat?)null!);
+
+        var error = Assert.Throws<SolidWorksApiException>(() =>
+            new SketchService(manager.Object).AddText(0, 0, "HELLO", new SketchTextOptions { Height = 0.003 }));
+
+        Assert.Contains("writable text format", error.Message);
+        Assert.Contains("height=0.003", error.Message);
     }
 
     // ─────────────────────────────────────────────────────────────

@@ -1,4 +1,5 @@
 using Moq;
+using System.Runtime.InteropServices;
 using SolidWorks.Interop.sldworks;
 using SolidWorks.Interop.swconst;
 using SolidWorksBridge.SolidWorks;
@@ -367,6 +368,50 @@ public class FeatureServiceTests
 
         Assert.Throws<SolidWorksApiException>(() =>
             new FeatureService(manager.Object).ExtrudeCut(0.01));
+    }
+
+    [Fact]
+    public void ExtrudeCut_ComFailure_ReportsSketchProfileDiagnostics()
+    {
+        var (manager, swApp, fm, doc) = ConnectedWithFm();
+        var sketchManager = new Mock<ISketchManager>();
+        var sketch = new Mock<ISketch>();
+        var closedContour1 = new Mock<ISketchContour>();
+        var closedContour2 = new Mock<ISketchContour>();
+        closedContour1.Setup(c => c.IsClosed()).Returns(true);
+        closedContour2.Setup(c => c.IsClosed()).Returns(true);
+        sketch.Setup(s => s.GetSketchSegments()).Returns(new object[]
+        {
+            new Mock<SketchSegment>().Object,
+            new Mock<SketchSegment>().Object,
+            new Mock<SketchSegment>().Object,
+            new Mock<SketchSegment>().Object,
+        });
+        sketch.Setup(s => s.GetSketchContourCount()).Returns(2);
+        sketch.Setup(s => s.GetSketchRegionCount()).Returns(2);
+        sketch.Setup(s => s.GetSketchContours()).Returns(new object[] { closedContour1.Object, closedContour2.Object });
+
+        swApp.Setup(s => s.SketchManager).Returns(sketchManager.Object);
+        doc.Setup(d => d.GetActiveSketch2()).Returns(sketch.Object);
+        fm.Setup(f => f.FeatureCut4(
+                It.IsAny<bool>(), It.IsAny<bool>(), It.IsAny<bool>(),
+                It.IsAny<int>(), It.IsAny<int>(),
+                It.IsAny<double>(), It.IsAny<double>(),
+                It.IsAny<bool>(), It.IsAny<bool>(), It.IsAny<bool>(), It.IsAny<bool>(),
+                It.IsAny<double>(), It.IsAny<double>(),
+                It.IsAny<bool>(), It.IsAny<bool>(),
+                It.IsAny<bool>(), It.IsAny<bool>(),
+                It.IsAny<bool>(), It.IsAny<bool>(), It.IsAny<bool>(), It.IsAny<bool>(), It.IsAny<bool>(), It.IsAny<bool>(),
+                It.IsAny<int>(), It.IsAny<double>(), It.IsAny<bool>(), It.IsAny<bool>()))
+            .Throws(new COMException("Server busy", unchecked((int)0x8001010A)));
+
+        var error = Assert.Throws<SolidWorksApiException>(() =>
+            new FeatureService(manager.Object).ExtrudeCut(0.01));
+
+        Assert.Contains("Server busy", error.Message);
+        Assert.Contains("segmentCount=4", error.Message);
+        Assert.Contains("regionCount=2", error.Message);
+        Assert.Contains("multiple closed regions", error.Message, StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]

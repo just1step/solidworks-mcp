@@ -28,8 +28,18 @@ public class FeatureService : IFeatureService
 {
     private const double DefaultDraftAngleRadians = 1.74532925199433E-02;
     private static readonly string[] SketchLikeTypeMarkers = ["sketch", "profile"];
+    private const string MultiRegionSelectionHint = "The sketch contains multiple closed regions. If cut creation still fails, isolate the intended profile or simplify overlapping text geometry before retrying.";
 
     private readonly ISwConnectionManager _cm;
+
+    private sealed record SketchProfileDiagnostics(
+        string SketchSource,
+        string? SketchName,
+        int SegmentCount,
+        int ContourCount,
+        int ClosedContourCount,
+        int OpenContourCount,
+        int RegionCount);
 
     public FeatureService(ISwConnectionManager cm)
     {
@@ -94,7 +104,7 @@ public class FeatureService : IFeatureService
     {
         _cm.EnsureConnected();
         var doc = GetModelDoc();
-        EnsureAvailableSketchHasClosedProfile(doc, "IFeatureManager.FeatureCut4", "cut extrude");
+        var sketchDiagnostics = EnsureAvailableSketchHasClosedProfile(doc, "IFeatureManager.FeatureCut4", "cut extrude");
         var featureManager = GetFeatureManager();
         var topFeatureBefore = CaptureFeatureSnapshot(doc.IFeatureByPositionReverse(0));
         var featureTreeBefore = CaptureTopLevelFeatureSnapshots(doc);
@@ -102,34 +112,45 @@ public class FeatureService : IFeatureService
 
         NormalizeSketchStateForFeatureCut(doc);
 
-        var returnedFeature = featureManager.FeatureCut4(
-            Sd: true,
-            Flip: false,
-            Dir: flipDirection,
-            T1: (int)endCondition,
-            T2: 0,
-            D1: depth,
-            D2: depth,
-            Dchk1: false,
-            Dchk2: false,
-            Ddir1: false,
-            Ddir2: false,
-            Dang1: DefaultDraftAngleRadians,
-            Dang2: DefaultDraftAngleRadians,
-            OffsetReverse1: false,
-            OffsetReverse2: false,
-            TranslateSurface1: false,
-            TranslateSurface2: false,
-            NormalCut: false,
-            UseFeatScope: true,
-            UseAutoSelect: true,
-            AssemblyFeatureScope: true,
-            AutoSelectComponents: true,
-            PropagateFeatureToParts: false,
-            T0: 0,
-            StartOffset: 0,
-            FlipStartOffset: false,
-            OptimizeGeometry: false);
+        Feature? returnedFeature;
+        try
+        {
+            returnedFeature = featureManager.FeatureCut4(
+                Sd: true,
+                Flip: false,
+                Dir: flipDirection,
+                T1: (int)endCondition,
+                T2: 0,
+                D1: depth,
+                D2: depth,
+                Dchk1: false,
+                Dchk2: false,
+                Ddir1: false,
+                Ddir2: false,
+                Dang1: DefaultDraftAngleRadians,
+                Dang2: DefaultDraftAngleRadians,
+                OffsetReverse1: false,
+                OffsetReverse2: false,
+                TranslateSurface1: false,
+                TranslateSurface2: false,
+                NormalCut: false,
+                UseFeatScope: true,
+                UseAutoSelect: true,
+                AssemblyFeatureScope: true,
+                AutoSelectComponents: true,
+                PropagateFeatureToParts: false,
+                T0: 0,
+                StartOffset: 0,
+                FlipStartOffset: false,
+                OptimizeGeometry: false);
+        }
+        catch (COMException ex)
+        {
+            throw SolidWorksApiErrorFactory.FromComException(
+                "IFeatureManager.FeatureCut4",
+                ex,
+                CreateExtrudeCutFailureContext(depth, endCondition, flipDirection, sketchDiagnostics));
+        }
 
         var topFeatureAfter = CaptureFeatureSnapshot(doc.IFeatureByPositionReverse(0));
         var featureTreeAfter = CaptureTopLevelFeatureSnapshots(doc);
@@ -138,12 +159,16 @@ public class FeatureService : IFeatureService
             ?? throw SolidWorksApiErrorFactory.FromValidationFailure(
                 "IFeatureManager.FeatureCut4",
                 "SolidWorks did not create a new cut feature.",
-                new Dictionary<string, object?>
-                {
-                    ["beforeFeature"] = FormatFeature(topFeatureBefore),
-                    ["returnedFeature"] = FormatFeature(CaptureFeatureSnapshot(returnedFeature)),
-                    ["afterFeature"] = FormatFeature(topFeatureAfter),
-                });
+                CreateExtrudeCutFailureContext(
+                    depth,
+                    endCondition,
+                    flipDirection,
+                    sketchDiagnostics,
+                    topFeatureBefore,
+                    CaptureFeatureSnapshot(returnedFeature),
+                    topFeatureAfter,
+                    bodyBefore,
+                    bodyAfter));
 
         return new FeatureInfo(feature.Name, "ExtrudeCut");
     }
@@ -227,71 +252,39 @@ public class FeatureService : IFeatureService
             ?? throw new InvalidOperationException("No active document");
     }
 
-    private static void EnsureAvailableSketchHasClosedProfile(IModelDoc2 doc, string apiName, string operationName)
+    private static SketchProfileDiagnostics? EnsureAvailableSketchHasClosedProfile(IModelDoc2 doc, string apiName, string operationName)
     {
-        var sketchContext = ResolveSketchForProfileValidation(doc);
-        if (sketchContext == null)
+        var diagnostics = CaptureSketchProfileDiagnostics(doc);
+        if (diagnostics == null)
         {
-            return;
+            return null;
         }
 
-        var (sketch, source) = sketchContext.Value;
-
-        var segments = (object[]?)sketch.GetSketchSegments() ?? Array.Empty<object>();
-        int segmentCount = segments.Length;
-        int contourCount = sketch.GetSketchContourCount();
-        int regionCount = sketch.GetSketchRegionCount();
-        var contourObjects = (object[]?)sketch.GetSketchContours() ?? Array.Empty<object>();
-        var contours = contourObjects.OfType<ISketchContour>().ToList();
-        int closedContourCount = contours.Count(contour => contour.IsClosed());
-        int openContourCount = Math.Max(contourCount - closedContourCount, 0);
-
-        if (segmentCount == 0)
+        if (diagnostics.SegmentCount == 0)
         {
             throw SolidWorksApiErrorFactory.FromValidationFailure(
                 apiName,
                 $"The active sketch is empty, so {operationName} cannot create a feature.",
-                new Dictionary<string, object?>
-                {
-                    ["sketchSource"] = source,
-                    ["segmentCount"] = segmentCount,
-                    ["contourCount"] = contourCount,
-                    ["closedContourCount"] = closedContourCount,
-                    ["regionCount"] = regionCount,
-                });
+                CreateSketchProfileContext(diagnostics));
         }
 
-        if (openContourCount > 0)
+        if (diagnostics.OpenContourCount > 0)
         {
             throw SolidWorksApiErrorFactory.FromValidationFailure(
                 apiName,
                 $"The active sketch contains open contours, so {operationName} cannot create a solid feature. Close every open loop first or use a closed-shape sketch tool such as AddCircle, AddRectangle, or AddPolygon.",
-                new Dictionary<string, object?>
-                {
-                    ["sketchSource"] = source,
-                    ["segmentCount"] = segmentCount,
-                    ["contourCount"] = contourCount,
-                    ["closedContourCount"] = closedContourCount,
-                    ["openContourCount"] = openContourCount,
-                    ["regionCount"] = regionCount,
-                });
+                CreateSketchProfileContext(diagnostics));
         }
 
-        if (regionCount == 0)
+        if (diagnostics.RegionCount == 0)
         {
             throw SolidWorksApiErrorFactory.FromValidationFailure(
                 apiName,
                 $"The active sketch does not contain any valid sketch regions, so {operationName} cannot create a solid feature. The contours may overlap, self-intersect, or otherwise fail to form a usable profile.",
-                new Dictionary<string, object?>
-                {
-                    ["sketchSource"] = source,
-                    ["segmentCount"] = segmentCount,
-                    ["contourCount"] = contourCount,
-                    ["closedContourCount"] = closedContourCount,
-                    ["openContourCount"] = openContourCount,
-                    ["regionCount"] = regionCount,
-                });
+                CreateSketchProfileContext(diagnostics));
         }
+
+        return diagnostics;
     }
 
     private static (ISketch Sketch, string Source)? ResolveSketchForProfileValidation(IModelDoc2 doc)
@@ -324,6 +317,102 @@ public class FeatureService : IFeatureService
         }
 
         return null;
+    }
+
+    private static SketchProfileDiagnostics? CaptureSketchProfileDiagnostics(IModelDoc2 doc)
+    {
+        var sketchContext = ResolveSketchForProfileValidation(doc);
+        return sketchContext == null
+            ? null
+            : CaptureSketchProfileDiagnostics(sketchContext.Value.Sketch, sketchContext.Value.Source);
+    }
+
+    private static SketchProfileDiagnostics CaptureSketchProfileDiagnostics(ISketch sketch, string source)
+    {
+        var segments = (object[]?)sketch.GetSketchSegments() ?? Array.Empty<object>();
+        int contourCount = sketch.GetSketchContourCount();
+        int regionCount = sketch.GetSketchRegionCount();
+        var contourObjects = (object[]?)sketch.GetSketchContours() ?? Array.Empty<object>();
+        var contours = contourObjects.OfType<ISketchContour>().ToList();
+        int closedContourCount = contours.Count(contour => contour.IsClosed());
+        int openContourCount = Math.Max(contourCount - closedContourCount, 0);
+
+        return new SketchProfileDiagnostics(
+            source,
+            TryGetSketchName(sketch),
+            segments.Length,
+            contourCount,
+            closedContourCount,
+            openContourCount,
+            regionCount);
+    }
+
+    private static Dictionary<string, object?> CreateSketchProfileContext(SketchProfileDiagnostics? diagnostics)
+    {
+        var context = new Dictionary<string, object?>();
+        if (diagnostics == null)
+        {
+            return context;
+        }
+
+        context["sketchSource"] = diagnostics.SketchSource;
+        context["sketchName"] = diagnostics.SketchName;
+        context["segmentCount"] = diagnostics.SegmentCount;
+        context["contourCount"] = diagnostics.ContourCount;
+        context["closedContourCount"] = diagnostics.ClosedContourCount;
+        context["openContourCount"] = diagnostics.OpenContourCount;
+        context["regionCount"] = diagnostics.RegionCount;
+
+        if (diagnostics.RegionCount > 1)
+        {
+            context["profileSelectionHint"] = MultiRegionSelectionHint;
+        }
+
+        return context;
+    }
+
+    private static Dictionary<string, object?> CreateExtrudeCutFailureContext(
+        double depth,
+        EndCondition endCondition,
+        bool flipDirection,
+        SketchProfileDiagnostics? diagnostics,
+        FeatureSnapshot? topFeatureBefore = null,
+        FeatureSnapshot? returnedFeature = null,
+        FeatureSnapshot? topFeatureAfter = null,
+        BodySignature? bodyBefore = null,
+        BodySignature? bodyAfter = null)
+    {
+        var context = CreateSketchProfileContext(diagnostics);
+        context["depth"] = depth;
+        context["endCondition"] = endCondition.ToString();
+        context["flipDirection"] = flipDirection;
+
+        if (topFeatureBefore != null)
+        {
+            context["beforeFeature"] = FormatFeature(topFeatureBefore.Value);
+        }
+
+        if (returnedFeature != null)
+        {
+            context["returnedFeature"] = FormatFeature(returnedFeature.Value);
+        }
+
+        if (topFeatureAfter != null)
+        {
+            context["afterFeature"] = FormatFeature(topFeatureAfter.Value);
+        }
+
+        if (bodyBefore != null)
+        {
+            context["beforeBody"] = FormatBody(bodyBefore.Value);
+        }
+
+        if (bodyAfter != null)
+        {
+            context["afterBody"] = FormatBody(bodyAfter.Value);
+        }
+
+        return context;
     }
 
     private void NormalizeSketchStateForFeatureCut(IModelDoc2 doc)
@@ -403,6 +492,10 @@ public class FeatureService : IFeatureService
                 args: null) as string;
         }
         catch (COMException)
+        {
+            return null;
+        }
+        catch (MissingMethodException)
         {
             return null;
         }

@@ -23,7 +23,14 @@ public class AssemblyTools(StaDispatcher sta, IAssemblyService assembly)
     public async Task<string> AddMateCoincident(
         [Description("Mate alignment: None=0, AntiAligned=1, Closest=2")] int align = 2)
     {
-        var result = await sta.InvokeLoggedAsync(nameof(AddMateCoincident), new { align }, () => assembly.AddMateCoincident((MateAlign)align));
+        var result = await sta.InvokeLoggedAsync(
+            nameof(AddMateCoincident),
+            new { align },
+            () =>
+            {
+                var parsedAlign = ToolArgumentParsing.ParseMateAlign(align);
+                return assembly.AddMateCoincident(parsedAlign);
+            });
         return JsonSerializer.Serialize(result);
     }
 
@@ -31,7 +38,14 @@ public class AssemblyTools(StaDispatcher sta, IAssemblyService assembly)
     public async Task<string> AddMateConcentric(
         [Description("Mate alignment: None=0, AntiAligned=1, Closest=2")] int align = 2)
     {
-        var result = await sta.InvokeLoggedAsync(nameof(AddMateConcentric), new { align }, () => assembly.AddMateConcentric((MateAlign)align));
+        var result = await sta.InvokeLoggedAsync(
+            nameof(AddMateConcentric),
+            new { align },
+            () =>
+            {
+                var parsedAlign = ToolArgumentParsing.ParseMateAlign(align);
+                return assembly.AddMateConcentric(parsedAlign);
+            });
         return JsonSerializer.Serialize(result);
     }
 
@@ -39,7 +53,14 @@ public class AssemblyTools(StaDispatcher sta, IAssemblyService assembly)
     public async Task<string> AddMateParallel(
         [Description("Mate alignment: None=0, AntiAligned=1, Closest=2")] int align = 2)
     {
-        var result = await sta.InvokeLoggedAsync(nameof(AddMateParallel), new { align }, () => assembly.AddMateParallel((MateAlign)align));
+        var result = await sta.InvokeLoggedAsync(
+            nameof(AddMateParallel),
+            new { align },
+            () =>
+            {
+                var parsedAlign = ToolArgumentParsing.ParseMateAlign(align);
+                return assembly.AddMateParallel(parsedAlign);
+            });
         return JsonSerializer.Serialize(result);
     }
 
@@ -48,7 +69,14 @@ public class AssemblyTools(StaDispatcher sta, IAssemblyService assembly)
         [Description("Distance between the entities in meters")] double distance,
         [Description("Mate alignment: None=0, AntiAligned=1, Closest=2")] int align = 2)
     {
-        var result = await sta.InvokeLoggedAsync(nameof(AddMateDistance), new { distance, align }, () => assembly.AddMateDistance(distance, (MateAlign)align));
+        var result = await sta.InvokeLoggedAsync(
+            nameof(AddMateDistance),
+            new { distance, align },
+            () =>
+            {
+                var parsedAlign = ToolArgumentParsing.ParseMateAlign(align);
+                return assembly.AddMateDistance(distance, parsedAlign);
+            });
         return JsonSerializer.Serialize(result);
     }
 
@@ -57,7 +85,14 @@ public class AssemblyTools(StaDispatcher sta, IAssemblyService assembly)
         [Description("Angle between the entities in degrees")] double angleDegrees,
         [Description("Mate alignment: None=0, AntiAligned=1, Closest=2")] int align = 2)
     {
-        var result = await sta.InvokeLoggedAsync(nameof(AddMateAngle), new { angleDegrees, align }, () => assembly.AddMateAngle(angleDegrees, (MateAlign)align));
+        var result = await sta.InvokeLoggedAsync(
+            nameof(AddMateAngle),
+            new { angleDegrees, align },
+            () =>
+            {
+                var parsedAlign = ToolArgumentParsing.ParseMateAlign(align);
+                return assembly.AddMateAngle(angleDegrees, parsedAlign);
+            });
         return JsonSerializer.Serialize(result);
     }
 

@@ -6,6 +6,39 @@ namespace SolidWorksBridge.SolidWorks;
 /// <summary>Info about a sketch entity that was just created.</summary>
 public record SketchEntityInfo(string Type, double X1, double Y1, double X2, double Y2);
 
+public enum SketchTextJustification
+{
+    Left = 0,
+    Center = 1,
+    Right = 2,
+    FullyJustified = 3,
+}
+
+public sealed class SketchTextOptions
+{
+    public SketchTextJustification Justification { get; init; } = SketchTextJustification.Left;
+    public bool FlipDirection { get; init; }
+    public bool HorizontalMirror { get; init; }
+    public double? Height { get; init; }
+    public string? FontName { get; init; }
+    public bool? Bold { get; init; }
+    public bool? Italic { get; init; }
+    public bool? Underline { get; init; }
+    public double? WidthFactor { get; init; }
+    public double? CharSpacingFactor { get; init; }
+    public double? RotationDegrees { get; init; }
+
+    public bool HasLocalFormatOverrides =>
+        Height.HasValue ||
+        !string.IsNullOrWhiteSpace(FontName) ||
+        Bold.HasValue ||
+        Italic.HasValue ||
+        Underline.HasValue ||
+        WidthFactor.HasValue ||
+        CharSpacingFactor.HasValue ||
+        RotationDegrees.HasValue;
+}
+
 /// <summary>
 /// Sketch operations on the active document.
 /// Caller must first select a face or datum plane via ISelectionService,
@@ -35,8 +68,8 @@ public interface ISketchService
     /// <summary>Draw a regular polygon using center, one perimeter point, side count, and inscribed mode.</summary>
     SketchEntityInfo AddPolygon(double cx, double cy, double x, double y, int sides, bool inscribed);
 
-    /// <summary>Insert sketch text at (x,y) using SolidWorks default text formatting.</summary>
-    SketchEntityInfo AddText(double x, double y, string text);
+    /// <summary>Insert sketch text at (x,y) with optional formatting overrides.</summary>
+    SketchEntityInfo AddText(double x, double y, string text, SketchTextOptions? options = null);
 
     /// <summary>Draw a line from (x1,y1) to (x2,y2) in sketch space (meters).</summary>
     SketchEntityInfo AddLine(double x1, double y1, double x2, double y2);
@@ -165,7 +198,7 @@ public class SketchService : ISketchService
         return new SketchEntityInfo("Polygon", cx, cy, x, y);
     }
 
-    public SketchEntityInfo AddText(double x, double y, string text)
+    public SketchEntityInfo AddText(double x, double y, string text, SketchTextOptions? options = null)
     {
         if (string.IsNullOrWhiteSpace(text))
         {
@@ -176,10 +209,23 @@ public class SketchService : ISketchService
         var doc = _cm.SwApp!.IActiveDoc2
             ?? throw new InvalidOperationException(
                 "No active document. Open a document and select a face/plane first.");
-        var sketchText = doc.InsertSketchText(x, y, 0, text, 0, 0, 0, 100, 100)
+        options ??= new SketchTextOptions();
+        var sketchText = doc.IInsertSketchText(
+            x,
+            y,
+            0,
+            text,
+            (int)options.Justification,
+            options.FlipDirection ? 1 : 0,
+            options.HorizontalMirror ? 1 : 0,
+            ToPercentArgument(options.WidthFactor, "widthFactor"),
+            ToPercentArgument(options.CharSpacingFactor, "charSpacingFactor"))
             ?? throw SolidWorksApiErrorFactory.FromValidationFailure(
-                "IModelDoc2.InsertSketchText",
-                "SolidWorks did not create sketch text.");
+                "IModelDoc2.IInsertSketchText",
+                "SolidWorks did not create sketch text.",
+                CreateTextContext(x, y, text, options));
+
+        ApplyTextFormatting(sketchText, x, y, text, options);
         return new SketchEntityInfo("Text", x, y, x, y);
     }
 
@@ -310,6 +356,149 @@ public class SketchService : ISketchService
             {
                 ["selectedType"] = Enum.GetName(typeof(swSelectType_e), selectedType) ?? selectedType.ToString(),
             });
+    }
+
+    private static void ApplyTextFormatting(SketchText sketchText, double x, double y, string text, SketchTextOptions options)
+    {
+        if (!options.HasLocalFormatOverrides)
+        {
+            return;
+        }
+
+        var textFormat = sketchText.IGetTextFormat();
+        if (textFormat == null)
+        {
+            throw SolidWorksApiErrorFactory.FromValidationFailure(
+                "SketchText.IGetTextFormat",
+                "SolidWorks created sketch text but did not expose a writable text format for the requested overrides.",
+                CreateTextContext(x, y, text, options));
+        }
+
+        if (options.Height.HasValue)
+        {
+            ValidatePositive(options.Height.Value, nameof(options.Height));
+            textFormat.CharHeight = options.Height.Value;
+        }
+
+        if (!string.IsNullOrWhiteSpace(options.FontName))
+        {
+            textFormat.TypeFaceName = options.FontName.Trim();
+        }
+
+        if (options.Bold.HasValue)
+        {
+            textFormat.Bold = options.Bold.Value;
+        }
+
+        if (options.Italic.HasValue)
+        {
+            textFormat.Italic = options.Italic.Value;
+        }
+
+        if (options.Underline.HasValue)
+        {
+            textFormat.Underline = options.Underline.Value;
+        }
+
+        if (options.WidthFactor.HasValue)
+        {
+            ValidatePositive(options.WidthFactor.Value, nameof(options.WidthFactor));
+            textFormat.WidthFactor = options.WidthFactor.Value;
+        }
+
+        if (options.CharSpacingFactor.HasValue)
+        {
+            ValidatePositive(options.CharSpacingFactor.Value, nameof(options.CharSpacingFactor));
+            textFormat.CharSpacingFactor = options.CharSpacingFactor.Value;
+        }
+
+        if (options.RotationDegrees.HasValue)
+        {
+            textFormat.Escapement = options.RotationDegrees.Value * Math.PI / 180d;
+        }
+
+        bool applied = sketchText.ISetTextFormat(false, textFormat);
+        if (!applied)
+        {
+            throw SolidWorksApiErrorFactory.FromValidationFailure(
+                "SketchText.ISetTextFormat",
+                "SolidWorks did not apply the requested sketch text formatting overrides.",
+                CreateTextContext(x, y, text, options));
+        }
+    }
+
+    private static int ToPercentArgument(double? factor, string argumentName)
+    {
+        if (!factor.HasValue)
+        {
+            return 100;
+        }
+
+        ValidatePositive(factor.Value, argumentName);
+        return (int)Math.Round(factor.Value * 100d, MidpointRounding.AwayFromZero);
+    }
+
+    private static void ValidatePositive(double value, string argumentName)
+    {
+        if (value <= 0)
+        {
+            throw new ArgumentOutOfRangeException(argumentName, value, $"{argumentName} must be greater than zero.");
+        }
+    }
+
+    private static Dictionary<string, object?> CreateTextContext(double x, double y, string text, SketchTextOptions options)
+    {
+        var context = new Dictionary<string, object?>
+        {
+            ["x"] = x,
+            ["y"] = y,
+            ["textLength"] = text.Length,
+            ["justification"] = options.Justification.ToString(),
+            ["flipDirection"] = options.FlipDirection,
+            ["horizontalMirror"] = options.HorizontalMirror,
+        };
+
+        if (options.Height.HasValue)
+        {
+            context["height"] = options.Height.Value;
+        }
+
+        if (!string.IsNullOrWhiteSpace(options.FontName))
+        {
+            context["fontName"] = options.FontName;
+        }
+
+        if (options.Bold.HasValue)
+        {
+            context["bold"] = options.Bold.Value;
+        }
+
+        if (options.Italic.HasValue)
+        {
+            context["italic"] = options.Italic.Value;
+        }
+
+        if (options.Underline.HasValue)
+        {
+            context["underline"] = options.Underline.Value;
+        }
+
+        if (options.WidthFactor.HasValue)
+        {
+            context["widthFactor"] = options.WidthFactor.Value;
+        }
+
+        if (options.CharSpacingFactor.HasValue)
+        {
+            context["charSpacingFactor"] = options.CharSpacingFactor.Value;
+        }
+
+        if (options.RotationDegrees.HasValue)
+        {
+            context["rotationDegrees"] = options.RotationDegrees.Value;
+        }
+
+        return context;
     }
 
 }

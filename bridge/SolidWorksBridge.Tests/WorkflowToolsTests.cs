@@ -1,4 +1,5 @@
 using System.Text.Json;
+using ModelContextProtocol;
 using Moq;
 using SolidWorks.Interop.sldworks;
 using SolidWorksMcpApp;
@@ -97,8 +98,11 @@ public class WorkflowToolsTests
 
         var tool = new WorkflowTools(sta, connectionManager.Object, selection.Object, sketch.Object, feature.Object, workflow.Object);
 
-        await Assert.ThrowsAsync<ArgumentOutOfRangeException>(() =>
+        var error = await Assert.ThrowsAsync<McpException>(() =>
             tool.CutFaceByProjectedEdges(3, 0, false, true));
+
+        Assert.Contains("depth must be positive", error.Message);
+        Assert.IsType<ArgumentOutOfRangeException>(error.InnerException);
 
         connectionManager.Verify(m => m.EnsureConnected(), Times.Never);
         selection.Verify(s => s.SelectEntity(It.IsAny<SelectableEntityType>(), It.IsAny<int>(), It.IsAny<bool>(), It.IsAny<int>(), It.IsAny<string?>()), Times.Never);

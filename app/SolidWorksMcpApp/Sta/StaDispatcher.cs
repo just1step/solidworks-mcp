@@ -1,6 +1,8 @@
 using System.Collections.Concurrent;
 using System.Text.Json;
+using ModelContextProtocol;
 using SolidWorksMcpApp.Logging;
+using SolidWorksBridge.SolidWorks;
 
 namespace SolidWorksMcpApp;
 
@@ -64,7 +66,7 @@ public sealed class StaDispatcher : IDisposable
         catch (Exception ex)
         {
             ServerLogBuffer.Append("ERROR", "COM", $"{operationName} failed{argumentText}.", ex);
-            throw;
+            throw WrapToolException(ex);
         }
     }
 
@@ -76,6 +78,16 @@ public sealed class StaDispatcher : IDisposable
         });
 
     public void Dispose() => _queue.CompleteAdding();
+
+    private static Exception WrapToolException(Exception ex) =>
+        ex switch
+        {
+            McpException => ex,
+            SolidWorksApiException => new McpException(ex.Message, ex),
+            ArgumentException => new McpException(ex.Message, ex),
+            InvalidOperationException => new McpException(ex.Message, ex),
+            _ => ex,
+        };
 
     private static string FormatPayload(object? payload)
     {

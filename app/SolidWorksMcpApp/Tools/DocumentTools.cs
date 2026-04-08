@@ -13,8 +13,14 @@ public class DocumentTools(StaDispatcher sta, IDocumentService docs)
         [Description("Document type: Part, Assembly, or Drawing")] string type = "Part",
         [Description("Optional path to a template file (.prtdot, .asmdot, .drwdot)")] string? templatePath = null)
     {
-        var docType = ParseDocType(type);
-        var info = await sta.InvokeLoggedAsync(nameof(NewDocument), new { type = docType.ToString(), templatePath }, () => docs.NewDocument(docType, templatePath));
+        var info = await sta.InvokeLoggedAsync(
+            nameof(NewDocument),
+            new { type, templatePath },
+            () =>
+            {
+                var docType = ToolArgumentParsing.ParseDocType(type);
+                return docs.NewDocument(docType, templatePath);
+            });
         return JsonSerializer.Serialize(info);
     }
 
@@ -79,8 +85,15 @@ public class DocumentTools(StaDispatcher sta, IDocumentService docs)
     public async Task<string> ShowStandardView(
         [Description("Standard view name.")] string view = "isometric")
     {
-        var standardView = ParseStandardView(view);
-        await sta.InvokeLoggedAsync(nameof(ShowStandardView), new { view = standardView.ToString() }, () => docs.ShowStandardView(standardView));
+        var standardView = await sta.InvokeLoggedAsync(
+            nameof(ShowStandardView),
+            new { view },
+            () =>
+            {
+                var parsedView = ToolArgumentParsing.ParseStandardView(view);
+                docs.ShowStandardView(parsedView);
+                return parsedView;
+            });
         return $"Switched to {standardView} view.";
     }
 
@@ -118,25 +131,4 @@ public class DocumentTools(StaDispatcher sta, IDocumentService docs)
         var info = await sta.InvokeLoggedAsync(nameof(GetActiveDocument), null, docs.GetActiveDocument);
         return info is null ? "null" : JsonSerializer.Serialize(info);
     }
-
-    private static SwDocType ParseDocType(string type) => type.ToLowerInvariant() switch
-    {
-        "assembly" or "asm" => SwDocType.Assembly,
-        "drawing" or "drw"  => SwDocType.Drawing,
-        _                   => SwDocType.Part,
-    };
-
-    private static SwStandardView ParseStandardView(string view) => view.ToLowerInvariant() switch
-    {
-        "front" => SwStandardView.Front,
-        "back" => SwStandardView.Back,
-        "left" => SwStandardView.Left,
-        "right" => SwStandardView.Right,
-        "top" => SwStandardView.Top,
-        "bottom" => SwStandardView.Bottom,
-        "iso" or "isometric" => SwStandardView.Isometric,
-        "trimetric" => SwStandardView.Trimetric,
-        "dimetric" => SwStandardView.Dimetric,
-        _ => throw new ArgumentException($"Unknown standard view: '{view}'.")
-    };
 }

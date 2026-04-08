@@ -19,6 +19,12 @@
     <PackageReference Include="SolidWorks.Interop.swconst" Version="32.1.0" />
   </ItemGroup>
 
+  <ItemGroup>
+    <Compile Remove="artifacts\**\*.cs" />
+    <EmbeddedResource Remove="artifacts\**\*" />
+    <None Remove="artifacts\**\*" />
+  </ItemGroup>
+
   <!-- SolidWorks COM references - uncomment when SW is installed -->
   <!--
   <ItemGroup>

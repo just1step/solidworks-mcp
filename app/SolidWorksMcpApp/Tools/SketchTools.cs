@@ -116,9 +116,41 @@ public class SketchTools(StaDispatcher sta, ISketchService sketch)
     public async Task<string> AddText(
         [Description("Text anchor X (meters)")] double x,
         [Description("Text anchor Y (meters)")] double y,
-        [Description("Text content to insert")] string text)
+        [Description("Text content to insert")] string text,
+        [Description("Optional text justification: left, center, right, or fullyJustified.")] string? justification = null,
+        [Description("Optional: flip the text direction relative to the sketch x-axis.")] bool flipDirection = false,
+        [Description("Optional: mirror the text horizontally.")] bool horizontalMirror = false,
+        [Description("Optional character height in meters.")] double? height = null,
+        [Description("Optional font family name, for example 'Arial' or 'Century Gothic'.")] string? fontName = null,
+        [Description("Optional bold toggle.")] bool? bold = null,
+        [Description("Optional italic toggle.")] bool? italic = null,
+        [Description("Optional underline toggle.")] bool? underline = null,
+        [Description("Optional width factor multiplier. 1.0 keeps default width.")] double? widthFactor = null,
+        [Description("Optional character spacing multiplier. 1.0 keeps default spacing.")] double? charSpacingFactor = null,
+        [Description("Optional text rotation in degrees.")] double? rotationDegrees = null)
     {
-        var info = await sta.InvokeLoggedAsync(nameof(AddText), new { x, y, text }, () => sketch.AddText(x, y, text));
+        var info = await sta.InvokeLoggedAsync(
+            nameof(AddText),
+            new { x, y, text, justification, flipDirection, horizontalMirror, height, fontName, bold, italic, underline, widthFactor, charSpacingFactor, rotationDegrees },
+            () =>
+            {
+                var options = new SketchTextOptions
+                {
+                    Justification = ToolArgumentParsing.ParseSketchTextJustification(justification),
+                    FlipDirection = flipDirection,
+                    HorizontalMirror = horizontalMirror,
+                    Height = height,
+                    FontName = fontName,
+                    Bold = bold,
+                    Italic = italic,
+                    Underline = underline,
+                    WidthFactor = widthFactor,
+                    CharSpacingFactor = charSpacingFactor,
+                    RotationDegrees = rotationDegrees,
+                };
+
+                return sketch.AddText(x, y, text, options);
+            });
         return JsonSerializer.Serialize(info);
     }
 }
