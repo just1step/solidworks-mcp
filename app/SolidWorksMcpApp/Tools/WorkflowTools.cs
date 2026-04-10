@@ -43,6 +43,16 @@ public class WorkflowTools(
         return JsonSerializer.Serialize(result);
     }
 
+    [McpServerTool, Description("Generate an advisory-only model structure hygiene report from the active document's feature tree and selectable topology. Use this before release or handoff to flag loose sketches, suspicious sketch-heavy prefixes, or missing topology without making any automatic edits.")]
+    public async Task<string> ReviewModelStructureHygiene()
+    {
+        var result = await sta.InvokeLoggedAsync(
+            nameof(ReviewModelStructureHygiene),
+            null,
+            workflow.ReviewModelStructureHygiene);
+        return JsonSerializer.Serialize(result);
+    }
+
     [McpServerTool, Description("Run the proven one-shot face-cut workflow: select a planar face by ListEntities index, open a sketch on that face, enumerate the face edges via IFace2.GetEdges, select those edges, project them with ISketchManager.SketchUseEdge3, then exit/reselect the sketch as required and create a cut. Use this instead of manually chaining SelectEntity + InsertSketch + SketchUseEdge3 + ExtrudeCut when cutting from an existing face outline.")]
     public async Task<string> CutFaceByProjectedEdges(
         [Description("Zero-based face index from ListEntities(Face).")]

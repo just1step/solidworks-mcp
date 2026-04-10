@@ -12,6 +12,7 @@ internal sealed class SolidWorksIntegrationTestContext : IDisposable
     public ISketchService Sketch { get; }
     public IFeatureService Feature { get; }
     public IAssemblyService Assembly { get; }
+    public IWorkflowService Workflow { get; }
     public ISwConnectionManager ConnectionManager { get; }
 
     public SolidWorksIntegrationTestContext()
@@ -24,6 +25,7 @@ internal sealed class SolidWorksIntegrationTestContext : IDisposable
         Sketch = new McpSketchService(_hubClient);
         Feature = new McpFeatureService(_hubClient);
         Assembly = new McpAssemblyService(_hubClient);
+        Workflow = new McpWorkflowService(_hubClient);
 
         ConnectionManager.Connect();
         _baselineDocuments = CaptureDocumentCounts(Documents.ListDocuments());

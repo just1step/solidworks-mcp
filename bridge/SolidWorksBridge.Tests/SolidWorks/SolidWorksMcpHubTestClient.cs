@@ -76,6 +76,7 @@ internal sealed class SolidWorksMcpHubTestClient : IDisposable
         "CheckInterference",
         "ReplaceComponent",
         "DiagnoseActiveDocumentHealth",
+        "ReviewModelStructureHygiene",
         "ReplaceNestedComponentAndVerifyPersistence",
         "ReviewTargetedStaticInterference",
     ];
@@ -690,6 +691,51 @@ internal sealed class McpAssemblyService : IAssemblyService
             ("replacementFilePath", replacementFilePath),
             ("configName", configName),
             ("replaceAllInstances", replaceAllInstances),
+            ("useConfigChoice", useConfigChoice),
+            ("reattachMates", reattachMates)));
+}
+
+internal sealed class McpWorkflowService : IWorkflowService
+{
+    private readonly SolidWorksMcpHubTestClient _client;
+
+    public McpWorkflowService(SolidWorksMcpHubTestClient client)
+    {
+        _client = client;
+    }
+
+    public ActiveDocumentHealthDiagnosticsResult DiagnoseActiveDocumentHealth(bool forceRebuild = true, bool topOnly = false, bool saveDocument = false)
+        => _client.CallTool<ActiveDocumentHealthDiagnosticsResult>("DiagnoseActiveDocumentHealth", SolidWorksMcpHubTestClient.Args(
+            ("forceRebuild", forceRebuild),
+            ("topOnly", topOnly),
+            ("saveDocument", saveDocument)));
+
+    public ModelStructureHygieneAuditResult ReviewModelStructureHygiene()
+        => _client.CallTool<ModelStructureHygieneAuditResult>("ReviewModelStructureHygiene");
+
+    public TargetedStaticInterferenceReviewResult ReviewTargetedStaticInterference(
+        string firstHierarchyPath,
+        string secondHierarchyPath,
+        bool treatCoincidenceAsInterference = false)
+        => _client.CallTool<TargetedStaticInterferenceReviewResult>("ReviewTargetedStaticInterference", SolidWorksMcpHubTestClient.Args(
+            ("firstHierarchyPath", firstHierarchyPath),
+            ("secondHierarchyPath", secondHierarchyPath),
+            ("treatCoincidenceAsInterference", treatCoincidenceAsInterference)));
+
+    public NestedComponentReplacementWorkflowResult ReplaceNestedComponentAndVerifyPersistence(
+        string replacementFilePath,
+        string? componentName = null,
+        string? hierarchyPath = null,
+        string? componentPath = null,
+        string configName = "",
+        int useConfigChoice = 0,
+        bool reattachMates = true)
+        => _client.CallTool<NestedComponentReplacementWorkflowResult>("ReplaceNestedComponentAndVerifyPersistence", SolidWorksMcpHubTestClient.Args(
+            ("replacementFilePath", replacementFilePath),
+            ("componentName", componentName),
+            ("hierarchyPath", hierarchyPath),
+            ("componentPath", componentPath),
+            ("configName", configName),
             ("useConfigChoice", useConfigChoice),
             ("reattachMates", reattachMates)));
 }

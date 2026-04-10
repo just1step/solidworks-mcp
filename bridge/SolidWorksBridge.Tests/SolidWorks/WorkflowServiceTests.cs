@@ -654,6 +654,78 @@ public class WorkflowServiceTests
     }
 
     [Fact]
+    public void ReviewModelStructureHygiene_WhenLooseSketchesAndNoTopology_ReturnsActionableWarnings()
+    {
+        var documents = new Mock<IDocumentService>();
+        var assembly = new Mock<IAssemblyService>();
+        var selection = new Mock<ISelectionService>();
+        var logger = new RecordingWorkflowStageLogger();
+        var active = new SwDocumentInfo(@"C:\Part.sldprt", "Part", (int)SwDocType.Part);
+
+        documents.Setup(d => d.GetActiveDocument()).Returns(active);
+        selection.Setup(s => s.GetEditState()).Returns(new EditStateInfo(false, "None", true, true));
+        selection.Setup(s => s.ListFeatureTree()).Returns(
+        [
+            new FeatureTreeItemInfo(0, "Sketch1", "ProfileFeature", true, false),
+            new FeatureTreeItemInfo(1, "Sketch2", "ProfileFeature", true, false),
+            new FeatureTreeItemInfo(2, "Front Plane", "RefPlane", false, false),
+        ]);
+        selection.Setup(s => s.ListEntities(SelectableEntityType.Face, null)).Returns(Array.Empty<SelectableEntityInfo>());
+        selection.Setup(s => s.ListEntities(SelectableEntityType.Edge, null)).Returns(Array.Empty<SelectableEntityInfo>());
+        selection.Setup(s => s.ListEntities(SelectableEntityType.Vertex, null)).Returns(Array.Empty<SelectableEntityInfo>());
+
+        var service = new WorkflowService(documents.Object, assembly.Object, selection.Object, null, logger);
+
+        var result = service.ReviewModelStructureHygiene();
+
+        Assert.Equal("completed", result.Status);
+        Assert.True(result.HasWarnings);
+        Assert.False(result.ReadyForReleaseReview);
+        Assert.NotNull(result.FeatureTreeSummary);
+        Assert.Equal(2, result.FeatureTreeSummary!.LooseSketchCount);
+        Assert.NotNull(result.TopologySummary);
+        Assert.False(result.TopologySummary!.HasSelectableTopology);
+        Assert.Contains(result.Findings, finding => finding.Id == "loose_top_level_sketches");
+        Assert.Contains(result.Findings, finding => finding.Id == "stacked_prefix_sketches");
+        Assert.Contains(result.Findings, finding => finding.Id == "featureless_part");
+        AssertStageLogged(logger, nameof(WorkflowService.ReviewModelStructureHygiene), "verification.feature_tree", "completed", "items=3");
+        AssertStageLogged(logger, nameof(WorkflowService.ReviewModelStructureHygiene), "verification.topology", "completed", "faces=0");
+        AssertStageLogged(logger, nameof(WorkflowService.ReviewModelStructureHygiene), "final", "completed", "warnings=3");
+    }
+
+    [Fact]
+    public void ReviewModelStructureHygiene_WhenHealthyPart_IsReadyForReleaseReview()
+    {
+        var documents = new Mock<IDocumentService>();
+        var assembly = new Mock<IAssemblyService>();
+        var selection = new Mock<ISelectionService>();
+        var active = new SwDocumentInfo(@"C:\Part.sldprt", "Part", (int)SwDocType.Part);
+
+        documents.Setup(d => d.GetActiveDocument()).Returns(active);
+        selection.Setup(s => s.GetEditState()).Returns(new EditStateInfo(false, "None", true, true));
+        selection.Setup(s => s.ListFeatureTree()).Returns(
+        [
+            new FeatureTreeItemInfo(0, "Front Plane", "RefPlane", false, false),
+            new FeatureTreeItemInfo(1, "Sketch1", "ProfileFeature", true, true),
+            new FeatureTreeItemInfo(2, "Boss-Extrude1", "BossExtrude", false, false),
+        ]);
+        selection.Setup(s => s.ListEntities(SelectableEntityType.Face, null)).Returns([new SelectableEntityInfo(0, SelectableEntityType.Face, null, null)]);
+        selection.Setup(s => s.ListEntities(SelectableEntityType.Edge, null)).Returns([new SelectableEntityInfo(0, SelectableEntityType.Edge, null, null)]);
+        selection.Setup(s => s.ListEntities(SelectableEntityType.Vertex, null)).Returns([new SelectableEntityInfo(0, SelectableEntityType.Vertex, null, null)]);
+
+        var service = new WorkflowService(documents.Object, assembly.Object, selection.Object);
+
+        var result = service.ReviewModelStructureHygiene();
+
+        Assert.Equal("completed", result.Status);
+        Assert.False(result.HasWarnings);
+        Assert.True(result.ReadyForReleaseReview);
+        Assert.Empty(result.Findings);
+        Assert.Equal(0, result.FeatureTreeSummary!.LooseSketchCount);
+        Assert.True(result.TopologySummary!.HasSelectableTopology);
+    }
+
+    [Fact]
     public void DiagnoseActiveDocumentHealth_OnPlannedNextVersion_AttachesCompatibilityAdvisory()
     {
         var documents = new Mock<IDocumentService>();

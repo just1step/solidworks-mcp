@@ -77,12 +77,49 @@ public record ActiveDocumentHealthDiagnosticsResult(
     DocumentHealthActionableDiagnosticsInfo? ActionableDiagnostics = null,
     DocumentHealthSensorSummaryInfo? SensorHealthChecks = null);
 
+public record ModelStructureFeatureTreeSummary(
+    int TotalItems,
+    int SketchCount,
+    int LooseSketchCount,
+    int ReferenceLikeCount,
+    int ModelingFeatureCount,
+    int ConsecutiveSketchesBeforeFirstModelingFeature);
+
+public record ModelStructureTopologySummary(
+    int FaceCount,
+    int EdgeCount,
+    int VertexCount,
+    bool HasSelectableTopology);
+
+public record ModelStructureHygieneFindingInfo(
+    string Id,
+    string Severity,
+    string Category,
+    string Summary,
+    string Detail,
+    IReadOnlyList<string> Evidence,
+    string SuggestedAction);
+
+public record ModelStructureHygieneAuditResult(
+    SwDocumentInfo? ActiveDocument,
+    EditStateInfo? EditState,
+    ModelStructureFeatureTreeSummary? FeatureTreeSummary,
+    ModelStructureTopologySummary? TopologySummary,
+    IReadOnlyList<ModelStructureHygieneFindingInfo> Findings,
+    bool HasWarnings,
+    bool ReadyForReleaseReview,
+    string Status,
+    string? FailureReason,
+    CompatibilityAdvisory? CompatibilityAdvisory = null);
+
 public interface IWorkflowService
 {
     ActiveDocumentHealthDiagnosticsResult DiagnoseActiveDocumentHealth(
         bool forceRebuild = true,
         bool topOnly = false,
         bool saveDocument = false);
+
+    ModelStructureHygieneAuditResult ReviewModelStructureHygiene();
 
     TargetedStaticInterferenceReviewResult ReviewTargetedStaticInterference(
         string firstHierarchyPath,
@@ -307,6 +344,96 @@ public class WorkflowService : IWorkflowService
                     CompatibilityAdvisory: compatibilityAdvisory,
                     ActionableDiagnostics: actionableDiagnostics,
                     SensorHealthChecks: sensorHealthChecks));
+        }
+        catch (Exception ex)
+        {
+            LogUnhandledWorkflowException(workflowName, ex);
+            throw;
+        }
+    }
+
+    public ModelStructureHygieneAuditResult ReviewModelStructureHygiene()
+    {
+        const string workflowName = nameof(ReviewModelStructureHygiene);
+
+        try
+        {
+            var compatibilityAdvisory = CompatibilityPolicy.TryGetAdvisory(_connectionManager);
+
+            if (_selection == null)
+            {
+                LogStageStarted(workflowName, "preconditions.selection_service");
+                LogStageFailed(workflowName, "preconditions.selection_service", "ISelectionService is required.");
+                throw new InvalidOperationException("Model structure hygiene audit requires an ISelectionService instance.");
+            }
+
+            LogStageStarted(workflowName, "preconditions.active_document");
+            var activeDocument = _documents.GetActiveDocument();
+            if (activeDocument == null)
+            {
+                LogStageFailed(workflowName, "preconditions.active_document", "status=no_active_document");
+                return FinalizeWorkflow(
+                    workflowName,
+                    CreateHygieneFailureResult(
+                        activeDocument: null,
+                        editState: null,
+                        featureTreeSummary: null,
+                        topologySummary: null,
+                        status: "no_active_document",
+                        failureReason: "No active document.",
+                        compatibilityAdvisory: compatibilityAdvisory));
+            }
+
+            LogStageCompleted(workflowName, "preconditions.active_document", ComposeDetail($"path={activeDocument.Path ?? activeDocument.Title}"));
+
+            LogStageStarted(workflowName, "preconditions.edit_state");
+            var editState = _selection.GetEditState();
+            if (editState.IsEditing)
+            {
+                LogStageFailed(workflowName, "preconditions.edit_state", ComposeDetail($"mode={editState.EditMode}", "status=editing_state_blocks_audit"));
+                return FinalizeWorkflow(
+                    workflowName,
+                    CreateHygieneFailureResult(
+                        activeDocument,
+                        editState,
+                        featureTreeSummary: null,
+                        topologySummary: null,
+                        status: "editing_state_blocks_audit",
+                        failureReason: "Finish the active sketch or edit mode before running the model structure hygiene audit.",
+                        compatibilityAdvisory: compatibilityAdvisory));
+            }
+
+            LogStageCompleted(workflowName, "preconditions.edit_state", ComposeDetail($"mode={editState.EditMode}"));
+
+            var featureTree = ExecuteStage(
+                workflowName,
+                "verification.feature_tree",
+                () => _selection.ListFeatureTree(),
+                list => ComposeDetail($"items={list.Count}", $"sketches={list.Count(static item => item.IsSketch)}"));
+
+            var topologySummary = ExecuteStage(
+                workflowName,
+                "verification.topology",
+                () => BuildTopologySummary(activeDocument.Type, _selection),
+                summary => ComposeDetail($"faces={summary.FaceCount}", $"edges={summary.EdgeCount}", $"vertices={summary.VertexCount}"));
+
+            var featureTreeSummary = SummarizeFeatureTree(featureTree);
+            var findings = BuildStructureHygieneFindings(activeDocument, featureTree, featureTreeSummary, topologySummary);
+            bool hasWarnings = findings.Count > 0;
+
+            return FinalizeWorkflow(
+                workflowName,
+                new ModelStructureHygieneAuditResult(
+                    ActiveDocument: activeDocument,
+                    EditState: editState,
+                    FeatureTreeSummary: featureTreeSummary,
+                    TopologySummary: topologySummary,
+                    Findings: findings,
+                    HasWarnings: hasWarnings,
+                    ReadyForReleaseReview: !hasWarnings,
+                    Status: "completed",
+                    FailureReason: null,
+                    CompatibilityAdvisory: compatibilityAdvisory));
         }
         catch (Exception ex)
         {
@@ -919,6 +1046,20 @@ public class WorkflowService : IWorkflowService
         return result;
     }
 
+    private ModelStructureHygieneAuditResult FinalizeWorkflow(string workflowName, ModelStructureHygieneAuditResult result)
+    {
+        _workflowStageLogger.LogStage(
+            workflowName,
+            "final",
+            string.Equals(result.Status, "completed", StringComparison.OrdinalIgnoreCase) ? "completed" : "failed",
+            ComposeDetail(
+                $"status={result.Status}",
+                $"warnings={result.Findings.Count}",
+                $"readyForReleaseReview={ToToken(result.ReadyForReleaseReview)}",
+                result.FailureReason));
+        return result;
+    }
+
     private TargetedStaticInterferenceReviewResult FinalizeWorkflow(string workflowName, TargetedStaticInterferenceReviewResult result)
     {
         _workflowStageLogger.LogStage(
@@ -969,6 +1110,152 @@ public class WorkflowService : IWorkflowService
 
     private static int GetCorrelatedIssueCount(FeatureDiagnosticsResult diagnostics) =>
         diagnostics.CorrelatedIssues?.Count ?? 0;
+
+    private static ModelStructureTopologySummary BuildTopologySummary(int documentType, ISelectionService selection)
+    {
+        if (documentType != (int)SwDocType.Part)
+        {
+            return new ModelStructureTopologySummary(0, 0, 0, false);
+        }
+
+        int faceCount = selection.ListEntities(SelectableEntityType.Face).Count;
+        int edgeCount = selection.ListEntities(SelectableEntityType.Edge).Count;
+        int vertexCount = selection.ListEntities(SelectableEntityType.Vertex).Count;
+        return new ModelStructureTopologySummary(faceCount, edgeCount, vertexCount, faceCount > 0 || edgeCount > 0 || vertexCount > 0);
+    }
+
+    private static ModelStructureFeatureTreeSummary SummarizeFeatureTree(IReadOnlyList<FeatureTreeItemInfo> featureTree)
+    {
+        int sketchPrefixCount = 0;
+        foreach (var item in featureTree)
+        {
+            if (item.IsSketch)
+            {
+                sketchPrefixCount++;
+                continue;
+            }
+
+            if (IsReferenceLikeFeature(item))
+            {
+                continue;
+            }
+
+            break;
+        }
+
+        return new ModelStructureFeatureTreeSummary(
+            TotalItems: featureTree.Count,
+            SketchCount: featureTree.Count(static item => item.IsSketch),
+            LooseSketchCount: featureTree.Count(static item => item.IsSketch && !item.HasChildren),
+            ReferenceLikeCount: featureTree.Count(IsReferenceLikeFeature),
+            ModelingFeatureCount: featureTree.Count(static item => !item.IsSketch && !IsReferenceLikeFeature(item)),
+            ConsecutiveSketchesBeforeFirstModelingFeature: sketchPrefixCount);
+    }
+
+    private static IReadOnlyList<ModelStructureHygieneFindingInfo> BuildStructureHygieneFindings(
+        SwDocumentInfo activeDocument,
+        IReadOnlyList<FeatureTreeItemInfo> featureTree,
+        ModelStructureFeatureTreeSummary featureTreeSummary,
+        ModelStructureTopologySummary topologySummary)
+    {
+        var findings = new List<ModelStructureHygieneFindingInfo>();
+
+        if (featureTreeSummary.TotalItems == 0)
+        {
+            findings.Add(new ModelStructureHygieneFindingInfo(
+                Id: "empty_feature_tree",
+                Severity: "warning",
+                Category: "feature_tree",
+                Summary: "The active document exposes no top-level FeatureManager items.",
+                Detail: "A missing or empty feature tree makes design intent and release readiness hard to review.",
+                Evidence: Array.Empty<string>(),
+                SuggestedAction: "Open the document in SolidWorks and confirm the feature tree is fully loaded before handoff."));
+            return findings;
+        }
+
+        var looseSketchNames = featureTree
+            .Where(static item => item.IsSketch && !item.HasChildren)
+            .Select(static item => item.Name)
+            .ToArray();
+        if (looseSketchNames.Length > 0)
+        {
+            findings.Add(new ModelStructureHygieneFindingInfo(
+                Id: "loose_top_level_sketches",
+                Severity: "warning",
+                Category: "sketch_hygiene",
+                Summary: $"Found {looseSketchNames.Length} loose top-level sketch(es) that are not consumed by downstream features.",
+                Detail: "Unused sketches often indicate abandoned design intent, duplicated construction work, or cleanup that never happened.",
+                Evidence: looseSketchNames,
+                SuggestedAction: "Review each loose sketch and either consume it with a downstream feature, rename it to make intent explicit, or delete it if it is obsolete."));
+        }
+
+        if (featureTreeSummary.ConsecutiveSketchesBeforeFirstModelingFeature >= 2)
+        {
+            var prefixSketches = featureTree
+                .TakeWhile(item => item.IsSketch || IsReferenceLikeFeature(item))
+                .Where(static item => item.IsSketch)
+                .Select(static item => item.Name)
+                .ToArray();
+
+            findings.Add(new ModelStructureHygieneFindingInfo(
+                Id: "stacked_prefix_sketches",
+                Severity: "warning",
+                Category: "design_intent",
+                Summary: $"There are {featureTreeSummary.ConsecutiveSketchesBeforeFirstModelingFeature} top-level sketches before the first modeling feature.",
+                Detail: "A large sketch-only prefix can be a sign that design intent is fragmented across multiple setup sketches instead of being grouped into clearer feature milestones.",
+                Evidence: prefixSketches,
+                SuggestedAction: "Review whether these setup sketches should be consolidated, renamed with clearer intent, or converted into earlier driving features."));
+        }
+
+        if (activeDocument.Type == (int)SwDocType.Part)
+        {
+            if (!topologySummary.HasSelectableTopology && featureTreeSummary.ModelingFeatureCount > 0)
+            {
+                findings.Add(new ModelStructureHygieneFindingInfo(
+                    Id: "modeling_features_without_topology",
+                    Severity: "warning",
+                    Category: "topology",
+                    Summary: "The part has modeling features in the feature tree but exposes no selectable topology.",
+                    Detail: "This usually means the feature tree and resulting body state are out of sync, or that the part never produced a usable solid/surface result.",
+                    Evidence: featureTree.Where(item => !item.IsSketch && !IsReferenceLikeFeature(item)).Select(item => item.Name).Take(8).ToArray(),
+                    SuggestedAction: "Rebuild the part, inspect the first failing modeling feature, and verify the document produces faces before release or export."));
+            }
+            else if (!topologySummary.HasSelectableTopology && featureTreeSummary.ModelingFeatureCount == 0)
+            {
+                findings.Add(new ModelStructureHygieneFindingInfo(
+                    Id: "featureless_part",
+                    Severity: "warning",
+                    Category: "topology",
+                    Summary: "The active part has no selectable topology and no top-level modeling features.",
+                    Detail: "This is usually acceptable only for a scratch template or an unfinished setup file, not for a release candidate.",
+                    Evidence: featureTree.Where(static item => item.IsSketch).Select(static item => item.Name).Take(8).ToArray(),
+                    SuggestedAction: "Confirm whether this file is intended to stay as a template/setup part; otherwise create or restore the driving modeling features before handoff."));
+            }
+        }
+
+        return findings.Count == 0
+            ? Array.Empty<ModelStructureHygieneFindingInfo>()
+            : findings.ToArray();
+    }
+
+    private static bool IsReferenceLikeFeature(FeatureTreeItemInfo item)
+    {
+        if (item.IsSketch)
+        {
+            return false;
+        }
+
+        if (string.IsNullOrWhiteSpace(item.TypeName))
+        {
+            return false;
+        }
+
+        return item.TypeName.Contains("RefPlane", StringComparison.OrdinalIgnoreCase)
+            || item.TypeName.Contains("RefAxis", StringComparison.OrdinalIgnoreCase)
+            || item.TypeName.Contains("CoordSys", StringComparison.OrdinalIgnoreCase)
+            || item.TypeName.Contains("Origin", StringComparison.OrdinalIgnoreCase)
+            || item.TypeName.Contains("Folder", StringComparison.OrdinalIgnoreCase);
+    }
 
     private DocumentHealthSensorSummaryInfo CollectSensorHealthChecks(string workflowName)
     {
@@ -1262,6 +1549,28 @@ public class WorkflowService : IWorkflowService
             FailureReason: failureReason,
             CompatibilityAdvisory: compatibilityAdvisory,
             ActionableDiagnostics: CreateActionableDiagnostics(featureDiagnosticsBeforeRebuild, featureDiagnosticsAfterRebuild));
+    }
+
+    private static ModelStructureHygieneAuditResult CreateHygieneFailureResult(
+        SwDocumentInfo? activeDocument,
+        EditStateInfo? editState,
+        ModelStructureFeatureTreeSummary? featureTreeSummary,
+        ModelStructureTopologySummary? topologySummary,
+        string status,
+        string failureReason,
+        CompatibilityAdvisory? compatibilityAdvisory)
+    {
+        return new ModelStructureHygieneAuditResult(
+            ActiveDocument: activeDocument,
+            EditState: editState,
+            FeatureTreeSummary: featureTreeSummary,
+            TopologySummary: topologySummary,
+            Findings: Array.Empty<ModelStructureHygieneFindingInfo>(),
+            HasWarnings: false,
+            ReadyForReleaseReview: false,
+            Status: status,
+            FailureReason: failureReason,
+            CompatibilityAdvisory: compatibilityAdvisory);
     }
 
     private static RebuildExecutionResult CreateNoOpRebuildResult(bool topOnly)

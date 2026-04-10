@@ -349,4 +349,48 @@ public class WorkflowToolsTests
         Assert.Equal("completed", parsed.RootElement.GetProperty("SensorHealthChecks").GetProperty("Status").GetString());
         workflow.Verify(w => w.DiagnoseActiveDocumentHealth(true, false, true), Times.Once);
     }
+
+    [Fact]
+    public async Task ReviewModelStructureHygiene_DelegatesToWorkflowService()
+    {
+        using var sta = new StaDispatcher();
+
+        var connectionManager = new Mock<ISwConnectionManager>();
+        var selection = new Mock<ISelectionService>();
+        var sketch = new Mock<ISketchService>();
+        var feature = new Mock<IFeatureService>();
+        var workflow = new Mock<IWorkflowService>();
+
+        workflow.Setup(w => w.ReviewModelStructureHygiene())
+            .Returns(new ModelStructureHygieneAuditResult(
+                new SwDocumentInfo(@"C:\Part.sldprt", "Part", (int)SwDocType.Part),
+                new EditStateInfo(false, "None", true, true),
+                new ModelStructureFeatureTreeSummary(3, 1, 1, 1, 1, 1),
+                new ModelStructureTopologySummary(0, 0, 0, false),
+                [
+                    new ModelStructureHygieneFindingInfo(
+                        "loose_top_level_sketches",
+                        "warning",
+                        "sketch_hygiene",
+                        "Loose top-level sketch detected.",
+                        "A sketch is not consumed by downstream features.",
+                        ["Sketch1"],
+                        "Consume or remove the sketch before release.")
+                ],
+                true,
+                false,
+                "completed",
+                null));
+
+        var tool = new WorkflowTools(sta, connectionManager.Object, selection.Object, sketch.Object, feature.Object, workflow.Object);
+
+        string json = await tool.ReviewModelStructureHygiene();
+
+        using var parsed = JsonDocument.Parse(json);
+        Assert.Equal("completed", parsed.RootElement.GetProperty("Status").GetString());
+        Assert.True(parsed.RootElement.GetProperty("HasWarnings").GetBoolean());
+        Assert.Equal(1, parsed.RootElement.GetProperty("Findings").GetArrayLength());
+        Assert.Equal("loose_top_level_sketches", parsed.RootElement.GetProperty("Findings")[0].GetProperty("Id").GetString());
+        workflow.Verify(w => w.ReviewModelStructureHygiene(), Times.Once);
+    }
 }

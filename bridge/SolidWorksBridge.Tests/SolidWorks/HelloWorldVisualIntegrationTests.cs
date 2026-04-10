@@ -832,6 +832,17 @@ public class HelloWorldVisualIntegrationTests : IDisposable
         Assert.Equal(0, featureDiagnostics.ErrorCount);
         Assert.Empty(featureDiagnostics.CorrelatedIssues ?? Array.Empty<CorrelatedDiagnosticIssueInfo>());
 
+        string hygienePartPath = _ctx.CreateAndSaveBoxPart();
+        _ctx.Documents.OpenDocument(hygienePartPath);
+        var hygieneAudit = _ctx.Workflow.ReviewModelStructureHygiene();
+        Assert.Equal("completed", hygieneAudit.Status);
+        Assert.False(hygieneAudit.HasWarnings);
+        Assert.True(hygieneAudit.ReadyForReleaseReview);
+        Assert.NotNull(hygieneAudit.FeatureTreeSummary);
+        Assert.NotNull(hygieneAudit.TopologySummary);
+        Assert.Empty(hygieneAudit.Findings);
+        Assert.True(hygieneAudit.TopologySummary!.HasSelectableTopology);
+
         string reportPath = WriteSmokeReport(
             outputDirectory,
             "cross-version-smoke-document-surface.json",
@@ -865,12 +876,14 @@ public class HelloWorldVisualIntegrationTests : IDisposable
                     "SaveDocumentAs",
                     "GetEditState",
                     "GetFeatureDiagnostics",
+                    "ReviewModelStructureHygiene",
                 },
                 new[]
                 {
                     sketchSheetPath,
                     pngPath,
                     stepPath,
+                    hygienePartPath,
                 }));
 
         Assert.True(File.Exists(reportPath));
