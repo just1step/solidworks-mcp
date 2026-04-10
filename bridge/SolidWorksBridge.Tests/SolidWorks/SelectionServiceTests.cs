@@ -447,6 +447,48 @@ public class SelectionServiceTests
     }
 
     [Fact]
+    public void ListModelHealthSensors_ReturnsStructuredSensorMetadata()
+    {
+        var sensor = new Mock<ISensor>();
+        sensor.SetupGet(s => s.SensorType).Returns((int)swSensorType_e.swSensorDimension);
+        sensor.SetupGet(s => s.SensorAlertEnabled).Returns(true);
+        sensor.SetupGet(s => s.SensorAlertType).Returns((int)swSensorAlertType_e.swSensorAlert_GreaterThan);
+        sensor.SetupGet(s => s.SensorAlertValue1).Returns(10d);
+        sensor.SetupGet(s => s.SensorAlertValue2).Returns(0d);
+        sensor.SetupGet(s => s.SensorAlertState).Returns(true);
+        sensor.Setup(s => s.GetSensorFeatureData()).Returns(new object());
+        double sensorValue = 12.5d;
+        string sensorUnits = "mm";
+        sensor.Setup(s => s.GetSensorValue(out sensorValue, out sensorUnits)).Returns(true);
+
+        var (manager, _, doc) = ConnectedWithDoc();
+        doc.Setup(d => d.FirstFeature()).Returns(FeatureNode("ThicknessSensor", "Sensor", specificFeature: sensor.Object));
+        doc.Setup(d => d.GetPathName()).Returns(@"C:\Part.sldprt");
+        doc.Setup(d => d.GetTitle()).Returns("Part");
+
+        var result = new SelectionService(manager.Object).ListModelHealthSensors();
+
+        var item = Assert.Single(result);
+        Assert.Equal(0, item.Index);
+        Assert.Equal("ThicknessSensor", item.Name);
+        Assert.Equal("Sensor", item.TypeName);
+        Assert.Equal(@"C:\Part.sldprt", item.DocumentPath);
+        Assert.Equal(@"C:\Part.sldprt", item.DocumentReference);
+        Assert.Equal("swSensorDimension", item.SensorType);
+        Assert.Equal("swSensorAlert_GreaterThan", item.AlertType);
+        Assert.True(item.AlertEnabled);
+        Assert.True(item.AlertTriggered);
+        Assert.Equal(10d, item.AlertValue1);
+        Assert.Equal(0d, item.AlertValue2);
+        Assert.Equal("> 10 mm", item.ThresholdDescription);
+        Assert.Equal(12.5d, item.CurrentValue);
+        Assert.Equal("mm", item.Units);
+        Assert.Equal("Object", item.FeatureDataType);
+        Assert.Equal("completed", item.Status);
+        Assert.Null(item.FailureReason);
+    }
+
+    [Fact]
     public void GetFeatureDiagnostics_ReturnsFeatureErrorCodesAndWhatsWrongItems()
     {
         var warningFeature = FeatureNode("MateGroup", "MateGroup", errorCode: 48, isWarning: true);

@@ -22,6 +22,13 @@ public class SelectionTools(StaDispatcher sta, ISelectionService selection)
         return JsonSerializer.Serialize(list);
     }
 
+    [McpServerTool, Description("Read the active document's sensor features, including alert thresholds, current values, and whether any alert is currently triggered. Use this when model health depends on SolidWorks sensors instead of only feature diagnostics.")]
+    public async Task<string> ListModelHealthSensors()
+    {
+        var sensors = await sta.InvokeLoggedAsync(nameof(ListModelHealthSensors), null, selection.ListModelHealthSensors);
+        return JsonSerializer.Serialize(sensors);
+    }
+
     [McpServerTool, Description("Read the active document's FeatureManager error state using SolidWorks' official feature error codes and What's Wrong diagnostics. Use this when the SolidWorks UI shows red/error items and you need structured error details instead of inferring problems from screenshots.")]
     public async Task<string> GetFeatureDiagnostics()
     {

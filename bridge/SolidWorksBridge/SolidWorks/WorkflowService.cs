@@ -52,6 +52,15 @@ public record DocumentHealthActionableDiagnosticsInfo(
     IReadOnlyList<CorrelatedDiagnosticIssueInfo> ResolvedByRebuildIssues,
     IReadOnlyList<CorrelatedDiagnosticIssueInfo> IntroducedByRebuildIssues);
 
+public record DocumentHealthSensorSummaryInfo(
+    IReadOnlyList<ModelHealthSensorInfo> Sensors,
+    IReadOnlyList<ModelHealthSensorInfo> AlertingSensors,
+    int EnabledSensorCount,
+    int AlertingSensorCount,
+    bool HasAlertingSensors,
+    string Status,
+    string? FailureReason);
+
 public record ActiveDocumentHealthDiagnosticsResult(
     SwDocumentInfo? ActiveDocument,
     EditStateInfo? EditState,
@@ -65,7 +74,8 @@ public record ActiveDocumentHealthDiagnosticsResult(
     string Status,
     string? FailureReason,
     CompatibilityAdvisory? CompatibilityAdvisory = null,
-    DocumentHealthActionableDiagnosticsInfo? ActionableDiagnostics = null);
+    DocumentHealthActionableDiagnosticsInfo? ActionableDiagnostics = null,
+    DocumentHealthSensorSummaryInfo? SensorHealthChecks = null);
 
 public interface IWorkflowService
 {
@@ -235,6 +245,7 @@ public class WorkflowService : IWorkflowService
             var actionableDiagnostics = CreateActionableDiagnostics(
                 featureDiagnosticsBeforeRebuild,
                 featureDiagnosticsAfterRebuild);
+            var sensorHealthChecks = CollectSensorHealthChecks(workflowName);
 
             SaveHealthInfo saveHealth;
             if (saveDocument)
@@ -265,8 +276,12 @@ public class WorkflowService : IWorkflowService
             bool hasBlockingIssues = rebuild.StatusAfter.NeedsRebuild
                 || featureDiagnosticsAfterRebuild.ErrorCount > 0
                 || saveHealth.HasErrors
-                || (saveHealth.SaveAttempted && !saveHealth.SaveSucceeded);
-            bool hasWarnings = featureDiagnosticsAfterRebuild.WarningCount > 0 || saveHealth.HasWarnings;
+                || (saveHealth.SaveAttempted && !saveHealth.SaveSucceeded)
+                || sensorHealthChecks.HasAlertingSensors;
+            bool hasWarnings = featureDiagnosticsAfterRebuild.WarningCount > 0
+                || saveHealth.HasWarnings
+                || sensorHealthChecks.HasAlertingSensors
+                || !string.Equals(sensorHealthChecks.Status, "completed", StringComparison.OrdinalIgnoreCase);
             bool readyForVerificationGate = !hasBlockingIssues;
             string status = saveHealth.SaveAttempted && !saveHealth.SaveSucceeded
                 ? "save_failed"
@@ -290,7 +305,8 @@ public class WorkflowService : IWorkflowService
                     Status: status,
                     FailureReason: failureReason,
                     CompatibilityAdvisory: compatibilityAdvisory,
-                    ActionableDiagnostics: actionableDiagnostics));
+                    ActionableDiagnostics: actionableDiagnostics,
+                    SensorHealthChecks: sensorHealthChecks));
         }
         catch (Exception ex)
         {
@@ -897,6 +913,8 @@ public class WorkflowService : IWorkflowService
                 $"status={result.Status}",
                 result.ActionableDiagnostics == null ? null : $"actionableIssues={result.ActionableDiagnostics.CurrentIssues.Count}",
                 result.ActionableDiagnostics == null ? null : $"resolvedByRebuild={result.ActionableDiagnostics.ResolvedByRebuildIssues.Count}",
+                result.SensorHealthChecks == null ? null : $"sensorAlerts={result.SensorHealthChecks.AlertingSensorCount}",
+                result.SensorHealthChecks == null ? null : $"sensorsStatus={result.SensorHealthChecks.Status}",
                 result.FailureReason));
         return result;
     }
@@ -951,6 +969,58 @@ public class WorkflowService : IWorkflowService
 
     private static int GetCorrelatedIssueCount(FeatureDiagnosticsResult diagnostics) =>
         diagnostics.CorrelatedIssues?.Count ?? 0;
+
+    private DocumentHealthSensorSummaryInfo CollectSensorHealthChecks(string workflowName)
+    {
+        try
+        {
+            LogStageStarted(workflowName, "verification.sensor_health_checks");
+            var summary = CreateSensorHealthChecks(_selection?.ListModelHealthSensors());
+            LogStageCompleted(
+                workflowName,
+                "verification.sensor_health_checks",
+                ComposeDetail(
+                    $"sensors={summary.Sensors.Count}",
+                    $"enabled={summary.EnabledSensorCount}",
+                    $"alerting={summary.AlertingSensorCount}",
+                    $"status={summary.Status}"));
+            return summary;
+        }
+        catch (Exception ex)
+        {
+            LogStageFailed(workflowName, "verification.sensor_health_checks", ex.Message);
+            return new DocumentHealthSensorSummaryInfo(
+                Sensors: Array.Empty<ModelHealthSensorInfo>(),
+                AlertingSensors: Array.Empty<ModelHealthSensorInfo>(),
+                EnabledSensorCount: 0,
+                AlertingSensorCount: 0,
+                HasAlertingSensors: false,
+                Status: "sensor_query_failed",
+                FailureReason: ex.Message);
+        }
+    }
+
+    private static DocumentHealthSensorSummaryInfo CreateSensorHealthChecks(
+        IReadOnlyList<ModelHealthSensorInfo>? sensors)
+    {
+        var materializedSensors = sensors?.ToArray() ?? Array.Empty<ModelHealthSensorInfo>();
+        var alertingSensors = materializedSensors
+            .Where(static sensor => sensor.AlertEnabled && sensor.AlertTriggered)
+            .ToArray();
+        int enabledSensorCount = materializedSensors.Count(static sensor => sensor.AlertEnabled);
+        string status = materializedSensors.Any(static sensor => !string.Equals(sensor.Status, "completed", StringComparison.OrdinalIgnoreCase))
+            ? "partial"
+            : "completed";
+
+        return new DocumentHealthSensorSummaryInfo(
+            Sensors: materializedSensors,
+            AlertingSensors: alertingSensors,
+            EnabledSensorCount: enabledSensorCount,
+            AlertingSensorCount: alertingSensors.Length,
+            HasAlertingSensors: alertingSensors.Length > 0,
+            Status: status,
+            FailureReason: BuildSensorFailureReason(materializedSensors));
+    }
 
     private static DocumentHealthActionableDiagnosticsInfo? CreateActionableDiagnostics(
         FeatureDiagnosticsResult? featureDiagnosticsBeforeRebuild,
@@ -1010,6 +1080,15 @@ public class WorkflowService : IWorkflowService
         return delta.Count == 0
             ? Array.Empty<CorrelatedDiagnosticIssueInfo>()
             : delta.ToArray();
+    }
+
+    private static string? BuildSensorFailureReason(IReadOnlyList<ModelHealthSensorInfo> sensors)
+    {
+        var details = sensors
+            .Where(static sensor => !string.IsNullOrWhiteSpace(sensor.FailureReason))
+            .Select(sensor => $"{sensor.Name}: {sensor.FailureReason}")
+            .ToArray();
+        return details.Length == 0 ? null : string.Join(" | ", details);
     }
 
     private static DiagnosticCorrelationKey CreateDiagnosticCorrelationKey(CorrelatedDiagnosticIssueInfo issue)

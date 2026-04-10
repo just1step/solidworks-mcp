@@ -39,6 +39,7 @@ internal sealed class SolidWorksMcpHubTestClient : IDisposable
         "ListReferencePlanes",
         "GetSolidWorksContext",
         "GetEditState",
+        "ListModelHealthSensors",
         "GetFeatureDiagnostics",
         "SelectEntity",
         "MeasureEntities",
@@ -449,6 +450,9 @@ internal sealed class McpSelectionService : ISelectionService
 
     public IReadOnlyList<FeatureTreeItemInfo> ListFeatureTree()
         => _client.CallTool<List<FeatureTreeItemInfo>>("ListFeatureTree");
+
+    public IReadOnlyList<ModelHealthSensorInfo> ListModelHealthSensors()
+        => _client.CallTool<List<ModelHealthSensorInfo>>("ListModelHealthSensors");
 
     public FeatureDiagnosticsResult GetFeatureDiagnostics()
         => _client.CallTool<FeatureDiagnosticsResult>("GetFeatureDiagnostics");

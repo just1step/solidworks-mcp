@@ -327,7 +327,15 @@ public class WorkflowToolsTests
                     BlockingIssues: Array.Empty<CorrelatedDiagnosticIssueInfo>(),
                     WarningIssues: Array.Empty<CorrelatedDiagnosticIssueInfo>(),
                     ResolvedByRebuildIssues: Array.Empty<CorrelatedDiagnosticIssueInfo>(),
-                    IntroducedByRebuildIssues: Array.Empty<CorrelatedDiagnosticIssueInfo>())));
+                    IntroducedByRebuildIssues: Array.Empty<CorrelatedDiagnosticIssueInfo>()),
+                new DocumentHealthSensorSummaryInfo(
+                    Sensors: Array.Empty<ModelHealthSensorInfo>(),
+                    AlertingSensors: Array.Empty<ModelHealthSensorInfo>(),
+                    EnabledSensorCount: 0,
+                    AlertingSensorCount: 0,
+                    HasAlertingSensors: false,
+                    Status: "completed",
+                    FailureReason: null)));
 
         var tool = new WorkflowTools(sta, connectionManager.Object, selection.Object, sketch.Object, feature.Object, workflow.Object);
 
@@ -337,6 +345,8 @@ public class WorkflowToolsTests
         Assert.Equal("completed", parsed.RootElement.GetProperty("Status").GetString());
         Assert.True(parsed.RootElement.GetProperty("ReadyForVerificationGate").GetBoolean());
         Assert.Equal(0, parsed.RootElement.GetProperty("ActionableDiagnostics").GetProperty("CurrentIssues").GetArrayLength());
+        Assert.Equal(0, parsed.RootElement.GetProperty("SensorHealthChecks").GetProperty("Sensors").GetArrayLength());
+        Assert.Equal("completed", parsed.RootElement.GetProperty("SensorHealthChecks").GetProperty("Status").GetString());
         workflow.Verify(w => w.DiagnoseActiveDocumentHealth(true, false, true), Times.Once);
     }
 }

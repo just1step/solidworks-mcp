@@ -1027,12 +1027,16 @@ public class HelloWorldVisualIntegrationTests : IDisposable
         Assert.NotNull(healthDiagnostics.SaveHealth.SaveResult);
         Assert.NotNull(healthDiagnostics.FeatureDiagnosticsAfterRebuild);
         Assert.NotNull(healthDiagnostics.ActionableDiagnostics);
+        Assert.NotNull(healthDiagnostics.SensorHealthChecks);
         Assert.Equal(0, healthDiagnostics.FeatureDiagnosticsAfterRebuild!.WarningCount);
         Assert.Empty(healthDiagnostics.FeatureDiagnosticsAfterRebuild.WhatsWrongItems);
         Assert.Empty(healthDiagnostics.FeatureDiagnosticsAfterRebuild.CorrelatedIssues ?? Array.Empty<CorrelatedDiagnosticIssueInfo>());
         Assert.Empty(healthDiagnostics.ActionableDiagnostics!.CurrentIssues);
         Assert.Empty(healthDiagnostics.ActionableDiagnostics.ResolvedByRebuildIssues);
         Assert.Empty(healthDiagnostics.ActionableDiagnostics.IntroducedByRebuildIssues);
+        Assert.Equal("completed", healthDiagnostics.SensorHealthChecks!.Status);
+        Assert.Empty(healthDiagnostics.SensorHealthChecks.Sensors);
+        Assert.Equal(0, healthDiagnostics.SensorHealthChecks.AlertingSensorCount);
 
         _ctx.Documents.OpenDocument(setup.OriginalVerticalPartPath);
         var originalVerticalFeatureTree = _ctx.Selection.ListFeatureTree();
@@ -1083,6 +1087,7 @@ public class HelloWorldVisualIntegrationTests : IDisposable
         AssertWorkflowLogEntry(workflowEntries, nameof(WorkflowService.ReplaceNestedComponentAndVerifyPersistence), "preconditions.target_validation", "failed", "replacement_matches_source_file");
         AssertWorkflowLogEntry(workflowEntries, nameof(WorkflowService.ReplaceNestedComponentAndVerifyPersistence), "mutation.replace_component", "completed");
         AssertWorkflowLogEntry(workflowEntries, nameof(WorkflowService.ReplaceNestedComponentAndVerifyPersistence), "verification.persistence_resolution", "completed", "resolved=true");
+        AssertWorkflowLogEntry(workflowEntries, nameof(WorkflowService.DiagnoseActiveDocumentHealth), "verification.sensor_health_checks", "completed", "status=completed");
         AssertWorkflowLogEntry(workflowEntries, nameof(WorkflowService.DiagnoseActiveDocumentHealth), "verification.save_document", "completed");
         AssertWorkflowLogEntry(workflowEntries, nameof(WorkflowService.DiagnoseActiveDocumentHealth), "verification.feature_diagnostics_after_rebuild", "completed", "correlatedIssues=");
         AssertWorkflowLogEntry(workflowEntries, nameof(WorkflowService.DiagnoseActiveDocumentHealth), "final", "completed", "status=completed");

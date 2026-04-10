@@ -92,6 +92,38 @@ public class WorkflowServiceTests
                 : [new SwCodeInfo(rawStatus, "swModelRebuildStatus_NonFrozenFeatureNeedsRebuild", "Non-frozen features need rebuild.")],
             rawStatus == 0 ? "The model does not currently need rebuild." : "Non-frozen features need rebuild.");
 
+    private static ModelHealthSensorInfo Sensor(
+        string name,
+        bool alertEnabled,
+        bool alertTriggered,
+        string thresholdDescription,
+        string sensorType = "swSensorDimension",
+        string? documentPath = @"C:\Asm.sldasm",
+        double? currentValue = 12.5d,
+        string? units = "mm",
+        string status = "completed",
+        string? failureReason = null) =>
+        new(
+            Index: 0,
+            Name: name,
+            TypeName: "Sensor",
+            DocumentPath: documentPath,
+            DocumentReference: documentPath ?? "Asm",
+            SensorType: sensorType,
+            SensorTypeCode: 2,
+            AlertEnabled: alertEnabled,
+            AlertType: alertEnabled ? "swSensorAlert_GreaterThan" : null,
+            AlertTypeCode: alertEnabled ? 0 : null,
+            AlertValue1: alertEnabled ? 10d : null,
+            AlertValue2: alertEnabled ? 0d : null,
+            ThresholdDescription: thresholdDescription,
+            AlertTriggered: alertTriggered,
+            CurrentValue: currentValue,
+            Units: units,
+            FeatureDataType: "Object",
+            Status: status,
+            FailureReason: failureReason);
+
     private static AssemblyTargetResolutionResult ResolvedTarget(
         string hierarchyPath = "SubAsm-1/Pulley-1",
         string sourcePath = @"C:\OldPulley.sldprt",
@@ -550,6 +582,75 @@ public class WorkflowServiceTests
         AssertStageLogged(logger, nameof(WorkflowService.DiagnoseActiveDocumentHealth), "verification.feature_diagnostics_before_rebuild", "completed", "correlatedIssues=2");
         AssertStageLogged(logger, nameof(WorkflowService.DiagnoseActiveDocumentHealth), "verification.feature_diagnostics_after_rebuild", "completed", "correlatedIssues=2");
         AssertStageLogged(logger, nameof(WorkflowService.DiagnoseActiveDocumentHealth), "final", "completed", "actionableIssues=2");
+    }
+
+    [Fact]
+    public void DiagnoseActiveDocumentHealth_WhenSensorAlertTriggered_BlocksVerificationGate()
+    {
+        var documents = new Mock<IDocumentService>();
+        var assembly = new Mock<IAssemblyService>();
+        var selection = new Mock<ISelectionService>();
+        var logger = new RecordingWorkflowStageLogger();
+        var active = new SwDocumentInfo(@"C:\Asm.sldasm", "Asm", 2);
+
+        documents.Setup(d => d.GetActiveDocument()).Returns(active);
+        selection.Setup(s => s.GetEditState()).Returns(new EditStateInfo(false, "None", true, true));
+        selection.SetupSequence(s => s.GetFeatureDiagnostics())
+            .Returns(FeatureDiagnostics())
+            .Returns(FeatureDiagnostics());
+        selection.Setup(s => s.ListModelHealthSensors())
+            .Returns([Sensor("ThicknessSensor", alertEnabled: true, alertTriggered: true, thresholdDescription: "> 10 mm")]);
+        documents.Setup(d => d.GetActiveDocumentRebuildState()).Returns(RebuildState(0));
+
+        var service = new WorkflowService(documents.Object, assembly.Object, selection.Object, null, logger);
+
+        var result = service.DiagnoseActiveDocumentHealth(forceRebuild: false, saveDocument: false);
+
+        Assert.Equal("completed", result.Status);
+        Assert.True(result.HasBlockingIssues);
+        Assert.True(result.HasWarnings);
+        Assert.False(result.ReadyForVerificationGate);
+        Assert.NotNull(result.SensorHealthChecks);
+        Assert.Equal(1, result.SensorHealthChecks!.EnabledSensorCount);
+        Assert.Equal(1, result.SensorHealthChecks.AlertingSensorCount);
+        Assert.True(result.SensorHealthChecks.HasAlertingSensors);
+        Assert.Single(result.SensorHealthChecks.AlertingSensors);
+        Assert.Equal("ThicknessSensor", result.SensorHealthChecks.AlertingSensors[0].Name);
+        AssertStageLogged(logger, nameof(WorkflowService.DiagnoseActiveDocumentHealth), "verification.sensor_health_checks", "completed", "alerting=1");
+        AssertStageLogged(logger, nameof(WorkflowService.DiagnoseActiveDocumentHealth), "final", "completed", "sensorAlerts=1");
+    }
+
+    [Fact]
+    public void DiagnoseActiveDocumentHealth_WhenSensorEnumerationFails_ReturnsWarningSummary()
+    {
+        var documents = new Mock<IDocumentService>();
+        var assembly = new Mock<IAssemblyService>();
+        var selection = new Mock<ISelectionService>();
+        var logger = new RecordingWorkflowStageLogger();
+        var active = new SwDocumentInfo(@"C:\Asm.sldasm", "Asm", 2);
+
+        documents.Setup(d => d.GetActiveDocument()).Returns(active);
+        selection.Setup(s => s.GetEditState()).Returns(new EditStateInfo(false, "None", true, true));
+        selection.SetupSequence(s => s.GetFeatureDiagnostics())
+            .Returns(FeatureDiagnostics())
+            .Returns(FeatureDiagnostics());
+        selection.Setup(s => s.ListModelHealthSensors()).Throws(new InvalidOperationException("sensor read failed"));
+        documents.Setup(d => d.GetActiveDocumentRebuildState()).Returns(RebuildState(0));
+
+        var service = new WorkflowService(documents.Object, assembly.Object, selection.Object, null, logger);
+
+        var result = service.DiagnoseActiveDocumentHealth(forceRebuild: false, saveDocument: false);
+
+        Assert.Equal("completed", result.Status);
+        Assert.False(result.HasBlockingIssues);
+        Assert.True(result.HasWarnings);
+        Assert.True(result.ReadyForVerificationGate);
+        Assert.NotNull(result.SensorHealthChecks);
+        Assert.Equal("sensor_query_failed", result.SensorHealthChecks!.Status);
+        Assert.Equal("sensor read failed", result.SensorHealthChecks.FailureReason);
+        Assert.Empty(result.SensorHealthChecks.Sensors);
+        AssertStageLogged(logger, nameof(WorkflowService.DiagnoseActiveDocumentHealth), "verification.sensor_health_checks", "failed", "sensor read failed");
+        AssertStageLogged(logger, nameof(WorkflowService.DiagnoseActiveDocumentHealth), "final", "completed", "sensorsStatus=sensor_query_failed");
     }
 
     [Fact]

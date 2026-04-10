@@ -1,5 +1,6 @@
 using SolidWorks.Interop.sldworks;
 using SolidWorks.Interop.swconst;
+using System.Globalization;
 using System.Reflection;
 using System.Runtime.InteropServices;
 
@@ -41,6 +42,30 @@ public record FeatureTreeItemInfo(
     string TypeName,
     bool IsSketch,
     bool HasChildren);
+
+/// <summary>
+/// Structured snapshot of one SolidWorks sensor attached to the active document.
+/// </summary>
+public record ModelHealthSensorInfo(
+    int Index,
+    string Name,
+    string TypeName,
+    string? DocumentPath,
+    string DocumentReference,
+    string SensorType,
+    int SensorTypeCode,
+    bool AlertEnabled,
+    string? AlertType,
+    int? AlertTypeCode,
+    double? AlertValue1,
+    double? AlertValue2,
+    string? ThresholdDescription,
+    bool AlertTriggered,
+    double? CurrentValue,
+    string? Units,
+    string? FeatureDataType,
+    string Status,
+    string? FailureReason);
 
 /// <summary>
 /// Diagnostic state for one FeatureManager node based on SolidWorks feature error codes.
@@ -217,6 +242,11 @@ public interface ISelectionService
     /// Enumerate the active document's top-level FeatureManager nodes.
     /// </summary>
     IReadOnlyList<FeatureTreeItemInfo> ListFeatureTree();
+
+    /// <summary>
+    /// Enumerate the active document's sensor features and current alert state.
+    /// </summary>
+    IReadOnlyList<ModelHealthSensorInfo> ListModelHealthSensors();
 
     /// <summary>
     /// Read SolidWorks feature error codes and What's Wrong items for the active document.
@@ -1013,6 +1043,25 @@ public class SelectionService : ISelectionService
             .AsReadOnly();
     }
 
+    public IReadOnlyList<ModelHealthSensorInfo> ListModelHealthSensors()
+    {
+        _cm.EnsureConnected();
+        var doc = GetActiveModelDoc();
+        EnsureNotEditing(doc, "reading model health sensors");
+
+        string? documentPath = NormalizePathOrNull(doc.GetPathName());
+        string documentReference = documentPath
+            ?? SafeGetDocumentTitle(doc)
+            ?? "ActiveDocument";
+
+        return EnumerateFeatureTree(doc)
+            .Select(node => TryCreateModelHealthSensorInfo(node, documentPath, documentReference))
+            .Where(static sensor => sensor != null)
+            .Cast<ModelHealthSensorInfo>()
+            .ToList()
+            .AsReadOnly();
+    }
+
     private static IReadOnlyList<AssemblyComponentContext> FindHeuristicDiagnosticComponentMatches(
         string diagnosticName,
         IReadOnlyList<AssemblyComponentContext> assemblyComponents)
@@ -1694,6 +1743,22 @@ public class SelectionService : ISelectionService
         }
     }
 
+    private static string? SafeGetDocumentTitle(IModelDoc2 doc)
+    {
+        try
+        {
+            return doc.GetTitle();
+        }
+        catch (COMException)
+        {
+            return null;
+        }
+        catch (TargetInvocationException)
+        {
+            return null;
+        }
+    }
+
     private static (string? SelectionName, string? SelectionType) SafeGetSelectionIdentity(Feature feature)
     {
         try
@@ -1710,5 +1775,242 @@ public class SelectionService : ISelectionService
         {
             return (null, null);
         }
+    }
+
+    private static ModelHealthSensorInfo? TryCreateModelHealthSensorInfo(
+        FeatureNode node,
+        string? documentPath,
+        string documentReference)
+    {
+        var sensor = TryGetFeatureSensor(node.Feature);
+        return sensor == null
+            ? null
+            : CreateModelHealthSensorInfo(node, sensor, documentPath, documentReference);
+    }
+
+    private static ISensor? TryGetFeatureSensor(Feature feature)
+    {
+        object? specificFeature = null;
+
+        try
+        {
+            specificFeature = feature.GetSpecificFeature2();
+        }
+        catch (COMException)
+        {
+            // Fall through to the legacy accessor.
+        }
+        catch (TargetInvocationException)
+        {
+            // Fall through to the legacy accessor.
+        }
+
+        if (specificFeature is ISensor directSensor)
+        {
+            return directSensor;
+        }
+
+        try
+        {
+            specificFeature = feature.GetSpecificFeature();
+        }
+        catch (COMException)
+        {
+            return null;
+        }
+        catch (TargetInvocationException)
+        {
+            return null;
+        }
+
+        return specificFeature as ISensor;
+    }
+
+    private static ModelHealthSensorInfo CreateModelHealthSensorInfo(
+        FeatureNode node,
+        ISensor sensor,
+        string? documentPath,
+        string documentReference)
+    {
+        var failures = new List<string>();
+        int sensorTypeCode = TryReadSensorProperty(sensor, static s => s.SensorType, nameof(ISensor.SensorType), failures, fallbackValue: -1);
+        bool alertEnabled = TryReadSensorProperty(sensor, static s => s.SensorAlertEnabled, nameof(ISensor.SensorAlertEnabled), failures, fallbackValue: false);
+        int? alertTypeCode = alertEnabled
+            ? TryReadSensorPropertyNullable(sensor, static s => s.SensorAlertType, nameof(ISensor.SensorAlertType), failures)
+            : null;
+        double? alertValue1 = alertEnabled
+            ? TryReadSensorPropertyNullable(sensor, static s => s.SensorAlertValue1, nameof(ISensor.SensorAlertValue1), failures)
+            : null;
+        double? alertValue2 = alertEnabled
+            ? TryReadSensorPropertyNullable(sensor, static s => s.SensorAlertValue2, nameof(ISensor.SensorAlertValue2), failures)
+            : null;
+        bool alertTriggered = alertEnabled
+            && TryReadSensorProperty(sensor, static s => s.SensorAlertState, nameof(ISensor.SensorAlertState), failures, fallbackValue: false);
+        var (currentValue, units) = TryReadSensorValue(sensor, failures);
+        string? featureDataType = TryReadSensorFeatureDataType(sensor, failures);
+        string status = failures.Count == 0 ? "completed" : "partial";
+
+        return new ModelHealthSensorInfo(
+            Index: node.Index,
+            Name: node.Name,
+            TypeName: node.TypeName,
+            DocumentPath: documentPath,
+            DocumentReference: documentReference,
+            SensorType: DescribeSensorType(sensorTypeCode),
+            SensorTypeCode: sensorTypeCode,
+            AlertEnabled: alertEnabled,
+            AlertType: alertTypeCode.HasValue ? DescribeSensorAlertType(alertTypeCode.Value) : null,
+            AlertTypeCode: alertTypeCode,
+            AlertValue1: alertValue1,
+            AlertValue2: alertValue2,
+            ThresholdDescription: DescribeSensorThreshold(alertEnabled, alertTypeCode, alertValue1, alertValue2, units),
+            AlertTriggered: alertTriggered,
+            CurrentValue: currentValue,
+            Units: units,
+            FeatureDataType: featureDataType,
+            Status: status,
+            FailureReason: failures.Count == 0 ? null : string.Join("; ", failures));
+    }
+
+    private static T TryReadSensorProperty<T>(
+        ISensor sensor,
+        Func<ISensor, T> accessor,
+        string propertyName,
+        List<string> failures,
+        T fallbackValue)
+    {
+        try
+        {
+            return accessor(sensor);
+        }
+        catch (COMException ex)
+        {
+            failures.Add($"Failed to read {propertyName}: {ex.Message}");
+            return fallbackValue;
+        }
+        catch (TargetInvocationException ex)
+        {
+            failures.Add($"Failed to read {propertyName}: {ex.InnerException?.Message ?? ex.Message}");
+            return fallbackValue;
+        }
+    }
+
+    private static T? TryReadSensorPropertyNullable<T>(
+        ISensor sensor,
+        Func<ISensor, T> accessor,
+        string propertyName,
+        List<string> failures)
+        where T : struct
+    {
+        try
+        {
+            return accessor(sensor);
+        }
+        catch (COMException ex)
+        {
+            failures.Add($"Failed to read {propertyName}: {ex.Message}");
+            return null;
+        }
+        catch (TargetInvocationException ex)
+        {
+            failures.Add($"Failed to read {propertyName}: {ex.InnerException?.Message ?? ex.Message}");
+            return null;
+        }
+    }
+
+    private static (double? CurrentValue, string? Units) TryReadSensorValue(ISensor sensor, List<string> failures)
+    {
+        try
+        {
+            bool hasValue = sensor.GetSensorValue(out double currentValue, out string units);
+            return hasValue
+                ? (currentValue, string.IsNullOrWhiteSpace(units) ? null : units)
+                : (null, null);
+        }
+        catch (COMException ex)
+        {
+            failures.Add($"Failed to read {nameof(ISensor.GetSensorValue)}: {ex.Message}");
+            return (null, null);
+        }
+        catch (TargetInvocationException ex)
+        {
+            failures.Add($"Failed to read {nameof(ISensor.GetSensorValue)}: {ex.InnerException?.Message ?? ex.Message}");
+            return (null, null);
+        }
+    }
+
+    private static string? TryReadSensorFeatureDataType(ISensor sensor, List<string> failures)
+    {
+        try
+        {
+            return sensor.GetSensorFeatureData()?.GetType().Name;
+        }
+        catch (COMException ex)
+        {
+            failures.Add($"Failed to read {nameof(ISensor.GetSensorFeatureData)}: {ex.Message}");
+            return null;
+        }
+        catch (TargetInvocationException ex)
+        {
+            failures.Add($"Failed to read {nameof(ISensor.GetSensorFeatureData)}: {ex.InnerException?.Message ?? ex.Message}");
+            return null;
+        }
+    }
+
+    private static string DescribeSensorType(int sensorTypeCode) =>
+        Enum.IsDefined(typeof(swSensorType_e), sensorTypeCode)
+            ? Enum.GetName(typeof(swSensorType_e), sensorTypeCode) ?? $"unknown({sensorTypeCode})"
+            : $"unknown({sensorTypeCode})";
+
+    private static string DescribeSensorAlertType(int alertTypeCode) =>
+        Enum.IsDefined(typeof(swSensorAlertType_e), alertTypeCode)
+            ? Enum.GetName(typeof(swSensorAlertType_e), alertTypeCode) ?? $"unknown({alertTypeCode})"
+            : $"unknown({alertTypeCode})";
+
+    private static string? DescribeSensorThreshold(
+        bool alertEnabled,
+        int? alertTypeCode,
+        double? alertValue1,
+        double? alertValue2,
+        string? units)
+    {
+        if (!alertEnabled)
+        {
+            return "alert disabled";
+        }
+
+        if (!alertTypeCode.HasValue)
+        {
+            return null;
+        }
+
+        string value1 = FormatSensorValue(alertValue1, units);
+        string value2 = FormatSensorValue(alertValue2, units);
+
+        return alertTypeCode.Value switch
+        {
+            (int)swSensorAlertType_e.swSensorAlert_GreaterThan => $"> {value1}",
+            (int)swSensorAlertType_e.swSensorAlert_LessThan => $"< {value1}",
+            (int)swSensorAlertType_e.swSensorAlert_Exactly => $"= {value1}",
+            (int)swSensorAlertType_e.swSensorAlert_NotGreaterThan => $"<= {value1}",
+            (int)swSensorAlertType_e.swSensorAlert_NotLessThan => $">= {value1}",
+            (int)swSensorAlertType_e.swSensorAlert_NotExactly => $"!= {value1}",
+            (int)swSensorAlertType_e.swSensorAlert_Between => $"between {value1} and {value2}",
+            (int)swSensorAlertType_e.swSensorAlert_NotBetween => $"outside {value1} to {value2}",
+            (int)swSensorAlertType_e.swSensorAlert_True => "true",
+            (int)swSensorAlertType_e.swSensorAlert_False => "false",
+            _ => null,
+        };
+    }
+
+    private static string FormatSensorValue(double? value, string? units)
+    {
+        if (!value.HasValue)
+        {
+            return string.IsNullOrWhiteSpace(units) ? "n/a" : $"n/a {units}";
+        }
+
+        string numeric = value.Value.ToString("0.###", CultureInfo.InvariantCulture);
+        return string.IsNullOrWhiteSpace(units) ? numeric : $"{numeric} {units}";
     }
 }
